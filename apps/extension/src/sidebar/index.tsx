@@ -20,6 +20,7 @@ import {
 } from '@doc-assistant/tools';
 import { ChatPanel, type PageSummary } from '@doc-assistant/ui';
 import { bootstrapAgent } from './bootstrap';
+import { installShadowSelectionPatch } from './patch-shadow-selection';
 
 const logger = createLogger('extension:sidebar');
 
@@ -38,6 +39,8 @@ export function mountSidebarApp(options: MountOptions): void {
     logger.debug('sidebar 已挂载，跳过');
     return;
   }
+  // 关键：在 React 挂载前打 patch，确保 Lexical 首次渲染就能拿到 shadow 内选区
+  installShadowSelectionPatch(options.shadowRoot);
   root = createRoot(options.reactContainer);
   root.render(
     <StyleSheetManager target={options.styleContainer}>

@@ -40,7 +40,24 @@ export function ensureShadowHost(): ShadowHost {
   host = document.createElement('div');
   host.id = HOST_ID;
   // 关键：host 本身只占用极小空间，内部 UI 由 React 组件自己用 fixed 定位吸附
-  host.style.cssText = 'all: initial; position: fixed; top: 0; right: 0; width: 0; height: 0; z-index: 2147483647;';
+  //
+  // pointer-events: none 让 0×0 的 host 不拦截事件；内部需要交互的容器（CollapsiblePanel
+  // 里的 Panel / CollapsedFab）自行设置 pointer-events: auto 恢复。
+  //
+  // 注意：不要使用 `contain: size/style/layout`：
+  //   - contain:size 以 0×0 作内容布局基准，会让 backdrop-filter/background 整体不渲染
+  //   - contain:layout 会把 position:fixed 子孙的包含块改成 host，在不同浏览器里行为
+  //     不一致，容易出现"面板贴不到视口右侧"或"点击穿透"之类的诡异问题
+  host.style.cssText = [
+    'all: initial',
+    'position: fixed',
+    'top: 0',
+    'right: 0',
+    'width: 0',
+    'height: 0',
+    'z-index: 2147483647',
+    'pointer-events: none',
+  ].join(';');
   document.documentElement.appendChild(host);
 
   const shadowRoot = host.attachShadow({ mode: 'open' });

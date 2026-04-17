@@ -119,7 +119,13 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
 
       try {
         for await (const chunk of opts.agent.run(invokeCtx, execCtx)) {
-          applyChunk(chunk, setStreaming);
+          try {
+            applyChunk(chunk, setStreaming);
+          } catch (applyErr) {
+            // 保护：UI 渲染异常不应中断 Agent 的 AsyncGenerator，
+            // 否则 loop 里的 tool-calling 会被 return() 反向终止
+            logger.error('applyChunk 异常:', (applyErr as Error).message);
+          }
           if (chunk.type === 'finish') {
             break;
           }

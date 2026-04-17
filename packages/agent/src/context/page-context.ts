@@ -19,8 +19,8 @@ export const pageContextSource: ContextSource = {
       `标题：${identityTitle ?? title ?? '未识别'}`,
       `URL：${url}`,
       identityId ? `文章 ID：${identityId}` : null,
-      summary ? `\n## 正文摘要\n${summary}` : null,
-      '\n如需更多细节，可调用 read_page_content 工具获取完整正文。',
+      summary ? `\n## 正文摘要（仅前若干字，非完整正文）\n${summary}` : null,
+      '\n**重要：摘要只是预览。只要用户的问题需要确认原文表述、引用具体段落、统计数据、代码示例等细节，都应当先调用 read_page_content 工具拿完整正文再回答，不要仅凭摘要猜测。**',
     ].filter(Boolean);
     return {
       source: 'page-context',

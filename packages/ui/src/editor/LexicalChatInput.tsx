@@ -88,23 +88,27 @@ setReferenceRenderer((payload) => <ReferenceTag payload={payload} />);
 
 function ActionsBridge({
   actionsRef,
+  insertRef,
 }: {
   actionsRef?: React.MutableRefObject<ChatInputActions | null>;
+  insertRef: React.MutableRefObject<((p: ReferencePayload) => void) | null>;
 }) {
   const [editor] = useLexicalComposerContext();
   useEffect(() => {
     if (!actionsRef) return;
     actionsRef.current = {
-      insertReference: () => {
-        // 由 InsertReferencePlugin 接管；此处保留空以满足接口
-      },
+      // 注意：这里不能直接写 `() => {}`，必须从 insertRef 实时读最新值。
+      // InsertReferencePlugin 的 useEffect 会在自己挂载后才通过 registerInsert
+      // 把真正的 fn 填入 insertRef.current；而 ActionsBridge 与 InsertReferencePlugin
+      // 的 useEffect 执行顺序按 JSX 顺序，不能保证谁先谁后，所以统一走 ref 取最新值。
+      insertReference: (payload) => insertRef.current?.(payload),
       clear: () => clearEditor(editor),
       focus: () => editor.focus(),
     };
     return () => {
       actionsRef.current = null;
     };
-  }, [editor, actionsRef]);
+  }, [editor, actionsRef, insertRef]);
   return null;
 }
 
@@ -156,13 +160,10 @@ export function LexicalChatInput(props: LexicalChatInputProps) {
         <InsertReferencePlugin
           registerInsert={(fn) => {
             insertRef.current = fn;
-            if (props.actionsRef?.current) {
-              props.actionsRef.current.insertReference = fn;
-            }
           }}
         />
         <SlashCommandPlugin registry={props.slashRegistry} context={props.slashContext} />
-        {props.actionsRef && <ActionsBridge actionsRef={props.actionsRef} />}
+        {props.actionsRef && <ActionsBridge actionsRef={props.actionsRef} insertRef={insertRef} />}
       </LexicalComposer>
     </EditorShell>
   );

@@ -12,6 +12,15 @@
  * - 纯函数风格的 async generator，发出归一化的 ChatChunk
  * - 轮数上限（防止 LLM 死循环）：默认 5 轮
  * - 每个 tool 独立 try-catch，单个 tool 失败不中断整体
+ *
+ * finish 语义约定（重要）：
+ * - 底层每次 LLM HTTP 调用结束都会产生一个 `finish`（finishReason=tool_calls/stop/...）
+ * - 这些"每轮 finish"**不**透传给外层，仅用于 loop 内部决策是否进入下一轮
+ * - 只有整段多轮对话真正结束时，loop 才自己合成一个 `finish` yield 出去，
+ *   这样 UI 层（useStreamingChat）看到 `finish` 时才可安全 break
+ * - 若把每轮 finish 都透传，UI 一 break，整条 AsyncGenerator 会被 return() 向下
+ *   反向终止，loop 来不及执行 tool、也就不会发起下一轮——引用 tool-calling 场景下
+ *   会表现为"模型说要调 tool，但最终没输出结果"。
  */
 import {
   createLogger,
@@ -56,21 +65,27 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
       'stop';
 
     for await (const chunk of stream) {
-      // 透传给外层
-      yield chunk;
-
       switch (chunk.type) {
         case 'text-delta':
           assistantText += chunk.delta;
+          yield chunk;
+          break;
+        case 'reasoning-delta':
+          yield chunk;
           break;
         case 'tool-call':
           pendingCalls.push(chunk.call);
+          yield chunk;
           break;
         case 'finish':
+          // 只记录、不透传：见文件头注释
           finishReason = chunk.finishReason;
           break;
         case 'error':
-          // 已经 yield 过 error 了，后续 finish('error') 会终止 loop
+          yield chunk;
+          break;
+        default:
+          yield chunk;
           break;
       }
     }
@@ -85,11 +100,15 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
 
     // 终止条件：没有 tool_calls 或遇到终态
     if (finishReason === 'error' || finishReason === 'abort' || finishReason === 'length') {
+      yield { type: 'finish', finishReason };
       return;
     }
     if (!pendingCalls.length) {
+      yield { type: 'finish', finishReason };
       return;
     }
+
+    logger.debug(`turn ${turn} 收集到 ${pendingCalls.length} 个 tool-call，开始执行`);
 
     // 执行 tool calls，结果回灌到 messages
     for (const call of pendingCalls) {

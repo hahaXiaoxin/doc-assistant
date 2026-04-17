@@ -38,6 +38,7 @@ const Panel = styled.aside<{ $width: number }>`
   color: ${tokens.color.textPrimary};
   animation: ${slideIn} ${tokens.motion.normal};
   z-index: ${tokens.zIndex.sidebar};
+  pointer-events: auto; /* host 设了 none，这里显式恢复 */
 `;
 
 const Drag = styled.div`
@@ -84,6 +85,7 @@ const CollapsedFab = styled.button`
   font-size: 20px;
   z-index: ${tokens.zIndex.sidebar};
   transition: all ${tokens.motion.fast};
+  pointer-events: auto; /* host 设了 none，这里显式恢复 */
 
   &:hover {
     background: ${tokens.color.bgWhite};

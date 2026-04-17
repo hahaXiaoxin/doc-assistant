@@ -49,7 +49,15 @@ export type ChatChunk =
   | { type: 'tool-result'; result: ToolResult }
   | {
       type: 'finish';
-      /** 本次调用结束原因：stop / tool_calls / length / content_filter / abort / error */
+      /**
+       * 本次"整段 Agent 运行"的结束原因：stop / tool_calls / length / content_filter / abort / error
+       *
+       * 语义约定（重要）：
+       * - 这里的 finish **代表 Agent 层整段对话的结束**（包含所有 tool-calling 轮次）
+       * - 底层每次 LLM HTTP 请求也会有自己的 "finish"，但 runAgentLoop 会吞掉那些中间 finish，
+       *   只在真正结束时合成一个 finish yield 给外层
+       * - UI 层可以安全地在收到 finish 后 break 订阅
+       */
       finishReason:
         | 'stop'
         | 'tool_calls'

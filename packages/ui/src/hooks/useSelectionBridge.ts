@@ -3,6 +3,9 @@
  * ---------------------------------------------
  * content script 通过 CustomEvent 'doc-assistant:insert-reference' 把用户点击"引用"后的选区传进来。
  * 本 hook 监听并调用 LexicalChatInput 暴露的 insertReference 方法，把 ReferenceNode 插入到输入框。
+ *
+ * 注意：insertReference 的实现由 InsertReferencePlugin 在挂载后异步注入 ref，
+ * 为避免 hook 闭包固化到"空函数"的旧引用，这里改为接受一个 getter，每次事件触发时实时取最新值。
  */
 import { useEffect } from 'react';
 import type { ReferencePayload } from '../editor/nodes/ReferenceNode';
@@ -10,18 +13,22 @@ import type { ReferencePayload } from '../editor/nodes/ReferenceNode';
 const EVENT = 'doc-assistant:insert-reference';
 
 export function useSelectionBridge(
-  insertReference: ((payload: ReferencePayload) => void) | null,
+  getInsertReference: () => ((payload: ReferencePayload) => void) | null,
 ): void {
   useEffect(() => {
-    if (!insertReference) return;
     const handler = (evt: Event) => {
       const detail = (evt as CustomEvent<ReferencePayload>).detail;
       if (!detail) return;
-      insertReference(detail);
+      const fn = getInsertReference();
+      if (!fn) {
+        // 编辑器尚未挂载完成；忽略一次事件（理论上极少发生）
+        return;
+      }
+      fn(detail);
     };
     window.addEventListener(EVENT, handler);
     return () => window.removeEventListener(EVENT, handler);
-  }, [insertReference]);
+  }, [getInsertReference]);
 }
 
 /** content script 侧使用：向 sidebar 派发引用事件 */

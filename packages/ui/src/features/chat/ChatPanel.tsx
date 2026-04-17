@@ -12,7 +12,7 @@
  * - agent：已由 sidebar bootstrap 构造好的 Agent 实例（注入 Qwen + tools + NullMemoryStore）
  * - buildInvokeContext / buildToolExecCtx：由 sidebar 提供，持有最新 page context
  */
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef } from 'react';
 import styled from 'styled-components';
 import { message } from 'antd';
 import type { Agent, AgentInvokeContext } from '@doc-assistant/agent';
@@ -162,7 +162,6 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [messageApi, contextHolder] = message.useMessage({ top: 52 });
   const inputActionsRef = useRef<ChatInputActions | null>(null);
-  const [, forceTick] = useState(0); // 用于触发 hook 读取最新 actionsRef
 
   const slashRegistry = useMemo(() => createDefaultCommandRegistry(), []);
 
@@ -185,9 +184,17 @@ export function ChatPanel({
     buildToolExecCtx: () => buildToolMeta(),
   });
 
-  useSelectionBridge(inputActionsRef.current?.insertReference ?? null);
+  useSelectionBridge(() => inputActionsRef.current?.insertReference ?? null);
 
-  const pageSummary = getPageSummary();
+  // 只在 ChatPanel 首次挂载或 visible 切换时抓一次页面摘要，
+  // 避免每次输入都因 forceTick 重渲染触发 runIdentityPipeline + runContentPipeline
+  // （那两个会遍历/克隆全量 DOM，在大页面上会造成秒级输入延迟）
+  const pageSummary = useMemo(
+    () => getPageSummary(),
+    // 仅在面板显示切换时重算，send 时也会主动通过 buildInvokeContext 现取
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visible],
+  );
 
   const slashCtx: SlashCommandContext = {
     clearConversation: () => {
@@ -257,15 +264,7 @@ export function ChatPanel({
             disabled={chat.isBusy}
             slashRegistry={slashRegistry}
             slashContext={slashCtx}
-            actionsRef={{
-              get current() {
-                return inputActionsRef.current;
-              },
-              set current(v) {
-                inputActionsRef.current = v;
-                forceTick((t) => t + 1); // 通知 useSelectionBridge 重新绑定
-              },
-            }}
+            actionsRef={inputActionsRef}
             onSubmit={handleSubmit}
           />
           <ActionBar>

@@ -6,6 +6,11 @@
 
   "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
 
+  "host_permissions": [
+    "https://dashscope.aliyuncs.com/*",
+    "https://dashscope-intl.aliyuncs.com/*"
+  ],
+
   "action": {
     "default_title": "Doc Assistant · 打开/关闭侧边栏",
     "default_icon": {

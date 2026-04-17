@@ -67,10 +67,21 @@ function hide() {
   if (toolbar) toolbar.style.display = 'none';
 }
 
+/**
+ * 获取宿主页面的选区（绕过 sidebar 的 patch）。
+ * 我们在 sidebar/patch-shadow-selection.ts 里覆盖过 window.getSelection，
+ * 虽然已按"anchorNode 是否在 shadow 内"做判定，但为了语义明确、未来重构不踩坑，
+ * toolbar 这种"就是要页面选区"的场景直接走 document.getSelection 原生实现。
+ */
+function getPageSelection(): Selection | null {
+  // document.getSelection 的原生实现不会被 patch 影响
+  return document.getSelection();
+}
+
 function handleSelectionChange() {
   if (debounceTimer) window.clearTimeout(debounceTimer);
   debounceTimer = window.setTimeout(() => {
-    const selection = window.getSelection();
+    const selection = getPageSelection();
     if (!selection || selection.rangeCount === 0) return hide();
     const text = selection.toString().trim();
     if (!text) return hide();
@@ -97,10 +108,16 @@ function handleSelectionChange() {
 }
 
 function handlePick() {
-  const selection = window.getSelection();
-  if (!selection) return;
+  const selection = getPageSelection();
+  if (!selection) {
+    logger.debug('handlePick: 无选区对象');
+    return;
+  }
   const text = selection.toString().trim();
-  if (!text) return;
+  if (!text) {
+    logger.debug('handlePick: 选区文本为空');
+    return;
+  }
   const payload = {
     id: `ref_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
     text,
@@ -114,7 +131,7 @@ function handlePick() {
   // 通知 content index 打开侧边栏
   window.dispatchEvent(new CustomEvent('doc-assistant:request-open'));
 
-  logger.debug('引用已派发:', payload.id);
+  logger.debug('引用已派发:', payload.id, text.slice(0, 30));
   hide();
   // 清除选区避免工具条反复弹
   selection.removeAllRanges();

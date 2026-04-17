@@ -32,10 +32,11 @@ export const readPageContentTool: ToolDefinition<ReadPageContentArgs, object> = 
       | { url: string; title: string; document: Document; selectionText?: string }
       | undefined;
     if (!pageCtx) {
-      return {
-        ok: false,
-        error: 'pageContext is not provided; tool must be executed in content/sidebar with meta.pageContext set',
-      };
+      // 注意：tool 内部返回 ok:false 时务必让上层 loop 能感知到这是"逻辑失败"，
+      // 通过抛错让 loop.executeTool 捕获并标记 isError=true。
+      throw new Error(
+        'pageContext is not provided; tool must be executed in content/sidebar with meta.pageContext set',
+      );
     }
     const extracted = runContentPipeline({
       url: pageCtx.url,
@@ -43,7 +44,9 @@ export const readPageContentTool: ToolDefinition<ReadPageContentArgs, object> = 
       document: pageCtx.document,
       ...(pageCtx.selectionText ? { selectionText: pageCtx.selectionText } : {}),
     });
-    if (!extracted) return { ok: false, error: '未能提取到页面主体' };
+    if (!extracted) {
+      throw new Error('未能从当前页面提取到主体内容');
+    }
     const maxChars = args.maxChars ?? 4000;
     return {
       ok: true,
