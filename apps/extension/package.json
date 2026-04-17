@@ -15,6 +15,18 @@
     "@doc-assistant/tools": "workspace:*",
     "@doc-assistant/memory": "workspace:*",
     "@doc-assistant/agent": "workspace:*",
-    "@doc-assistant/ui": "workspace:*"
+    "@doc-assistant/ui": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "styled-components": "^6.1.13"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.28",
+    "@types/chrome": "^0.0.278",
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "vite": "^5.4.10"
   }
 }

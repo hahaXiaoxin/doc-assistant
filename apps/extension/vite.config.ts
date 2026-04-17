@@ -1,0 +1,36 @@
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { crx } from '@crxjs/vite-plugin';
+import { resolve } from 'node:path';
+import manifest from './manifest.json' with { type: 'json' };
+
+/**
+ * 扩展构建配置
+ * ---------------------------------------------
+ * - 使用 @crxjs/vite-plugin 读取 manifest.json 自动装配多入口：
+ *   background.service_worker / content_scripts / options_ui.page
+ * - sidebar 由 content script 通过动态 import 加载，crx 会自动产出对应 chunk
+ * - 产出目录：apps/extension/dist/
+ */
+export default defineConfig({
+  plugins: [react(), crx({ manifest })],
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, 'src'),
+    },
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: true,
+    // crx 插件接管 rollupOptions.input，不需要手动指定
+  },
+  server: {
+    port: 5173,
+    strictPort: true,
+    host: '127.0.0.1',
+    hmr: {
+      port: 5174,
+    },
+  },
+});

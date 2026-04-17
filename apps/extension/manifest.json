@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Doc Assistant · 智能阅读助手",
+  "version": "0.1.0",
+  "description": "在任意网页右侧提供上下文感知的大模型对话面板，提升在线学习与文档阅读效率。",
+
+  "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
+
+  "action": {
+    "default_title": "Doc Assistant · 打开/关闭侧边栏",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
+  },
+
+  "icons": {
+    "16": "icons/icon-16.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["src/content/index.ts"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*.png"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
