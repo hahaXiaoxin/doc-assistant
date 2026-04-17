@@ -68,7 +68,10 @@ export type ChatChunk =
   | { type: 'error'; error: Error };
 
 /** Tool 定义：供 Agent 注入给 LLM */
-export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
+// 使用 any 以便具体 Tool 指定具体的 TInput/TOutput 后仍能放入同一个数组。
+// Agent 层在 execute 时会用 zod 做运行时校验，保持类型安全。
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface ToolDefinition<TInput = any, TOutput = any> {
   name: string;
   description: string;
   /** JSON Schema（可由 zod-to-json-schema 生成，Provider 内部会转换为各家厂商格式） */

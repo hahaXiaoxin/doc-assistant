@@ -14,9 +14,16 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@doc-assistant/shared": "workspace:*"
+    "@doc-assistant/shared": "workspace:*",
+    "@mozilla/readability": "^0.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "happy-dom": "^15.10.2",
+    "vitest": "^2.1.4"
   }
 }

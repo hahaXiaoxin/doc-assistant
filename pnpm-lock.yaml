@@ -34,7 +34,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^2.1.4
-        version: 2.1.9(@types/node@22.19.17)
+        version: 2.1.9(@types/node@22.19.17)(happy-dom@15.11.7)
 
   apps/extension:
     dependencies:
@@ -129,7 +129,7 @@ importers:
     devDependencies:
       vitest:
         specifier: ^2.1.4
-        version: 2.1.9(@types/node@22.19.17)
+        version: 2.1.9(@types/node@22.19.17)(happy-dom@15.11.7)
 
   packages/shared:
     devDependencies:
@@ -142,6 +142,19 @@ importers:
       '@doc-assistant/shared':
         specifier: workspace:*
         version: link:../shared
+      '@mozilla/readability':
+        specifier: ^0.5.0
+        version: 0.5.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      happy-dom:
+        specifier: ^15.10.2
+        version: 15.11.7
+      vitest:
+        specifier: ^2.1.4
+        version: 2.1.9(@types/node@22.19.17)(happy-dom@15.11.7)
 
   packages/ui:
     dependencies:
@@ -533,6 +546,10 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@mozilla/readability@0.5.0':
+    resolution: {integrity: sha512-Z+CZ3QaosfFaTqvhQsIktyGrjFjSC0Fa4EMph4mqKnWhmyoGICsV/8QK+8HpXut6zV7zwfWwqDmEjtk1Qf6EgQ==}
+    engines: {node: '>=14.0.0'}
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -1381,6 +1398,10 @@ packages:
 
   graphemer@1.4.0:
     resolution: {integrity: sha512-EtKwoO6kxCL9WO5xipiHTZlSzBm7WLT627TqC/uVRd0HKmq8NXyebnNYxDoBi7wt8eTWrUrKXCOVaFq9x1kgag==}
+
+  happy-dom@15.11.7:
+    resolution: {integrity: sha512-KyrFvnl+J9US63TEzwoiJOQzZBJY7KgBushJA8X61DMbNsH+2ONkDuLDnCnwUiPTF42tLoEmrPyoqbenVA5zrg==}
+    engines: {node: '>=18.0.0'}
 
   has-bigints@1.1.0:
     resolution: {integrity: sha512-R3pbpkcIqv2Pm3dUwgjclDRVmWpTJW2DcMzcIhEXEx1oh/CEMObMm3KLmRJOdvhM7o4uQBnwr8pzRK2sJWIqfg==}
@@ -2383,6 +2404,14 @@ packages:
       jsdom:
         optional: true
 
+  webidl-conversions@7.0.0:
+    resolution: {integrity: sha512-VwddBukDzu71offAQR975unBIGqfKZpM+8ZX6ySk8nYhVoo5CYaZyzt3YBvYtRtO+aoGlqxPg/B87NGVZ/fu6g==}
+    engines: {node: '>=12'}
+
+  whatwg-mimetype@3.0.0:
+    resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
+    engines: {node: '>=12'}
+
   which-boxed-primitive@1.1.1:
     resolution: {integrity: sha512-TbX3mj8n0odCBFVlY8AxkqcHASw3L60jIuF8jFP78az3C2YhmGvqbHBpAjTRH2/xqYunrJ9g1jSyjCjpoWzIAA==}
     engines: {node: '>= 0.4'}
@@ -2784,6 +2813,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@mozilla/readability@0.5.0': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -3865,6 +3896,12 @@ snapshots:
   graceful-fs@4.2.11: {}
 
   graphemer@1.4.0: {}
+
+  happy-dom@15.11.7:
+    dependencies:
+      entities: 4.5.0
+      webidl-conversions: 7.0.0
+      whatwg-mimetype: 3.0.0
 
   has-bigints@1.1.0: {}
 
@@ -4974,7 +5011,7 @@ snapshots:
       '@types/node': 22.19.17
       fsevents: 2.3.3
 
-  vitest@2.1.9(@types/node@22.19.17):
+  vitest@2.1.9(@types/node@22.19.17)(happy-dom@15.11.7):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.21(@types/node@22.19.17))
@@ -4998,6 +5035,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.19.17
+      happy-dom: 15.11.7
     transitivePeerDependencies:
       - less
       - lightningcss
@@ -5008,6 +5046,10 @@ snapshots:
       - sugarss
       - supports-color
       - terser
+
+  webidl-conversions@7.0.0: {}
+
+  whatwg-mimetype@3.0.0: {}
 
   which-boxed-primitive@1.1.1:
     dependencies:
