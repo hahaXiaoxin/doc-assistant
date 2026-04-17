@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist-types",
+    "jsx": "react-jsx",
+    "composite": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "dist-types", "node_modules"],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/provider" },
+    { "path": "../../packages/tools" },
+    { "path": "../../packages/memory" },
+    { "path": "../../packages/agent" },
+    { "path": "../../packages/ui" }
+  ]
+}

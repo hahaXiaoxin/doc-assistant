@@ -1,0 +1,20 @@
+{
+  "name": "@doc-assistant/extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Doc Assistant · Chrome/Edge 扩展宿主（MV3）",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "@doc-assistant/shared": "workspace:*",
+    "@doc-assistant/provider": "workspace:*",
+    "@doc-assistant/tools": "workspace:*",
+    "@doc-assistant/memory": "workspace:*",
+    "@doc-assistant/agent": "workspace:*",
+    "@doc-assistant/ui": "workspace:*"
+  }
+}

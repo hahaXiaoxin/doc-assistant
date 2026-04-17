@@ -1,0 +1,22 @@
+{
+  "name": "@doc-assistant/tools",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Doc Assistant · Tools 层（本地工具注册中心，如页面提取、截图、OCR 等）",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "@doc-assistant/shared": "workspace:*"
+  }
+}
