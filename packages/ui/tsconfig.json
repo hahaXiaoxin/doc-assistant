@@ -3,7 +3,8 @@
   "compilerOptions": {
     "rootDir": "./src",
     "outDir": "./dist",
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "types": ["chrome"]
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules"],

@@ -8,3 +8,4 @@
 export * from './logger';
 export * from './storage';
 export * from './messaging';
+export * from './config';

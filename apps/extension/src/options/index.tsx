@@ -1,26 +1,34 @@
 /**
- * 配置页入口 · commit 3 占位版
+ * 配置页入口
  * ---------------------------------------------
- * commit 4 会替换为完整的 antd 配置表单。此处先做占位避免 vite 构建报错。
+ * - 独立 HTML 页面，通过 chrome-extension://<id>/src/options/options.html 访问
+ * - 使用 @doc-assistant/ui 的 OptionsForm
+ * - 注入 chrome.storage.local 的类型化 TypedStorage
  */
 import { createRoot } from 'react-dom/client';
+import { ConfigProvider } from 'antd';
+import zhCN from 'antd/locale/zh_CN';
+import { createTypedStorage, type StorageSchema } from '@doc-assistant/shared';
+import { OptionsForm } from '@doc-assistant/ui';
 
 const container = document.getElementById('options-root');
-if (container) {
-  createRoot(container).render(
-    <div
-      style={{
-        fontFamily: 'PingFang SC, -apple-system, sans-serif',
-        padding: 48,
-        maxWidth: 720,
-        margin: '0 auto',
-        color: '#1f1f1f',
-      }}
-    >
-      <h1 style={{ margin: 0, fontSize: 20 }}>Doc Assistant · 配置</h1>
-      <p style={{ color: '#8c8c8c', marginTop: 12 }}>
-        Provider 配置（API Key、模型、思考模式开关等）将在下一个 commit 接入。
-      </p>
-    </div>,
-  );
+if (!container) {
+  throw new Error('找不到 #options-root 挂载点');
 }
+
+const storage = createTypedStorage<StorageSchema>();
+
+createRoot(container).render(
+  <ConfigProvider
+    locale={zhCN}
+    theme={{
+      token: {
+        colorPrimary: '#1677FF',
+        borderRadius: 8,
+        fontFamily: 'PingFang SC, -apple-system, Segoe UI, Roboto, sans-serif',
+      },
+    }}
+  >
+    <OptionsForm storage={storage} />
+  </ConfigProvider>,
+);

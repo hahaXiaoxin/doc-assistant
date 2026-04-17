@@ -18,10 +18,21 @@
   },
   "dependencies": {
     "@doc-assistant/shared": "workspace:*",
-    "@doc-assistant/agent": "workspace:*"
+    "@doc-assistant/agent": "workspace:*",
+    "antd": "^5.21.6",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.278",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "styled-components": "^6.1.13"
   },
   "peerDependencies": {
     "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react-dom": "^18.3.0",
+    "styled-components": "^6.1.13"
   }
 }

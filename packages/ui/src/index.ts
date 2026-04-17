@@ -8,4 +8,4 @@
  * - 挂载到 Shadow DOM 时，必须通过 StyleSheetManager 把 styled-components 的 target 指向 shadow root。
  */
 
-export {};
+export { OptionsForm } from './features/options/OptionsForm';
