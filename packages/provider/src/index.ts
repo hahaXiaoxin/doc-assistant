@@ -8,4 +8,11 @@
  * - Agent 层严禁直接 import AI SDK，必须通过 LLMProvider 接口使用（ESLint 强约束）。
  */
 
-export {};
+export type { LLMProvider, ChatParams, ModelInfo } from './interface';
+export { QwenProvider } from './qwen/index';
+export {
+  qwenProviderConfigSchema,
+  getQwenCapability,
+  type QwenProviderConfig,
+} from './qwen/config';
+export { normalizeStreamPart, type UnknownStreamPart } from './qwen/normalizer';
