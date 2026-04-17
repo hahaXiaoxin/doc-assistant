@@ -19,7 +19,9 @@
   "dependencies": {
     "@doc-assistant/shared": "workspace:*",
     "@doc-assistant/agent": "workspace:*",
+    "@lexical/react": "^0.19.0",
     "antd": "^5.21.6",
+    "lexical": "^0.19.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
