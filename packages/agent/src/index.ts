@@ -9,8 +9,21 @@
  * 架构红线（ESLint 强约束）：
  * - 本包严禁 `import 'ai'` 或 `import '@ai-sdk/*'`
  * - LLM 访问必须通过 @doc-assistant/provider 的 LLMProvider 接口
- *
- * PHASE3: CheckerAgent + 实时提醒，详见 docs/ROADMAP.md §4。
  */
 
-export {};
+export { Agent, type AgentOptions } from './agent';
+export { AgentOrchestrator } from './orchestrator';
+export { runAgentLoop, type LoopOptions } from './loop';
+export { createChatAgent, type CreateChatAgentOptions } from './agents/chat-agent';
+
+export {
+  buildDefaultMVPSources,
+  createSystemPromptSource,
+  createChatHistorySource,
+  pageContextSource,
+  referenceTagSource,
+  type AgentInvokeContext,
+  type ContextSegment,
+  type ContextSource,
+  type DefaultMVPSourcesOptions,
+} from './context';

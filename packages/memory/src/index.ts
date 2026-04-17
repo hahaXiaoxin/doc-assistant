@@ -7,4 +7,5 @@
  * PHASE2: Dexie 落地 + 千问 embedding + 向量检索，详见 docs/ROADMAP.md §2。
  */
 
-export {};
+export type { MemoryRecord, MemoryRecordType, MemoryStore, RecallQuery } from './interface';
+export { NullMemoryStore } from './null-store';
