@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Medium 风格博客样本 · Doc Assistant 单测 fixture</title>
+    <meta property="og:title" content="How we scale our frontend architecture" />
+    <meta property="og:url" content="https://medium.example.com/posts/scale-fe" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "@id": "https://medium.example.com/posts/scale-fe",
+        "headline": "How we scale our frontend architecture",
+        "url": "https://medium.example.com/posts/scale-fe",
+        "author": { "@type": "Person", "name": "Jane Doe" }
+      }
+    </script>
+  </head>
+  <body>
+    <header>
+      <nav><a href="/">Home</a> · <a href="/about">About</a></nav>
+    </header>
+    <article>
+      <h1>How we scale our frontend architecture</h1>
+      <p class="byline">by Jane Doe · 12 min read</p>
+      <p>
+        Over the last eighteen months our engineering team has wrestled with an increasingly thorny
+        problem: how do we let hundreds of product engineers ship features in parallel without the
+        frontend codebase collapsing under the weight of its own success?
+      </p>
+      <p>
+        The short answer is boring: clear module boundaries, a small and opinionated core team, and
+        relentless investment in tooling. The long answer takes the rest of this post.
+      </p>
+      <h2>Principle 1 · Boundaries before frameworks</h2>
+      <p>
+        Every time we tried to solve scale with a shiny new framework we ended up replacing one set
+        of pain points with another. What actually worked was treating our system as a graph of
+        modules with explicit contracts, enforced by build-time linting.
+      </p>
+      <h2>Principle 2 · Tooling is a product</h2>
+      <p>
+        We pulled a senior IC off product work for six months to own developer experience. The
+        incremental build time dropped by 74%, and so did our incident count.
+      </p>
+      <p>
+        Reliable, fast tooling is not a luxury. It is the single largest leverage point an
+        engineering org has once the team crosses ~30 people.
+      </p>
+      <h2>Conclusion</h2>
+      <p>
+        Scaling frontend engineering is a social problem dressed up as a technical one. Solve the
+        social part first and the tech will follow.
+      </p>
+    </article>
+    <aside>
+      <h3>Related posts</h3>
+      <ul>
+        <li>Why TypeScript actually helps</li>
+        <li>The cost of abstractions</li>
+      </ul>
+    </aside>
+    <footer>© 2024 Example Media</footer>
+  </body>
+</html>

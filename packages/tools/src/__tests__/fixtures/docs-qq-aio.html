@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>腾讯文档样本 · Doc Assistant 单测 fixture</title>
+  </head>
+  <body>
+    <div class="toolbar">
+      <button>分享</button><button>导出</button>
+    </div>
+    <main class="doc-body">
+      <h1 class="doc-title">一、背景</h1>
+      <p>
+        随着在线学习的普及，用户依赖网络文档获取知识。但传统学习方式存在上下文切换成本高、上下文信息不足、
+        缺乏长期记忆、复杂内容处理困难等痛点。为解决上述问题，本项目设计了一款基于浏览器插件的智能阅读助手。
+      </p>
+      <h2>二、项目优势</h2>
+      <ul>
+        <li>本地化运行：保障数据隐私，降低延迟</li>
+        <li>四层架构：模块化设计，支持灵活扩展与维护</li>
+        <li>上下文感知：自动获取当前网页内容、历史交互记录</li>
+        <li>多模态支持：支持文本交互、截图解析</li>
+      </ul>
+      <h2>三、解决痛点与实现方案</h2>
+      <p>
+        针对安全机制缺失，我们通过权限最小化、输入内容过滤、沙箱隔离等方式构建系统化防护；
+        针对记忆存储方案不明确，我们采用 IndexedDB 作为主存储，配合 chrome.storage.local 加速高频访问；
+        针对识图能力路径模糊，我们通过 Canvas API 捕获图像数据，前端集成轻量级 OCR 库进行识别。
+      </p>
+    </main>
+    <div class="comments">
+      <h3>评论</h3>
+    </div>
+  </body>
+</html>

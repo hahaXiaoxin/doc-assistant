@@ -26,6 +26,9 @@ importers:
       eslint-plugin-react-hooks:
         specifier: ^4.6.2
         version: 4.6.2(eslint@8.57.1)
+      happy-dom:
+        specifier: ^15.10.2
+        version: 15.11.7
       prettier:
         specifier: ^3.3.3
         version: 3.8.3
