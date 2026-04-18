@@ -13,7 +13,7 @@
  * - 轮数上限（防止 LLM 死循环）：默认 5 轮
  * - 每个 tool 独立 try-catch，单个 tool 失败不中断整体
  *
- * finish 语义约定（重要）：
+ * finish 语义约定（重要） · 详见 docs/TROUBLESHOOTING.md §2：
  * - 底层每次 LLM HTTP 调用结束都会产生一个 `finish`（finishReason=tool_calls/stop/...）
  * - 这些"每轮 finish"**不**透传给外层，仅用于 loop 内部决策是否进入下一轮
  * - 只有整段多轮对话真正结束时，loop 才自己合成一个 `finish` yield 出去，

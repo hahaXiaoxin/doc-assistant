@@ -97,10 +97,9 @@ function ActionsBridge({
   useEffect(() => {
     if (!actionsRef) return;
     actionsRef.current = {
-      // 注意：这里不能直接写 `() => {}`，必须从 insertRef 实时读最新值。
-      // InsertReferencePlugin 的 useEffect 会在自己挂载后才通过 registerInsert
-      // 把真正的 fn 填入 insertRef.current；而 ActionsBridge 与 InsertReferencePlugin
-      // 的 useEffect 执行顺序按 JSX 顺序，不能保证谁先谁后，所以统一走 ref 取最新值。
+      // insertReference 作为闭包实时读 insertRef · 详见 docs/TROUBLESHOOTING.md §6
+      // 不能在此直接固化成具体函数——InsertReferencePlugin 和 ActionsBridge
+      // 的 useEffect 执行顺序按 JSX 挂载顺序，不保证谁先谁后；固化会吞掉后续注册的真 fn。
       insertReference: (payload) => insertRef.current?.(payload),
       clear: () => clearEditor(editor),
       focus: () => editor.focus(),

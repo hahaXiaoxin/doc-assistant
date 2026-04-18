@@ -44,10 +44,7 @@ export function ensureShadowHost(): ShadowHost {
   // pointer-events: none 让 0×0 的 host 不拦截事件；内部需要交互的容器（CollapsiblePanel
   // 里的 Panel / CollapsedFab）自行设置 pointer-events: auto 恢复。
   //
-  // 注意：不要使用 `contain: size/style/layout`：
-  //   - contain:size 以 0×0 作内容布局基准，会让 backdrop-filter/background 整体不渲染
-  //   - contain:layout 会把 position:fixed 子孙的包含块改成 host，在不同浏览器里行为
-  //     不一致，容易出现"面板贴不到视口右侧"或"点击穿透"之类的诡异问题
+  // 不要使用 `contain: size/style/layout` · 详见 docs/TROUBLESHOOTING.md §7
   host.style.cssText = [
     'all: initial',
     'position: fixed',

@@ -3,16 +3,13 @@
  * ---------------------------------------------
  * 让 Lexical（以及其它依赖 `window.getSelection()` 的代码）在 Shadow DOM 内也能正确拿到选区。
  *
- * 背景：
- * - 规范规定 Selection 被 shadow 边界截断：`document.getSelection()` 不会返回 shadow 内部节点的选区
- * - Lexical 0.19 内部 `getDOMSelection` 调用的就是 `window.getSelection()`
- *   → 它在 shadow 里拿到的选区 anchorNode 为 null 或指向 shadow host，
- *     `isSelectionWithinEditor` 判断失败，输入被悄悄丢弃
- * - Chromium 暴露了 `ShadowRoot.prototype.getSelection()` 可以取到 shadow 内的选区
+ * 详细原理、踩坑记录、验证点见：docs/TROUBLESHOOTING.md §1
  *
  * 策略：
  * - 覆盖 `window.getSelection`：如果当前焦点/活动节点落在我们注册的 shadowRoot 里，
  *   返回 `shadowRoot.getSelection()`；否则 fallback 回原实现
+ * - 判定用 "anchorNode 真的落在 shadow 子树内"，不用 activeElement——
+ *   否则会吞掉用户在宿主页面划词时的真实选区（划词引用会失效）
  * - 通过维护一个注册表，支持多次挂载 / HMR 重入
  * - 幂等：重复调用 `installShadowSelectionPatch` 只会替换一次 window.getSelection
  */

@@ -90,7 +90,11 @@ pnpm typecheck        # TS 类型检查
 - Memory 层 MVP **禁止** 依赖 `dexie`
 - Tools 层 MVP **禁止** 依赖 `tesseract.js`
 
-详细设计原则与 Phase 2+ 规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)。
+## 文档索引
+
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) · 设计原则与 Phase 2+ 规划
+- [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) · 版本变更记录
+- [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md) · 踩坑沉淀（Shadow DOM / Lexical / AI SDK 流式 / 扩展 CORS 等）
 
 ## License
 

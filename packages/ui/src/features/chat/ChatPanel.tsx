@@ -186,12 +186,12 @@ export function ChatPanel({
 
   useSelectionBridge(() => inputActionsRef.current?.insertReference ?? null);
 
-  // 只在 ChatPanel 首次挂载或 visible 切换时抓一次页面摘要，
-  // 避免每次输入都因 forceTick 重渲染触发 runIdentityPipeline + runContentPipeline
-  // （那两个会遍历/克隆全量 DOM，在大页面上会造成秒级输入延迟）
+  // pageSummary 只在面板显隐切换时重算 · 详见 docs/TROUBLESHOOTING.md §5
+  // 不缓存会让每次输入都同步跑 runIdentityPipeline + runContentPipeline（全量
+  // DOM 克隆 + Readability），造成秒级输入延迟并诱发宿主页面 IO 误触发。
+  // send 时 buildInvokeContext 会即时调 getPageSummary() 保证发给 LLM 的信息新鲜。
   const pageSummary = useMemo(
     () => getPageSummary(),
-    // 仅在面板显示切换时重算，send 时也会主动通过 buildInvokeContext 现取
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [visible],
   );

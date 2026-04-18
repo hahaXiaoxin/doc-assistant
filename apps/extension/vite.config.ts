@@ -25,11 +25,9 @@ export default defineConfig({
     sourcemap: true,
     // crx 插件接管 rollupOptions.input，不需要手动指定
     //
-    // 关键：关闭 Vite 的 modulepreload polyfill 注入。
-    // 默认 base='/' 会让 __vitePreload 辅助函数生成 '/assets/xxx.js' 这种
-    // 以宿主页面 origin 为根的绝对路径，导致 content script 在任意页面运行时
-    // 去宿主域请求我们的 chunk（如 https://datawhalechina.github.io/assets/logger-xxx.js）→ 404
-    // 实际加载 chunk 的工作由浏览器在执行 import() 时自动完成，不需要 modulepreload。
+    // modulePreload: false · 详见 docs/TROUBLESHOOTING.md §3
+    // 默认 base='/' 会让 __vitePreload 生成 '/assets/xxx.js' 这种以宿主页面
+    // origin 为根的绝对路径，在任意网页运行时会去宿主域请求我们的 chunk → 404
     modulePreload: false,
   },
   server: {

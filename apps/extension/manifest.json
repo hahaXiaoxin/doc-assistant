@@ -6,6 +6,7 @@
 
   "permissions": ["storage", "activeTab", "scripting", "contextMenus"],
 
+  "_comment_host_permissions": "每新增一个 LLM Provider 域都要加入下方，否则 content script 的 fetch 会被 CORS 拦截。详见 docs/TROUBLESHOOTING.md §4",
   "host_permissions": [
     "https://dashscope.aliyuncs.com/*",
     "https://dashscope-intl.aliyuncs.com/*"
