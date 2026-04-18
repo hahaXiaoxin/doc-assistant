@@ -2,7 +2,13 @@
  * CommandMenu · 斜杠命令候选下拉
  * ---------------------------------------------
  * 设计：浅色卡片 + 命令列表，支持 ↑↓ 选择、Enter 执行、Esc 关闭。
- * 使用 fixed 定位，由外层通过 coords 传入位置。
+ *
+ * 定位：position:fixed + 调用方传入 (x, bottom)，菜单恒向上展开、底边贴在输入框上方。
+ * 用 CSS `bottom` 锚定的好处：菜单无论多高多矮，底部位置固定，不会受自身高度波动影响。
+ *
+ * 前提：本组件必须通过 Portal 挂在 **没有 transform 祖先** 的容器里（推荐 shadowRoot）。
+ * 否则 CSS 规范下 transform 祖先会为 fixed 子孙重建包含块，导致坐标失真。
+ * 详见 docs/TROUBLESHOOTING.md。
  */
 import styled from 'styled-components';
 import { useEffect, useRef } from 'react';
@@ -13,19 +19,22 @@ export interface CommandMenuProps {
   visible: boolean;
   commands: SlashCommand[];
   activeIndex: number;
-  /** 锚点坐标（相对 viewport，通过 content editable range 计算） */
+  /** 菜单左边缘距视口左侧的像素（CSS `left`） */
   x: number;
-  y: number;
+  /** 菜单底边距视口底部的像素（CSS `bottom`），由调用方算出以贴近输入框顶部 */
+  bottom: number;
   onPick: (cmd: SlashCommand) => void;
   onHover: (index: number) => void;
 }
 
-const Wrapper = styled.div<{ $visible: boolean; $x: number; $y: number }>`
+const Wrapper = styled.div<{ $visible: boolean; $x: number; $bottom: number }>`
   position: fixed;
   left: ${(p) => p.$x}px;
-  top: ${(p) => p.$y}px;
+  bottom: ${(p) => p.$bottom}px;
   min-width: 260px;
-  max-width: 320px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   background: ${tokens.color.bgWhite};
   border: 1px solid ${tokens.color.border};
   border-radius: ${tokens.radius.md};
@@ -34,13 +43,13 @@ const Wrapper = styled.div<{ $visible: boolean; $x: number; $y: number }>`
   font-family: ${tokens.font.family};
   display: ${(p) => (p.$visible ? 'block' : 'none')};
   z-index: ${tokens.zIndex.commandMenu};
-  transform-origin: top left;
+  transform-origin: bottom left;
   animation: commandMenuIn ${tokens.motion.normal};
 
   @keyframes commandMenuIn {
     from {
       opacity: 0;
-      transform: translateY(-4px) scale(0.98);
+      transform: translateY(4px) scale(0.98);
     }
     to {
       opacity: 1;
@@ -51,6 +60,7 @@ const Wrapper = styled.div<{ $visible: boolean; $x: number; $y: number }>`
 
 const Item = styled.button<{ $active: boolean }>`
   all: unset;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -73,6 +83,7 @@ const Icon = styled.span`
 `;
 
 const Meta = styled.div`
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -110,7 +121,7 @@ export function CommandMenu({
   commands,
   activeIndex,
   x,
-  y,
+  bottom,
   onPick,
   onHover,
 }: CommandMenuProps) {
@@ -124,7 +135,7 @@ export function CommandMenu({
   }, [visible, activeIndex]);
 
   return (
-    <Wrapper ref={ref} $visible={visible} $x={x} $y={y} role="menu">
+    <Wrapper ref={ref} $visible={visible} $x={x} $bottom={bottom} role="menu">
       {commands.length === 0 && <Empty>无匹配命令</Empty>}
       {commands.map((cmd, i) => (
         <Item

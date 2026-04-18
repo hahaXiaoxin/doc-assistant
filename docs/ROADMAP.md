@@ -354,6 +354,7 @@ interface OCRStrategy {
 - [ ] CheckerAgent / 实时提醒（§4）
 - [ ] 云端同步（§5）
 - [ ] 完整 Markdown 渲染（表格/latex/mermaid）
+- [ ] Agent loop maxTurns 耗尽时兜底处理（最后一轮 LLM 仍返回 tool_calls 时，tool 执行结果被浪费、用户无任何提示，需在最后一轮强制不传 tools 或追加一轮无 tool 的兜底总结）→ `packages/agent/src/loop.ts`
 - [ ] Token 级别的上下文截断（当前按字符粗略估算）
 - [ ] 会话导出/导入
 - [ ] 权限使用日志审计页

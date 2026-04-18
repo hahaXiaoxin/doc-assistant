@@ -12,6 +12,7 @@
  * - 命令菜单位置通过 window.getSelection().getRangeAt(0).getBoundingClientRect() 计算
  */
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import {
   $getSelection,
@@ -24,9 +25,12 @@ import {
   KEY_ENTER_COMMAND,
   $createTextNode,
 } from 'lexical';
+import { createLogger } from '@doc-assistant/shared';
 import { CommandMenu } from '../../components/CommandMenu';
 import type { SlashCommand, SlashCommandContext } from '../../commands/types';
 import type { SlashCommandRegistry } from '../../commands/registry';
+
+const logger = createLogger('ui:slash-command');
 
 export interface SlashCommandPluginProps {
   registry: SlashCommandRegistry;
@@ -36,8 +40,9 @@ export interface SlashCommandPluginProps {
 interface MenuState {
   open: boolean;
   query: string;
+  /** 菜单锚点视口坐标：x 对应 CSS `left`，bottom 对应 CSS `bottom`（距视口底部） */
   x: number;
-  y: number;
+  bottom: number;
   /** 命中 `/` 开始的文本节点信息，用于命令执行后删除 */
   triggerStart?: { nodeKey: string; offset: number };
 }
@@ -48,7 +53,7 @@ export function SlashCommandPlugin({ registry, context }: SlashCommandPluginProp
     open: false,
     query: '',
     x: 0,
-    y: 0,
+    bottom: 0,
   });
   const [activeIdx, setActiveIdx] = useState(0);
 
@@ -81,17 +86,46 @@ export function SlashCommandPlugin({ registry, context }: SlashCommandPluginProp
           return;
         }
         const query = m[1];
-        // 计算菜单位置
-        const domSelection = window.getSelection();
-        const range = domSelection && domSelection.rangeCount > 0 ? domSelection.getRangeAt(0) : null;
-        const rect = range?.getBoundingClientRect();
-        const x = rect?.left ?? 0;
-        const y = (rect?.bottom ?? 0) + 4;
+        logger.debug('匹配 slash 前缀', { query, anchorOffset: anchor.offset });
+
+        // 菜单位置 · 固定出现在输入框上方：
+        //  - 用 bottom 锚定（距视口底部 = viewport.height - anchor.top），
+        //    这样菜单无论多高多矮都紧贴输入框顶部
+        //  - 水平 x 以 anchor.left 为锚并做边界 clamp，避免超出视口
+        const MENU_W = 320;
+        const EDGE = 8;
+
+        const root = editor.getRootElement();
+
+        // 获取 input 外层元素，获取不到的话就使用 root
+        const inputOuterEle = (() => {
+            let ele = root;
+
+            while (ele) {
+                if (ele.id === 'chat-input-outer') return ele;
+                ele = ele.parentElement;
+            }
+
+            return root;
+        })();
+
+        const rect = inputOuterEle?.getBoundingClientRect();
+        const anchorLeft = rect?.left ?? 0;
+        const anchorTop = rect?.top ?? 0;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+
+        let x = anchorLeft;
+        if (x + MENU_W > vw - EDGE) x = vw - EDGE - MENU_W;
+        if (x < EDGE) x = EDGE;
+
+        const bottom = vh - anchorTop;
+
         setState({
           open: true,
           query,
           x,
-          y,
+          bottom,
           triggerStart: { nodeKey: node.getKey(), offset: anchor.offset - query.length },
         });
         setActiveIdx(0);
@@ -178,15 +212,27 @@ export function SlashCommandPlugin({ registry, context }: SlashCommandPluginProp
     void cmd.execute(context);
   };
 
-  return (
+  // 找到 editor 根节点所在的 shadowRoot，用作 portal 目标；
+  // 这样菜单脱离 EditorShell 的 overflow 和 CollapsiblePanel 的 transform 影响。
+  // fallback：真的拿不到 shadowRoot 时 portal 到 document.body（退化场景，样式隔离可能不完美）。
+  const editorRoot = editor.getRootElement();
+  const shadowRoot = editorRoot?.getRootNode();
+  const portalTarget =
+    shadowRoot instanceof ShadowRoot ? shadowRoot : (document.body as Element | ShadowRoot);
+
+  const menu = (
     <CommandMenu
       visible={state.open}
       commands={filtered}
       activeIndex={activeIdx}
       x={state.x}
-      y={state.y}
+      bottom={state.bottom}
       onPick={executeCommand}
       onHover={setActiveIdx}
     />
   );
+
+  return state.open
+    ? createPortal(menu, portalTarget as Element | DocumentFragment)
+    : null;
 }

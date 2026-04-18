@@ -259,7 +259,7 @@ export function ChatPanel({
 
         <MessageList messages={chat.messages} streaming={chat.streaming} />
 
-        <InputArea>
+        <InputArea id='chat-input-outer'>
           <LexicalChatInput
             disabled={chat.isBusy}
             slashRegistry={slashRegistry}
