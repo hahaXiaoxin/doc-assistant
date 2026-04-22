@@ -10,7 +10,7 @@
  *
  * 设计要点：
  * - 纯函数风格的 async generator，发出归一化的 ChatChunk
- * - 轮数上限（防止 LLM 死循环）：默认 5 轮
+ * - 轮数上限（防止 LLM 死循环）：默认来自 shared.DEFAULT_CHAT_SETTINGS.maxTurns（v0.2 = 8）
  * - 每个 tool 独立 try-catch，单个 tool 失败不中断整体
  *
  * finish 语义约定（重要） · 详见 docs/TROUBLESHOOTING.md §2：
@@ -21,9 +21,18 @@
  * - 若把每轮 finish 都透传，UI 一 break，整条 AsyncGenerator 会被 return() 向下
  *   反向终止，loop 来不及执行 tool、也就不会发起下一轮——引用 tool-calling 场景下
  *   会表现为"模型说要调 tool，但最终没输出结果"。
+ *
+ * 最后一轮兜底（v0.2 新增，纯 A 方案） · 详见 docs/ROADMAP.md 第二期 §Agent Loop：
+ * - 达到 `maxTurns-1`（最后一轮循环内）时：
+ *   · 发给 LLM 的请求**不再携带 tools 参数**，强制 LLM 基于已有上下文给出文字回答；
+ *   · 在 messages 末尾临时追加一条 system 消息提示"已达上限，请基于已有信息回答"；
+ *   · 若 LLM 仍然返回 tool_call（违反指令），代码**直接忽略**（不 yield、不执行、不 push）；
+ *   · 若 LLM 无 text 输出、或流提前 error → yield `finish: error` 由 UI 展示"网络不佳"。
+ * - 正常场景（≤7 轮收敛）完全不受影响。
  */
 import {
   createLogger,
+  DEFAULT_CHAT_SETTINGS,
   type ChatChunk,
   type ChatMessage,
   type ToolCall,
@@ -44,19 +53,33 @@ export interface LoopOptions {
   maxTurns?: number;
 }
 
+/** 最后一轮追加的 system 提醒（纯 A 方案） */
+const LAST_TURN_SYSTEM_HINT =
+  '已达到工具调用上限，请基于已有信息给出最终回答，不要再请求调用工具。';
+
 export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk> {
-  const maxTurns = opts.maxTurns ?? 5;
+  const maxTurns = opts.maxTurns ?? DEFAULT_CHAT_SETTINGS.maxTurns;
   const toolMap = new Map(opts.tools.map((t) => [t.name, t] as const));
   const messages: ChatMessage[] = [...opts.messages];
 
   for (let turn = 0; turn < maxTurns; turn++) {
-    logger.debug(`loop turn ${turn}`);
+    const isLastTurn = turn === maxTurns - 1;
+    logger.debug(`loop turn ${turn}${isLastTurn ? ' (last turn · 不传 tools 兜底)' : ''}`);
+
     const pendingCalls: ToolCall[] = [];
     let assistantText = '';
+    let sawAnyChunk = false;
+    let streamErrored = false;
+    let ignoredToolCallCount = 0;
+
+    // 最后一轮：messages 末尾临时追加 system 提醒；tools 不传
+    const turnMessages = isLastTurn
+      ? [...messages, { role: 'system' as const, content: LAST_TURN_SYSTEM_HINT }]
+      : messages;
 
     const chatParams = {
-      messages,
-      tools: opts.tools,
+      messages: turnMessages,
+      ...(isLastTurn ? {} : { tools: opts.tools }),
       ...(opts.signal ? { signal: opts.signal } : {}),
     };
     const stream = opts.llm.chat(chatParams);
@@ -65,6 +88,7 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
       'stop';
 
     for await (const chunk of stream) {
+      sawAnyChunk = true;
       switch (chunk.type) {
         case 'text-delta':
           assistantText += chunk.delta;
@@ -74,20 +98,32 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
           yield chunk;
           break;
         case 'tool-call':
-          pendingCalls.push(chunk.call);
-          yield chunk;
+          if (isLastTurn) {
+            // 最后一轮忽略 LLM 违反指令的 tool-call：不 yield、不执行、不 push
+            ignoredToolCallCount += 1;
+          } else {
+            pendingCalls.push(chunk.call);
+            yield chunk;
+          }
           break;
         case 'finish':
           // 只记录、不透传：见文件头注释
           finishReason = chunk.finishReason;
           break;
         case 'error':
+          streamErrored = true;
           yield chunk;
           break;
         default:
           yield chunk;
           break;
       }
+    }
+
+    if (isLastTurn && ignoredToolCallCount > 0) {
+      logger.warn(
+        `最后一轮 LLM 仍返回 ${ignoredToolCallCount} 个 tool-call（违反指令），已忽略`,
+      );
     }
 
     // 把 assistant 消息（包括 tool_calls）追加到 messages
@@ -98,7 +134,29 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
       messages.push(assistantMsg);
     }
 
-    // 终止条件：没有 tool_calls 或遇到终态
+    // 最后一轮的兜底终止分支
+    if (isLastTurn) {
+      if (streamErrored) {
+        // stream 已 yield 过 error chunk，这里只补一个 finish:error 让 UI 明确终止
+        yield { type: 'finish', finishReason: 'error' };
+        return;
+      }
+      if (!assistantText && !sawAnyChunk) {
+        // 完全无输出（空响应 / 网络异常）→ 报告诚实错误
+        logger.error('最后一轮 LLM 无任何输出，报告 finish:error（建议检查网络与日志）');
+        yield {
+          type: 'error',
+          error: new Error('网络不佳，请检查网络或查看日志'),
+        };
+        yield { type: 'finish', finishReason: 'error' };
+        return;
+      }
+      // 正常收敛：最后一轮给出了文字回答
+      yield { type: 'finish', finishReason: finishReason === 'tool_calls' ? 'length' : finishReason };
+      return;
+    }
+
+    // 非最后一轮：按 finishReason + pendingCalls 决定下一步
     if (finishReason === 'error' || finishReason === 'abort' || finishReason === 'length') {
       yield { type: 'finish', finishReason };
       return;
@@ -123,7 +181,8 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
     }
   }
 
-  logger.warn(`达到最大轮数 ${maxTurns}，强制结束`);
+  // 理论上不会走到这里（最后一轮分支已 return）
+  logger.warn(`loop 意外走出 for 循环（maxTurns=${maxTurns}）`);
   yield { type: 'finish', finishReason: 'length' };
 }
 

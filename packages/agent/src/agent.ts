@@ -12,6 +12,7 @@
  */
 import {
   createLogger,
+  DEFAULT_CHAT_SETTINGS,
   type ChatChunk,
   type ChatMessage,
   type ToolDefinition,
@@ -51,7 +52,7 @@ export class Agent {
     this.sources = opts.sources;
     this.tools = opts.tools;
     this.memory = opts.memory;
-    this.maxTurns = opts.maxTurns ?? 5;
+    this.maxTurns = opts.maxTurns ?? DEFAULT_CHAT_SETTINGS.maxTurns;
     this.logger = createLogger(`agent:${this.name}`);
   }
 

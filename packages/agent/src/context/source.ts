@@ -5,13 +5,13 @@
  * - 每个 Agent 持有一组 ContextSource，按 priority 降序组装发送给 LLM 的 messages
  * - ContextSegment 是 source 产出的一段结构化内容，可对应一条 system/user 消息或消息的附加文本
  * - MVP 注册 4 个 source（SystemPromptSource/PageContextSource/ReferenceTagSource/ChatHistorySource）
- * - PHASE2 追加 3 个（LongTermMemorySource/RelevantMemorySource/SessionSummarySource）
+ * - v0.2 Phase2 新增 4 个（PersonaSource/SessionTopicSource/WorkingMemorySource/RelevantMemorySource）
  *
  * 每个 Agent 可以有自己的 Source 组合，实现"各自的上下文获取逻辑"。
  */
 import type { ChatMessage } from '@doc-assistant/shared';
 
-/** Agent 调用时传入的上下文（用户输入 + 页面信息 + session 标识 + 运行时） */
+/** Agent 调用时传入的上下文（用户输入 + 页面信息 + visit 标识 + 运行时） */
 export interface AgentInvokeContext {
   /** 本轮用户输入（已做好 ReferenceTag 序列化） */
   userInput: string;
@@ -25,10 +25,19 @@ export interface AgentInvokeContext {
     summary?: string;
     identityTitle?: string;
     identityId?: string;
+    /** v0.2 新增：归一化 canonical URL（若可用），用于 WorkingMemory / Episodic 索引 */
+    canonicalUrl?: string;
+    /** v0.2 新增：域名（extractDomain(canonicalUrl)） */
+    domain?: string;
   };
   /** 用户在输入框中插入的引用 tag 序列化文本（带 <ref> 标签） */
   references?: string;
-  /** 外部运行时数据（如记忆层召回所需的 sessionId） */
+  /**
+   * v0.2 新增：当前活跃的 PageVisit id。
+   * 由 sidebar 在调用 Agent 前从 PageVisitManager 取出注入。
+   */
+  visitId?: string;
+  /** 外部运行时数据（如记忆层召回所需的额外参数） */
   runtime?: Record<string, unknown>;
 }
 
