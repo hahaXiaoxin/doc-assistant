@@ -2,16 +2,20 @@
  * Sidebar React 应用入口（由 content script 挂载到 Shadow DOM）
  * ---------------------------------------------
  * 装配：
- * - 从 chrome.storage 读取 Qwen 配置 → 构造 ChatAgent
+ * - 从 chrome.storage 读取三套 Provider 配置 → 构造 ChatAgent（phase2 模式）
  * - 运行页面提取 pipeline 获取当前文章身份与摘要 → 作为 PageSummary 注入 ChatPanel
  * - ChatPanel 通过 Agent 发起对话，tool 执行时能访问当前页面 document
+ *
+ * v0.2 新增：
+ * - PageVisitManager 管理 visit 生命周期（挂载时 startNewVisit；location 变化时 onUrlChange；卸载时 endCurrent）
+ * - 构造 AgentInvokeContext 时注入 visitId 与 canonicalUrl（给 Persona/SessionTopic/WorkingMemorySource 用）
  */
 import { createRoot, type Root } from 'react-dom/client';
 import { StyleSheetManager } from 'styled-components';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { useEffect, useMemo, useState } from 'react';
-import { createLogger, MessageType } from '@doc-assistant/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { canonicalizeUrl, createLogger, extractDomain, MessageType } from '@doc-assistant/shared';
 import {
   runIdentityPipeline,
   runContentPipeline,
@@ -77,14 +81,72 @@ function SidebarApp(props: MountOptions) {
   }, []);
 
   useEffect(() => {
-    void bootstrapAgent().then(setBootstrap).catch((err) => {
-      logger.error('bootstrap 失败:', (err as Error).message);
-    });
+    void bootstrapAgent()
+      .then(setBootstrap)
+      .catch((err) => {
+        logger.error('bootstrap 失败:', (err as Error).message);
+      });
   }, []);
 
+  // v0.2：PageVisit 生命周期管理
+  const visitStartedRef = useRef(false);
+  useEffect(() => {
+    if (!bootstrap) return;
+    const pvm = bootstrap.pageVisitManager;
+
+    // 首次挂载：开启第一个 visit
+    if (!visitStartedRef.current) {
+      visitStartedRef.current = true;
+      const identity = safeRunIdentity();
+      void pvm.startNewVisit({
+        url: location.href,
+        doc: document,
+        ...(identity?.id ? { articleId: identity.id } : {}),
+        ...(identity?.title ? { title: identity.title } : {}),
+      });
+    }
+
+    // 监听 SPA 路由变化：pushState / replaceState / popstate
+    const handleUrlChange = () => {
+      const identity = safeRunIdentity();
+      void pvm.onUrlChange({
+        url: location.href,
+        doc: document,
+        ...(identity?.id ? { articleId: identity.id } : {}),
+        ...(identity?.title ? { title: identity.title } : {}),
+      });
+    };
+    const originalPush = history.pushState;
+    const originalReplace = history.replaceState;
+    history.pushState = function (...args) {
+      originalPush.apply(this, args as Parameters<typeof originalPush>);
+      handleUrlChange();
+    };
+    history.replaceState = function (...args) {
+      originalReplace.apply(this, args as Parameters<typeof originalReplace>);
+      handleUrlChange();
+    };
+    window.addEventListener('popstate', handleUrlChange);
+
+    // tab 关闭前：end 当前 visit（为反思任务登记留出窗口）
+    const handleBeforeUnload = () => {
+      void pvm.endCurrent();
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      history.pushState = originalPush;
+      history.replaceState = originalReplace;
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [bootstrap]);
+
   const pageSummaryMemo = useMemo(
-    () => () => buildPageSummary(),
-    [],
+    () => () => buildPageSummary(bootstrap?.pageVisitManager.getCurrent()?.visitId),
+    // 依赖 visible 让面板显隐切换时重算（延续 v0.1.1 §5 修复）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visible, bootstrap],
   );
 
   if (!bootstrap) {
@@ -120,8 +182,9 @@ function SidebarApp(props: MountOptions) {
 
 /**
  * 构造 PageSummary：跑 Identity + Content pipeline，取前 800 字作为摘要。
+ * v0.2：附带 canonicalUrl / domain / visitId（给 Phase2 ContextSource 用）
  */
-function buildPageSummary(): PageSummary | null {
+function buildPageSummary(visitId?: string): PageSummary | null {
   try {
     const ctx = {
       url: location.href,
@@ -134,15 +197,32 @@ function buildPageSummary(): PageSummary | null {
     const identity = runIdentityPipeline(ctx);
     // 摘要用非 selection 的 extractors（避免用户划词时页面上下文被替换为选区）
     const extracted = runContentPipeline(ctx, getNonSelectionExtractors());
+    const canonicalUrl = canonicalizeUrl(document, location.href);
     return {
       url: ctx.url,
       title: ctx.title,
       identityTitle: identity.title,
       identityId: identity.id,
+      canonicalUrl,
+      domain: extractDomain(canonicalUrl),
+      ...(visitId ? { visitId } : {}),
       ...(extracted ? { summary: extracted.excerpt } : {}),
     };
   } catch (err) {
     logger.warn('buildPageSummary 失败:', (err as Error).message);
+    return null;
+  }
+}
+
+function safeRunIdentity(): ReturnType<typeof runIdentityPipeline> | null {
+  try {
+    return runIdentityPipeline({
+      url: location.href,
+      title: document.title,
+      document,
+    });
+  } catch (err) {
+    logger.warn('runIdentityPipeline 失败', (err as Error).message);
     return null;
   }
 }

@@ -1,73 +1,230 @@
 /**
- * Sidebar 启动装配
+ * Sidebar 启动装配（v0.2 重构）
  * ---------------------------------------------
- * 读取 chrome.storage 的 Provider 配置 → 构造 QwenProvider → 装配 ChatAgent →
- * 返回给 SidebarApp 使用。
+ * 职责：
+ * - 读取新 STORAGE_KEYS（主/辅/embedding 三套 + MemorySettings），同时兼容 v0.1 QWEN_CONFIG 迁移
+ * - 装配三套 Provider（辅助/embedding 按 useMain 回退到主 Provider 配置）
+ * - 初始化 DexieMemoryStore（敏感过滤开关来自 MemorySettings）
+ * - 初始化 PageVisitManager（注入 memory 以登记 page_visits 表）
+ * - 构造 ChatAgent（phase2=true 接入新 ContextSource；若 memory 初始化失败则降级 NullStore + MVP 模式）
+ * - 返回给 SidebarApp 使用
  *
- * 若配置缺失（用户未填 apiKey），返回一个占位 Agent，首次发送时提示跳转配置。
+ * 注意：v0.2.0 阶段 memory 数据可能为空，ContextSource 会返回 null，不贡献段落，无 breaking。
  */
 import {
-  createLogger,
-  createTypedStorage,
+  DEFAULT_AUX_PROVIDER_CONFIG,
   DEFAULT_CHAT_SETTINGS,
+  DEFAULT_EMBEDDING_PROVIDER_CONFIG,
+  DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
+  DEFAULT_MAIN_PROVIDER_CONFIG,
+  DEFAULT_MEMORY_SETTINGS,
   DEFAULT_QWEN_CONFIG,
   STORAGE_KEYS,
-  type StorageSchema,
+  clampMaxTurns,
+  createLogger,
+  createTypedStorage,
+  isUseMain,
+  migrateQwenConfigToMain,
   type ChatSettings,
-  type QwenConfig,
+  type EmbeddingProviderConfig,
+  type LLMProviderConfig,
+  type MemorySettings,
+  type ProviderConfigOrRef,
+  type StorageSchema,
 } from '@doc-assistant/shared';
-import { QwenProvider } from '@doc-assistant/provider';
-import { NullMemoryStore } from '@doc-assistant/memory';
+import { QwenProvider, QwenEmbeddingProvider } from '@doc-assistant/provider';
+import type { EmbeddingProvider, LLMProvider } from '@doc-assistant/provider';
+import {
+  DexieMemoryStore,
+  NullMemoryStore,
+  type MemoryStore,
+} from '@doc-assistant/memory';
 import { buildDefaultMVPTools } from '@doc-assistant/tools';
-import { createChatAgent, type Agent } from '@doc-assistant/agent';
+import {
+  createChatAgent,
+  PageVisitManager,
+  type Agent,
+} from '@doc-assistant/agent';
 
 const logger = createLogger('extension:sidebar:bootstrap');
 
 export interface BootstrapResult {
   agent: Agent;
   chatSettings: ChatSettings;
-  qwenConfig: QwenConfig;
-  /** 是否缺失必要配置（apiKey 未填） */
+  memorySettings: MemorySettings;
+  mainProvider: LLMProviderConfig;
+  memory: MemoryStore;
+  pageVisitManager: PageVisitManager;
+  /** 主 Provider 是否缺失必要配置（apiKey 未填） */
   missingConfig: boolean;
 }
 
 export async function bootstrapAgent(): Promise<BootstrapResult> {
   const storage = createTypedStorage<StorageSchema>();
 
-  const [qwenRaw, chatRaw] = await Promise.all([
-    storage.get(STORAGE_KEYS.QWEN_CONFIG),
+  const [
+    mainStored,
+    auxStored,
+    embStored,
+    chatStored,
+    memStored,
+    qwenLegacy,
+  ] = await Promise.all([
+    storage.get(STORAGE_KEYS.MAIN_PROVIDER_CONFIG),
+    storage.get(STORAGE_KEYS.AUX_PROVIDER_CONFIG),
+    storage.get(STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG),
     storage.get(STORAGE_KEYS.CHAT_SETTINGS),
+    storage.get(STORAGE_KEYS.MEMORY_SETTINGS),
+    storage.get(STORAGE_KEYS.QWEN_CONFIG),
   ]);
 
-  const qwenConfig = { ...DEFAULT_QWEN_CONFIG, ...(qwenRaw ?? {}) };
-  const chatSettings = { ...DEFAULT_CHAT_SETTINGS, ...(chatRaw ?? {}) };
-
-  const missingConfig = !qwenConfig.apiKey.trim();
-  if (missingConfig) {
-    logger.warn('未配置 API Key，Agent 将在首次发送时提示用户配置');
-    // 为了让 Agent 在 UI 层仍能被 new/clear 等逻辑访问，这里也构造一个实例，
-    // 但使用一个假的 apiKey；真正调用 LLM 时会抛错
-    qwenConfig.apiKey = 'placeholder';
+  // 主 Provider：MAIN 优先；否则 v0.1 迁移；否则默认
+  let mainProvider: LLMProviderConfig;
+  if (mainStored) {
+    mainProvider = { ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored };
+  } else if (qwenLegacy) {
+    mainProvider = migrateQwenConfigToMain({ ...DEFAULT_QWEN_CONFIG, ...qwenLegacy });
+    // bootstrap 主动迁移：保存一次（下次启动就不会再走迁移路径）
+    try {
+      await storage.set(STORAGE_KEYS.MAIN_PROVIDER_CONFIG, mainProvider);
+      await storage.remove(STORAGE_KEYS.QWEN_CONFIG);
+      logger.info('v0.1 → v0.2 主 Provider 配置迁移完成');
+    } catch (err) {
+      logger.warn('v0.1 → v0.2 迁移写入失败（不阻塞启动）', (err as Error).message);
+    }
+  } else {
+    mainProvider = DEFAULT_MAIN_PROVIDER_CONFIG;
   }
 
-  const llm = new QwenProvider(qwenConfig);
-  const memory = new NullMemoryStore();
-  const tools = buildDefaultMVPTools();
+  const auxConfig: ProviderConfigOrRef<LLMProviderConfig> =
+    auxStored ?? DEFAULT_AUX_PROVIDER_CONFIG;
+  const embConfig: ProviderConfigOrRef<EmbeddingProviderConfig> =
+    embStored ?? DEFAULT_EMBEDDING_PROVIDER_CONFIG;
 
+  const chatSettings: ChatSettings = {
+    ...DEFAULT_CHAT_SETTINGS,
+    ...(chatStored ?? {}),
+    maxTurns: clampMaxTurns(chatStored?.maxTurns ?? DEFAULT_CHAT_SETTINGS.maxTurns),
+  };
+  const memorySettings: MemorySettings = {
+    ...DEFAULT_MEMORY_SETTINGS,
+    ...(memStored ?? {}),
+  };
+
+  const missingConfig = !mainProvider.apiKey.trim();
+  if (missingConfig) {
+    logger.warn('未配置主 Provider API Key，将在首次发送时提示用户配置');
+    // 用 placeholder 占位，避免 Agent 构造失败；真正调用时会抛错
+    mainProvider = { ...mainProvider, apiKey: 'placeholder' };
+  }
+
+  // 构造主 LLM
+  const mainLLM: LLMProvider = new QwenProvider({
+    apiKey: mainProvider.apiKey,
+    baseURL: mainProvider.baseURL,
+    model: mainProvider.model,
+    enableThinking: mainProvider.enableThinking ?? true,
+  });
+
+  // 构造辅助 LLM（若 useMain 或为空则直接复用主 LLM）
+  let auxLLM: LLMProvider = mainLLM;
+  if (!isUseMain(auxConfig)) {
+    try {
+      auxLLM = new QwenProvider({
+        apiKey: auxConfig.apiKey,
+        baseURL: auxConfig.baseURL,
+        model: auxConfig.model,
+        enableThinking: auxConfig.enableThinking ?? false,
+      });
+    } catch (err) {
+      logger.warn('辅助 Provider 初始化失败，退回到主 Provider', (err as Error).message);
+    }
+  }
+
+  // 构造 Embedding Provider（若 useMain 则用主 Provider 的 baseURL+apiKey + 默认 embedding 模型）
+  let embeddingProvider: EmbeddingProvider | null = null;
+  try {
+    if (isUseMain(embConfig)) {
+      embeddingProvider = new QwenEmbeddingProvider({
+        apiKey: mainProvider.apiKey,
+        baseURL: mainProvider.baseURL,
+        model: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.model,
+        dimension: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.dimension,
+      });
+    } else {
+      embeddingProvider = new QwenEmbeddingProvider({
+        apiKey: embConfig.apiKey,
+        baseURL: embConfig.baseURL,
+        model: embConfig.model,
+        dimension: embConfig.dimension,
+      });
+    }
+  } catch (err) {
+    logger.warn(
+      'Embedding Provider 初始化失败（不阻塞启动；召回将降级到关键词）',
+      (err as Error).message,
+    );
+  }
+
+  // 初始化 Memory
+  let memory: MemoryStore;
+  try {
+    memory = new DexieMemoryStore({
+      sensitiveFilterEnabled: memorySettings.sensitiveFilterEnabled,
+      ...(embeddingProvider
+        ? {
+            embedQuery: async (text: string): Promise<Float32Array> => {
+              const vectors = await embeddingProvider!.embed([text]);
+              return vectors[0] ?? new Float32Array();
+            },
+          }
+        : {}),
+    });
+  } catch (err) {
+    logger.error(
+      'DexieMemoryStore 初始化失败，降级到 NullMemoryStore',
+      (err as Error).message,
+    );
+    memory = new NullMemoryStore();
+  }
+
+  // PageVisitManager（注入 memory 以登记 page_visits）
+  const pageVisitManager = new PageVisitManager({ memory });
+
+  // 装配 Agent（phase2=true 接入 Persona/SessionTopic/WorkingMemory）
+  const tools = buildDefaultMVPTools();
   const agent = createChatAgent({
-    llm,
+    llm: mainLLM,
     memory,
     tools,
     systemPrompt: chatSettings.systemPrompt,
     maxHistoryChars: chatSettings.maxContextChars,
+    maxTurns: chatSettings.maxTurns,
+    phase2: true,
   });
 
-  logger.info('ChatAgent 装配完成', {
-    model: qwenConfig.model,
-    enableThinking: qwenConfig.enableThinking,
+  logger.info('Sidebar bootstrap 完成', {
+    mainModel: mainProvider.model,
+    auxUseMain: isUseMain(auxConfig),
+    embUseMain: isUseMain(embConfig),
+    hasEmbedding: !!embeddingProvider,
+    memoryKind: memory instanceof NullMemoryStore ? 'null' : 'dexie',
     tools: tools.map((t) => t.name),
+    maxTurns: chatSettings.maxTurns,
     missingConfig,
   });
 
-  return { agent, qwenConfig, chatSettings, missingConfig };
+  // auxLLM 目前 bootstrap 暂未使用到（v0.2.1 反思 / 情景识别时才用）
+  // 此处保留变量引用，避免 TS no-unused 警告
+  void auxLLM;
+
+  return {
+    agent,
+    chatSettings,
+    memorySettings,
+    mainProvider,
+    memory,
+    pageVisitManager,
+    missingConfig,
+  };
 }

@@ -32,6 +32,12 @@ export interface PageSummary {
   identityTitle?: string;
   identityId?: string;
   summary?: string;
+  /** v0.2：归一化后的 canonical URL（用于 WorkingMemory / Episodic 索引） */
+  canonicalUrl?: string;
+  /** v0.2：extractDomain(canonicalUrl) */
+  domain?: string;
+  /** v0.2：当前活跃 PageVisit ID（用于 SessionTopicSource 等） */
+  visitId?: string;
 }
 
 export interface ChatPanelProps {
@@ -169,17 +175,20 @@ export function ChatPanel({
     agent,
     buildInvokeContext: (_input, _refs) => {
       const page = getPageSummary();
-      return page
-        ? {
-            page: {
-              url: page.url,
-              title: page.title,
-              ...(page.summary ? { summary: page.summary } : {}),
-              ...(page.identityTitle ? { identityTitle: page.identityTitle } : {}),
-              ...(page.identityId ? { identityId: page.identityId } : {}),
-            } as NonNullable<AgentInvokeContext['page']>,
-          }
-        : {};
+      if (!page) return {};
+      return {
+        page: {
+          url: page.url,
+          title: page.title,
+          ...(page.summary ? { summary: page.summary } : {}),
+          ...(page.identityTitle ? { identityTitle: page.identityTitle } : {}),
+          ...(page.identityId ? { identityId: page.identityId } : {}),
+          ...(page.canonicalUrl ? { canonicalUrl: page.canonicalUrl } : {}),
+          ...(page.domain ? { domain: page.domain } : {}),
+        } as NonNullable<AgentInvokeContext['page']>,
+        // v0.2：visitId 直接放顶层（ContextSource 从 ctx.visitId 读）
+        ...(page.visitId ? { visitId: page.visitId } : {}),
+      };
     },
     buildToolExecCtx: () => buildToolMeta(),
   });

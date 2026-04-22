@@ -1,0 +1,147 @@
+/**
+ * MemoryTab · 记忆层配置
+ * ---------------------------------------------
+ * 职责：
+ * - 辅助 Provider 配置（默认复用主 Provider；可单独配置）
+ * - Embedding Provider 配置（同上）
+ * - 敏感信息过滤开关
+ * - 反思 Job 开关
+ * - WorkingMemory TTL 天数
+ * - Persona 审核列表入口（v0.2.0 先占位，v0.2.1 实装）
+ */
+import { Alert, Card, Form, InputNumber, Switch, Typography } from 'antd';
+import {
+  DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
+  type EmbeddingProviderConfig,
+  type LLMProviderConfig,
+  type MemorySettings,
+  type ProviderConfigOrRef,
+} from '@doc-assistant/shared';
+import { ProviderConfigForm } from '../ProviderConfigForm';
+
+export interface MemoryTabProps {
+  main: LLMProviderConfig;
+  aux: ProviderConfigOrRef<LLMProviderConfig>;
+  onAuxChange: (next: ProviderConfigOrRef<LLMProviderConfig>) => void;
+  embedding: ProviderConfigOrRef<EmbeddingProviderConfig>;
+  onEmbeddingChange: (next: ProviderConfigOrRef<EmbeddingProviderConfig>) => void;
+  settings: MemorySettings;
+  onSettingsChange: (next: MemorySettings) => void;
+}
+
+export function MemoryTab(props: MemoryTabProps) {
+  const { main, aux, onAuxChange, embedding, onEmbeddingChange, settings, onSettingsChange } = props;
+
+  // aux 的 fallback：继承主 Provider 的结构（kind/baseURL/model/apiKey），enableThinking 可保持或清零
+  const auxFallback: LLMProviderConfig = { ...main };
+
+  // embedding fallback：优先用主 Provider 的 baseURL+apiKey + 标准 embedding model
+  const embeddingFallback: EmbeddingProviderConfig = {
+    ...DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
+    baseURL: main.baseURL || DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL,
+    apiKey: main.apiKey || DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.apiKey,
+  };
+
+  return (
+    <>
+      <Alert
+        type="info"
+        showIcon
+        message="记忆层（v0.2）"
+        description={
+          <>
+            四层记忆：Persona（个性）/ Episodic（事件）/ SessionTopic（情景）/ WorkingMemory（工作）。
+            辅助 Provider 用于话题识别、反思归纳、Intent 精判；Embedding Provider 用于事件召回的向量化。
+            默认都复用主 Provider 配置，按需单独配置更便宜的模型。
+          </>
+        }
+        style={{ marginBottom: 16 }}
+      />
+
+      <Card title="辅助 Provider（话题识别 / 反思 / Intent 精判）" style={{ marginBottom: 16 }}>
+        <Form layout="vertical" requiredMark={false}>
+          <ProviderConfigForm<LLMProviderConfig>
+            mode="llm"
+            value={aux}
+            onChange={onAuxChange}
+            fallback={auxFallback}
+            hint="辅助模型的调用次数较高，建议选择便宜的模型（如 qwen-turbo）。"
+          />
+        </Form>
+      </Card>
+
+      <Card title="Embedding Provider（向量召回）" style={{ marginBottom: 16 }}>
+        <Form layout="vertical" requiredMark={false}>
+          <ProviderConfigForm<EmbeddingProviderConfig>
+            mode="embedding"
+            value={embedding}
+            onChange={onEmbeddingChange}
+            fallback={embeddingFallback}
+            hint="向量模型维度与模型绑定；切换后必须清库重建。"
+          />
+        </Form>
+      </Card>
+
+      <Card title="记忆行为" style={{ marginBottom: 16 }}>
+        <Form layout="vertical" requiredMark={false}>
+          <Form.Item
+            label="敏感信息过滤"
+            extra="写入 IndexedDB 前替换 email / 手机号 / 身份证 / API Key / 信用卡号为占位符。强烈建议开启。"
+          >
+            <Switch
+              checked={settings.sensitiveFilterEnabled}
+              onChange={(v) => onSettingsChange({ ...settings, sensitiveFilterEnabled: v })}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="反思 Job"
+            extra="PageVisit 结束后异步生成 visit_summary、抽取 Persona 候选；关闭后记忆不再沉淀。"
+          >
+            <Switch
+              checked={settings.reflectionEnabled}
+              onChange={(v) => onSettingsChange({ ...settings, reflectionEnabled: v })}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="WorkingMemory 软 TTL（天）"
+            extra="超过该时长未访问的工作记忆会被归档（不立即删）。"
+          >
+            <InputNumber
+              min={1}
+              max={365}
+              value={settings.workingMemoryTtlDays}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, workingMemoryTtlDays: Number(v) || 30 })
+              }
+              style={{ width: 140 }}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Persona 自动确认阈值"
+            extra="反思命中同一条 Persona 达到该次数时自动标记为 confirmed；其余 candidate 需用户审核。"
+          >
+            <InputNumber
+              min={1}
+              max={10}
+              value={settings.personaAutoConfirmHits}
+              onChange={(v) =>
+                onSettingsChange({ ...settings, personaAutoConfirmHits: Number(v) || 3 })
+              }
+              style={{ width: 140 }}
+            />
+          </Form.Item>
+        </Form>
+      </Card>
+
+      <Card title="Persona 审核">
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+          Persona 候选审核列表将在 <strong>v0.2.1</strong> 接入反思 Job 后实装。届时此处会展示
+          待审核的个性记忆（接受 / 拒绝 / 编辑），以及已确认的常驻项。
+        </Typography.Paragraph>
+      </Card>
+    </>
+  );
+}

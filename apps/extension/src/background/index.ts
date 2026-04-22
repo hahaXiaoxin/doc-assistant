@@ -5,6 +5,8 @@
  * - 监听 action.onClicked：向当前 tab 的 content script 发送 TOGGLE_SIDEBAR
  * - 右键菜单：打开配置页
  * - 路由从 options / content 发来的运行时消息
+ * - v0.2 新增：注册 `reflection-scan` chrome.alarms，每 60 分钟扫描待处理的反思任务
+ *   v0.2.0 仅登记 alarm；v0.2.1 在 reflection-worker.ts 中实现真正的扫描/执行逻辑。
  */
 import { createLogger, MessageType, type ExtensionMessage } from '@doc-assistant/shared';
 
@@ -12,9 +14,10 @@ const logger = createLogger('extension:background');
 
 logger.info('service worker 启动');
 
-/**
- * 工具栏图标点击 → 切换侧边栏
- */
+/* ------------------------------------------------------------------ */
+/* Toolbar / 右键 / 消息路由（MVP 行为保留）                            */
+/* ------------------------------------------------------------------ */
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab.id) return;
   try {
@@ -25,15 +28,23 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
-/**
- * 右键菜单：打开配置
- */
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'doc-assistant-open-options',
     title: 'Doc Assistant · 打开配置',
     contexts: ['action'],
   });
+
+  // v0.2：注册反思扫描 alarm（60 分钟周期，首次 60 秒后触发）
+  try {
+    void chrome.alarms.create(REFLECTION_ALARM_NAME, {
+      delayInMinutes: 1,
+      periodInMinutes: 60,
+    });
+    logger.info(`注册 chrome.alarms: ${REFLECTION_ALARM_NAME}（60 分钟周期）`);
+  } catch (err) {
+    logger.warn('chrome.alarms.create 失败（可能环境不支持）', (err as Error).message);
+  }
 });
 
 chrome.contextMenus.onClicked.addListener((info) => {
@@ -42,9 +53,6 @@ chrome.contextMenus.onClicked.addListener((info) => {
   }
 });
 
-/**
- * 运行时消息路由
- */
 chrome.runtime.onMessage.addListener(
   (message: ExtensionMessage, _sender, sendResponse) => {
     switch (message.type) {
@@ -53,8 +61,23 @@ chrome.runtime.onMessage.addListener(
         sendResponse({ type: MessageType.ACK, ok: true });
         return false;
       default:
-        // 其他消息交由其他 listener 处理；此处不阻塞
         return false;
     }
   },
 );
+
+/* ------------------------------------------------------------------ */
+/* v0.2: chrome.alarms 反思扫描占位                                    */
+/* v0.2.0：alarm 已注册并会触发，但执行器在 v0.2.1 实装；               */
+/* 本期仅打印日志，证明注册/触发链路通畅，避免上线后发现 alarm 根本没跑。 */
+/* ------------------------------------------------------------------ */
+
+export const REFLECTION_ALARM_NAME = 'doc-assistant.reflection-scan';
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name !== REFLECTION_ALARM_NAME) return;
+  logger.info(
+    `收到 alarm ${REFLECTION_ALARM_NAME} · v0.2.0 仅日志占位；v0.2.1 将在此扫描 reflection_tasks`,
+  );
+  // TODO v0.2.1: 调用 reflection-worker.ts 的 runPendingReflections()
+});

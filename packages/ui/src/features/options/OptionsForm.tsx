@@ -1,57 +1,88 @@
 /**
- * 配置表单 · Ant Design 后台风格
+ * OptionsForm · Tabs 容器（v0.2 重构）
  * ---------------------------------------------
  * 职责：
- * - 为当前选中的 Provider（MVP 仅千问）渲染对应字段
- * - 使用 zod 校验：apiKey 非空、baseURL 是合法 URL、model 非空
- * - 保存到 chrome.storage.local（通过注入的 TypedStorage）
- * - 测试连接（轻量 fetch baseURL 验证，不暴露 key 到日志）
+ * - 加载 v0.2 新 STORAGE_KEYS，同时读取 v0.1 遗留 QWEN_CONFIG 做一次性迁移
+ * - 将各段配置（main / aux / embedding / chat / memorySettings）分发给对应 Tab
+ * - 统一的 Save / Reset 底部吸附栏
  *
- * 交互：
- * - 底部吸附保存栏（Save / Reset）
- * - 保存成功 antd message 提示
+ * v0.1 → v0.2 迁移策略：
+ * - 启动时读 MAIN_PROVIDER_CONFIG 与 QWEN_CONFIG
+ *   · 若 MAIN 存在 → 直接用
+ *   · 若 MAIN 不存在但 QWEN_CONFIG 存在 → migrateQwenConfigToMain() 迁移到 state，保存时才写入新 key
+ *   · 两者都不存在 → 用 DEFAULT_MAIN_PROVIDER_CONFIG
+ * - v0.1 QWEN_CONFIG 保留读取路径但不再写入；保存时只写新 keys
  */
 import { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Space, Tabs, Typography, message } from 'antd';
 import {
-  Alert,
-  Button,
-  Card,
-  Form,
-  Input,
-  Select,
-  Slider,
-  Space,
-  Switch,
-  Typography,
-  message,
-} from 'antd';
-import { z } from 'zod';
-import {
+  DEFAULT_AUX_PROVIDER_CONFIG,
   DEFAULT_CHAT_SETTINGS,
-  DEFAULT_QWEN_CONFIG,
-  QWEN_MODELS,
+  DEFAULT_EMBEDDING_PROVIDER_CONFIG,
+  DEFAULT_MAIN_PROVIDER_CONFIG,
+  DEFAULT_MEMORY_SETTINGS,
   STORAGE_KEYS,
-  type ChatSettings,
-  type ProviderKind,
-  type QwenConfig,
-  type StorageSchema,
-  type TypedStorage,
+  clampMaxTurns,
   createLogger,
   maskSecret,
+  migrateQwenConfigToMain,
+  type ChatSettings,
+  type EmbeddingProviderConfig,
+  type LLMProviderConfig,
+  type MemorySettings,
+  type ProviderConfigOrRef,
+  type StorageSchema,
+  type TypedStorage,
 } from '@doc-assistant/shared';
+import { z } from 'zod';
+import { BasicTab } from './tabs/BasicTab';
+import { MemoryTab } from './tabs/MemoryTab';
+import { AdvancedTab } from './tabs/AdvancedTab';
+import { DebugTab } from './tabs/DebugTab';
 
 const logger = createLogger('ui:options');
 
-const qwenSchema = z.object({
-  apiKey: z.string().trim().min(1, '请填写 API Key'),
-  baseURL: z.string().trim().url('请输入合法的 URL'),
-  model: z.string().trim().min(1, '请选择模型'),
-  enableThinking: z.boolean(),
+const mainProviderSchema = z.object({
+  kind: z.literal('qwen'),
+  apiKey: z.string().trim().min(1, '请填写主 Provider 的 API Key'),
+  baseURL: z.string().trim().url('主 Provider 的 Base URL 不合法'),
+  model: z.string().trim().min(1, '请选择主 Provider 模型'),
+  enableThinking: z.boolean().optional(),
 });
+
+const llmProviderOrRefSchema = z.union([
+  z.object({ useMain: z.literal(true) }),
+  z.object({
+    kind: z.literal('qwen'),
+    apiKey: z.string().trim().min(1, '辅助 Provider 的 API Key 不能为空'),
+    baseURL: z.string().trim().url(),
+    model: z.string().trim().min(1),
+    enableThinking: z.boolean().optional(),
+  }),
+]);
+
+const embeddingProviderOrRefSchema = z.union([
+  z.object({ useMain: z.literal(true) }),
+  z.object({
+    kind: z.literal('qwen-embedding'),
+    apiKey: z.string().trim().min(1, 'Embedding Provider 的 API Key 不能为空'),
+    baseURL: z.string().trim().url(),
+    model: z.string().trim().min(1),
+    dimension: z.number().int().positive(),
+  }),
+]);
 
 const chatSettingsSchema = z.object({
   systemPrompt: z.string().trim().min(1, '系统提示词不能为空'),
   maxContextChars: z.number().int().min(1000).max(32000),
+  maxTurns: z.number().int().min(3).max(15),
+});
+
+const memorySettingsSchema = z.object({
+  sensitiveFilterEnabled: z.boolean(),
+  reflectionEnabled: z.boolean(),
+  workingMemoryTtlDays: z.number().int().min(1).max(365),
+  personaAutoConfirmHits: z.number().int().min(1).max(10),
 });
 
 export interface OptionsFormProps {
@@ -59,33 +90,79 @@ export interface OptionsFormProps {
 }
 
 export function OptionsForm({ storage }: OptionsFormProps) {
-  const [provider, setProvider] = useState<ProviderKind>('qwen');
-  const [qwen, setQwen] = useState<QwenConfig>(DEFAULT_QWEN_CONFIG);
+  const [main, setMain] = useState<LLMProviderConfig>(DEFAULT_MAIN_PROVIDER_CONFIG);
+  const [aux, setAux] =
+    useState<ProviderConfigOrRef<LLMProviderConfig>>(DEFAULT_AUX_PROVIDER_CONFIG);
+  const [embedding, setEmbedding] =
+    useState<ProviderConfigOrRef<EmbeddingProviderConfig>>(DEFAULT_EMBEDDING_PROVIDER_CONFIG);
   const [chat, setChat] = useState<ChatSettings>(DEFAULT_CHAT_SETTINGS);
+  const [memorySettings, setMemorySettings] = useState<MemorySettings>(DEFAULT_MEMORY_SETTINGS);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [migrated, setMigrated] = useState(false);
 
-  const keyMask = useMemo(() => maskSecret(qwen.apiKey), [qwen.apiKey]);
+  const keyMask = useMemo(() => maskSecret(main.apiKey), [main.apiKey]);
 
   useEffect(() => {
     void (async () => {
-      const [p, q, c] = await Promise.all([
-        storage.get(STORAGE_KEYS.ACTIVE_PROVIDER),
-        storage.get(STORAGE_KEYS.QWEN_CONFIG),
-        storage.get(STORAGE_KEYS.CHAT_SETTINGS),
-      ]);
-      if (p) setProvider(p);
-      if (q) setQwen({ ...DEFAULT_QWEN_CONFIG, ...q });
-      if (c) setChat({ ...DEFAULT_CHAT_SETTINGS, ...c });
+      const [mainStored, auxStored, embStored, chatStored, memStored, qwenLegacy] =
+        await Promise.all([
+          storage.get(STORAGE_KEYS.MAIN_PROVIDER_CONFIG),
+          storage.get(STORAGE_KEYS.AUX_PROVIDER_CONFIG),
+          storage.get(STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG),
+          storage.get(STORAGE_KEYS.CHAT_SETTINGS),
+          storage.get(STORAGE_KEYS.MEMORY_SETTINGS),
+          storage.get(STORAGE_KEYS.QWEN_CONFIG),
+        ]);
+
+      // 主 Provider：优先用新 key；未设置但有 v0.1 QWEN_CONFIG → 迁移
+      if (mainStored) {
+        setMain({ ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored });
+      } else if (qwenLegacy) {
+        const migratedConfig = migrateQwenConfigToMain(qwenLegacy);
+        setMain(migratedConfig);
+        setMigrated(true);
+        logger.info('检测到 v0.1 QWEN_CONFIG，迁移到 MAIN_PROVIDER_CONFIG（保存时生效）', {
+          apiKey: maskSecret(migratedConfig.apiKey),
+          model: migratedConfig.model,
+        });
+      }
+
+      if (auxStored) setAux(auxStored);
+      if (embStored) setEmbedding(embStored);
+
+      // ChatSettings：合并默认 + 旧值（可能缺 maxTurns）
+      if (chatStored) {
+        setChat({
+          ...DEFAULT_CHAT_SETTINGS,
+          ...chatStored,
+          maxTurns: clampMaxTurns(chatStored.maxTurns ?? DEFAULT_CHAT_SETTINGS.maxTurns),
+        });
+      }
+
+      if (memStored) {
+        setMemorySettings({ ...DEFAULT_MEMORY_SETTINGS, ...memStored });
+      }
+
       setLoading(false);
     })();
   }, [storage]);
 
   const handleSave = async () => {
-    const qwenResult = qwenSchema.safeParse(qwen);
-    if (!qwenResult.success) {
-      message.error(qwenResult.error.errors[0]?.message ?? '千问配置校验失败');
+    const mainResult = mainProviderSchema.safeParse(main);
+    if (!mainResult.success) {
+      message.error(mainResult.error.errors[0]?.message ?? '主 Provider 配置校验失败');
+      return;
+    }
+    const auxResult = llmProviderOrRefSchema.safeParse(aux);
+    if (!auxResult.success) {
+      message.error(auxResult.error.errors[0]?.message ?? '辅助 Provider 配置校验失败');
+      return;
+    }
+    const embResult = embeddingProviderOrRefSchema.safeParse(embedding);
+    if (!embResult.success) {
+      message.error(embResult.error.errors[0]?.message ?? 'Embedding Provider 配置校验失败');
       return;
     }
     const chatResult = chatSettingsSchema.safeParse(chat);
@@ -93,23 +170,38 @@ export function OptionsForm({ storage }: OptionsFormProps) {
       message.error(chatResult.error.errors[0]?.message ?? '对话设置校验失败');
       return;
     }
+    const memResult = memorySettingsSchema.safeParse(memorySettings);
+    if (!memResult.success) {
+      message.error(memResult.error.errors[0]?.message ?? '记忆设置校验失败');
+      return;
+    }
 
     setSaving(true);
     try {
       await storage.setMany({
-        [STORAGE_KEYS.ACTIVE_PROVIDER]: provider,
-        [STORAGE_KEYS.QWEN_CONFIG]: qwen,
+        [STORAGE_KEYS.ACTIVE_PROVIDER]: main.kind,
+        [STORAGE_KEYS.MAIN_PROVIDER_CONFIG]: main,
+        [STORAGE_KEYS.AUX_PROVIDER_CONFIG]: aux,
+        [STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG]: embedding,
         [STORAGE_KEYS.CHAT_SETTINGS]: chat,
+        [STORAGE_KEYS.MEMORY_SETTINGS]: memorySettings,
       });
+      if (migrated) {
+        // 迁移完成后清理 v0.1 遗留 key，避免下次启动再走迁移路径
+        await storage.remove(STORAGE_KEYS.QWEN_CONFIG);
+        setMigrated(false);
+      }
       logger.info('配置已保存', {
-        provider,
-        model: qwen.model,
-        enableThinking: qwen.enableThinking,
+        provider: main.kind,
+        model: main.model,
         apiKey: keyMask,
+        auxUseMain: isUseMainRef(aux),
+        embUseMain: isUseMainRef(embedding),
+        maxTurns: chat.maxTurns,
       });
       message.success('配置已保存');
     } catch (err) {
-      console.error('[ui:options] 保存失败', err);
+      logger.error('保存失败', (err as Error).message);
       message.error(`保存失败：${(err as Error).message}`);
     } finally {
       setSaving(false);
@@ -117,49 +209,12 @@ export function OptionsForm({ storage }: OptionsFormProps) {
   };
 
   const handleReset = () => {
-    setQwen(DEFAULT_QWEN_CONFIG);
+    setMain(DEFAULT_MAIN_PROVIDER_CONFIG);
+    setAux(DEFAULT_AUX_PROVIDER_CONFIG);
+    setEmbedding(DEFAULT_EMBEDDING_PROVIDER_CONFIG);
     setChat(DEFAULT_CHAT_SETTINGS);
+    setMemorySettings(DEFAULT_MEMORY_SETTINGS);
     message.info('已重置为默认值（未保存）');
-  };
-
-  /**
-   * 连接性测试：发一个极短的非流式请求，验证 apiKey + baseURL + model 三元组。
-   * 不打印 apiKey，只打印 mask。
-   */
-  const handleTestConnection = async () => {
-    const qwenResult = qwenSchema.safeParse(qwen);
-    if (!qwenResult.success) {
-      message.error(qwenResult.error.errors[0]?.message ?? '请先填写完整配置');
-      return;
-    }
-    setTesting(true);
-    logger.info('测试连接中', { baseURL: qwen.baseURL, model: qwen.model, apiKey: keyMask });
-    try {
-      const resp = await fetch(`${qwen.baseURL.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${qwen.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: qwen.model,
-          messages: [{ role: 'user', content: 'ping' }],
-          max_tokens: 1,
-          stream: false,
-        }),
-      });
-      if (resp.ok) {
-        message.success('连接成功');
-      } else {
-        const text = await resp.text().catch(() => '');
-        message.error(`连接失败：HTTP ${resp.status} ${text.slice(0, 200)}`);
-      }
-    } catch (err) {
-      console.error('[ui:options] 测试连接失败', err);
-      message.error(`连接失败：${(err as Error).message}`);
-    } finally {
-      setTesting(false);
-    }
   };
 
   if (loading) {
@@ -169,7 +224,7 @@ export function OptionsForm({ storage }: OptionsFormProps) {
   }
 
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: '24px 24px 96px' }}>
+    <div style={{ maxWidth: 880, margin: '0 auto', padding: '24px 24px 96px' }}>
       <Typography.Title level={3} style={{ marginTop: 0 }}>
         Doc Assistant · 配置
       </Typography.Title>
@@ -177,110 +232,53 @@ export function OptionsForm({ storage }: OptionsFormProps) {
         所有配置仅保存在本地浏览器（chrome.storage.local），不会上传任何服务器。
       </Typography.Paragraph>
 
-      {/* Provider 区块 */}
-      <Card title="大模型服务" style={{ marginBottom: 16 }}>
-        <Form layout="vertical" requiredMark={false}>
-          <Form.Item label="Provider">
-            <Select
-              value={provider}
-              onChange={setProvider}
-              options={[{ label: '千问 Qwen（阿里云百炼）', value: 'qwen' }]}
-            />
-          </Form.Item>
-
-          {provider === 'qwen' && (
-            <>
-              <Form.Item
-                label="API Key"
-                extra={
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    存储位置：chrome.storage.local（仅本机）。保存后日志中将脱敏显示为
-                    <code style={{ marginLeft: 4 }}>{keyMask || '****'}</code>。
-                  </Typography.Text>
-                }
-              >
-                <Input.Password
-                  value={qwen.apiKey}
-                  onChange={(e) => setQwen({ ...qwen, apiKey: e.target.value })}
-                  placeholder="sk-..."
-                  autoComplete="off"
-                />
-              </Form.Item>
-
-              <Form.Item
-                label="Base URL"
-                extra="千问的 OpenAI 兼容端点；如无特殊需求保持默认。"
-              >
-                <Input
-                  value={qwen.baseURL}
-                  onChange={(e) => setQwen({ ...qwen, baseURL: e.target.value })}
-                />
-              </Form.Item>
-
-              <Form.Item label="模型">
-                <Select
-                  value={qwen.model}
-                  onChange={(v) => setQwen({ ...qwen, model: v })}
-                  showSearch
-                  options={QWEN_MODELS.map((m) => ({ label: m, value: m }))}
-                />
-              </Form.Item>
-
-              <Form.Item
-                label="启用思考模式（reasoning_content）"
-                extra="开启后助手会流式返回思考过程；部分模型需要 qwen3 系列才能生效。"
-              >
-                <Switch
-                  checked={qwen.enableThinking}
-                  onChange={(v) => setQwen({ ...qwen, enableThinking: v })}
-                />
-              </Form.Item>
-
-              <Space>
-                <Button onClick={handleTestConnection} loading={testing}>
-                  测试连接
-                </Button>
-              </Space>
-            </>
-          )}
-        </Form>
-      </Card>
-
-      {/* 对话行为 */}
-      <Card title="对话行为" style={{ marginBottom: 16 }}>
-        <Form layout="vertical" requiredMark={false}>
-          <Form.Item label="默认系统提示词">
-            <Input.TextArea
-              rows={4}
-              value={chat.systemPrompt}
-              onChange={(e) => setChat({ ...chat, systemPrompt: e.target.value })}
-            />
-          </Form.Item>
-
-          <Form.Item
-            label={`上下文字符上限：${chat.maxContextChars}`}
-            extra="粗略按字符估算；触发阈值后较早的消息与页面内容将被截断或摘要。"
-          >
-            <Slider
-              min={1000}
-              max={32000}
-              step={500}
-              value={chat.maxContextChars}
-              onChange={(v) => setChat({ ...chat, maxContextChars: v })}
-            />
-          </Form.Item>
-        </Form>
-      </Card>
-
-      {/* 关于 */}
-      <Card title="关于">
+      {migrated && (
         <Alert
-          type="info"
+          type="success"
           showIcon
-          message="当前版本：v0.1（MVP）"
-          description="记忆层、OCR、向量召回、云同步等能力已在 docs/ROADMAP.md 中规划。MVP 版本对话记录仅保留在当前窗口，刷新页面后丢失，这是预期行为。"
+          style={{ marginBottom: 16 }}
+          message="已从 v0.1 迁移千问配置"
+          description="原有 API Key / Base URL / 模型已迁移到新的「主 Provider」配置。点击保存完成迁移。"
         />
-      </Card>
+      )}
+
+      <Tabs
+        defaultActiveKey="basic"
+        items={[
+          {
+            key: 'basic',
+            label: '基础',
+            children: (
+              <BasicTab main={main} onMainChange={setMain} chat={chat} onChatChange={setChat} />
+            ),
+          },
+          {
+            key: 'memory',
+            label: '记忆',
+            children: (
+              <MemoryTab
+                main={main}
+                aux={aux}
+                onAuxChange={setAux}
+                embedding={embedding}
+                onEmbeddingChange={setEmbedding}
+                settings={memorySettings}
+                onSettingsChange={setMemorySettings}
+              />
+            ),
+          },
+          {
+            key: 'advanced',
+            label: '高级',
+            children: <AdvancedTab chat={chat} onChatChange={setChat} />,
+          },
+          {
+            key: 'debug',
+            label: '调试',
+            children: <DebugTab />,
+          },
+        ]}
+      />
 
       {/* 底部保存栏 */}
       <div
@@ -307,4 +305,8 @@ export function OptionsForm({ storage }: OptionsFormProps) {
       </div>
     </div>
   );
+}
+
+function isUseMainRef(v: unknown): boolean {
+  return !!v && typeof v === 'object' && (v as { useMain?: boolean }).useMain === true;
 }
