@@ -1,12 +1,25 @@
 /**
  * NullMemoryStore · 空实现
  * ---------------------------------------------
- * MVP 默认注入此实现：所有方法是 no-op。
- * Agent 层写 remember()、读 recall() 都能正常运行，只是不返回任何数据。
+ * 所有方法都是 no-op，用于：
+ * - 单测里替代真 Dexie（避免 fake-indexeddb 启动成本）
+ * - 扩展启动早期未初始化 IDB 的兜底
+ * - 用户禁用记忆层时的替代
  *
- * PHASE2: 替换为 DexieMemoryStore 即可接入完整能力，Agent 代码零改动。
+ * v0.2：新增的可选方法也全部提供 no-op，保证上层代码在 NullStore 与 DexieStore 间切换零 breaking。
  */
-import type { MemoryRecord, MemoryStore, RecallQuery } from './interface';
+import type {
+  MemoryRecord,
+  MemoryStore,
+  RecallQuery,
+  PersonaRecord,
+  PersonaStatus,
+  SessionTopicRecord,
+  WorkingMemoryRecord,
+  ReflectionTask,
+  ReflectionStatus,
+  PageVisitRecord,
+} from './interface';
 
 export class NullMemoryStore implements MemoryStore {
   async remember(_record: MemoryRecord): Promise<void> {
@@ -15,5 +28,91 @@ export class NullMemoryStore implements MemoryStore {
 
   async recall(_query: RecallQuery): Promise<MemoryRecord[]> {
     return [];
+  }
+
+  async getWorkingMemory(_canonicalUrl: string): Promise<WorkingMemoryRecord | null> {
+    return null;
+  }
+
+  async setWorkingMemory(_record: WorkingMemoryRecord): Promise<void> {
+    // no-op
+  }
+
+  async touchWorkingMemory(_canonicalUrl: string, _at?: number): Promise<void> {
+    // no-op
+  }
+
+  async archiveStaleWorkingMemories(_ttlMs: number): Promise<number> {
+    return 0;
+  }
+
+  async listPersonas(_opts?: { status?: PersonaStatus }): Promise<PersonaRecord[]> {
+    return [];
+  }
+
+  async addPersonaCandidate(
+    candidate: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>,
+  ): Promise<PersonaRecord> {
+    const now = Date.now();
+    return {
+      ...candidate,
+      id: `null-${now}`,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  async updatePersona(
+    _id: string,
+    _patch: Partial<PersonaRecord>,
+    _reason?: string,
+  ): Promise<void> {
+    // no-op
+  }
+
+  async setSessionTopic(_record: SessionTopicRecord): Promise<void> {
+    // no-op
+  }
+
+  async getSessionTopic(_visitId: string): Promise<SessionTopicRecord | null> {
+    return null;
+  }
+
+  async enqueueReflection(
+    task: Omit<ReflectionTask, 'id' | 'createdAt' | 'attemptsCount' | 'status'> & {
+      id?: string;
+      status?: ReflectionStatus;
+    },
+  ): Promise<ReflectionTask> {
+    const now = Date.now();
+    return {
+      id: task.id ?? `null-${now}`,
+      visitId: task.visitId,
+      taskType: task.taskType,
+      status: task.status ?? 'pending',
+      attemptsCount: 0,
+      createdAt: now,
+      ...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
+      ...(task.lastError !== undefined ? { lastError: task.lastError } : {}),
+    };
+  }
+
+  async listPendingReflections(_maxAttempts?: number): Promise<ReflectionTask[]> {
+    return [];
+  }
+
+  async updateReflection(
+    _id: string,
+    _patch: Partial<Pick<ReflectionTask, 'status' | 'attemptsCount' | 'completedAt' | 'lastError'>>,
+  ): Promise<void> {
+    // no-op
+  }
+
+  async recordPageVisit(_visit: PageVisitRecord): Promise<void> {
+    // no-op
+  }
+
+  async close(): Promise<void> {
+    // no-op
   }
 }

@@ -2,7 +2,7 @@
   "name": "@doc-assistant/memory",
   "version": "0.1.0",
   "private": true,
-  "description": "Doc Assistant · 记忆层（MVP 仅接口 + NullMemoryStore）",
+  "description": "Doc Assistant · 记忆层（v0.2 Dexie 落地：四层记忆 + 向量召回）",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -14,9 +14,15 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@doc-assistant/shared": "workspace:*"
+    "@doc-assistant/shared": "workspace:*",
+    "dexie": "^4.0.10"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0",
+    "vitest": "^2.1.4"
   }
 }

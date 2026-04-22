@@ -75,25 +75,16 @@ module.exports = {
       },
     },
     /**
-     * MVP 约束：Memory 层禁止引入持久化库
+     * v0.2 起：Memory 层解除 dexie 约束（PHASE2 已落地）
      * ---------------------------------------------
-     * MVP 仅保留接口与 NullMemoryStore；dexie 在 Phase 2 接入（见 docs/ROADMAP.md §2）。
+     * v0.1 MVP 仅保留接口与 NullMemoryStore，禁止 dexie；
+     * v0.2 起 DexieMemoryStore 落地（见 docs/ROADMAP.md §2），memory 层可直接依赖 dexie。
+     * 其它包（agent / tools / ui / provider）仍然不得依赖 dexie，统一走 MemoryStore 接口。
      */
     {
       files: ['packages/memory/**/*.{ts,tsx}'],
       rules: {
-        'no-restricted-imports': [
-          'error',
-          {
-            paths: [
-              {
-                name: 'dexie',
-                message:
-                  '[MVP 约束] 记忆层 MVP 不接入 dexie，请仅使用接口 + NullMemoryStore。详见 docs/ROADMAP.md §2。',
-              },
-            ],
-          },
-        ],
+        // 本块曾禁止 import 'dexie'，v0.2 起不再限制。
       },
     },
     /**
