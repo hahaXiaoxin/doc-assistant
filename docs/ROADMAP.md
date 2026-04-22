@@ -1,8 +1,8 @@
 # Doc Assistant · 后续迭代规划（ROADMAP）
 
-> **本文件记录 MVP v0.1 明确不做的能力，以及其设计意图、架构预留点、实现约束与禁止事项。**
+> **本文件记录对外发布能力的版本规划，以及每个大阶段的设计原则、架构预留点、实现约束与禁止事项。**
 >
-> 后续迭代（包括 AI 协作开发）**必须先阅读本文件**以保持架构一致性，不得在未读本文件的前提下自作主张实现下列任何内容。
+> 后续迭代（包括 AI 协作开发）**必须先阅读本文件**以保持架构一致性。
 >
 > 文件内 `§1/§2/§3/§4` 标号与代码内 `// PHASE2:` / `// PHASE3:` 注释锚点一一对应。
 
@@ -12,13 +12,165 @@
 
 | 版本 | 主题 | 状态 |
 | --- | --- | --- |
-| **v0.1（MVP，当前）** | 页面内文本对话 · Provider/Agent/Tools/UI 四层架构 · 侧边对话框 · 独立配置页 · 划词引用 · 斜杠命令 | ✅ 已发布 |
-| v0.2（Phase 2-a） | 记忆层落地（Dexie + remember/recall，无向量） | 规划中 |
-| v0.3（Phase 2-b） | 域名级 DSL 自学习文章提取器 | 规划中 |
-| v0.4（Phase 2-c） | 千问 embedding + 向量召回 + `recall_memory` tool | 规划中 |
-| v0.5（Phase 3-a） | OCR 策略 · 截图工具 | 规划中 |
-| v0.6（Phase 3-b） | CheckerAgent · 实时提醒（MutationObserver + 防抖） | 规划中 |
-| v0.7（Phase 4） | 云端同步（选配，E2EE） | 规划中 |
+| **v0.1（MVP）** | 页面内文本对话 · Provider/Agent/Tools/UI 四层架构 · 侧边对话框 · 独立配置页 · 划词引用 · 斜杠命令 | ✅ 已发布（2026-04-17） |
+| **v0.1.1** | Sidebar 真实页面可用性修复（Shadow DOM / finish 语义 / CORS / modulePreload 等 7 条踩坑） | ✅ 已发布（2026-04-18） |
+| **v0.2.0 · Phase2 基础设施** | 三套 Provider + DexieMemoryStore + 四层记忆 Schema + PageVisit + Agent Loop 兜底 + 配置页 Tab 分页 | 🚧 开发中 |
+| **v0.2.1 · Phase2 高级能力** | 辅助 LLM（主题识别/Intent/反思）+ 反思 Job + 召回机制 + `/recall` `/topic` + WorkingMemory tools + Persona 审核 UI | 规划中 |
+| **v0.3（Phase2-b）** | 域名级 DSL 自学习文章提取器（见 §1） | 规划中 |
+| **v0.4（Phase3-a）** | OCR 策略 · 截图工具（见 §3） | 规划中 |
+| **v0.5（Phase3-b）** | CheckerAgent · 实时提醒（见 §4） | 规划中 |
+| **v0.6（Phase4）** | 云端同步（选配，E2EE）（见 §5） | 规划中 |
+
+---
+
+## §2 · Phase 2：记忆层（类人脑分层工作机制）· v0.2 定稿方案
+
+> **核心理念**：记忆层的本质是"每一轮组装合适的上下文给 LLM"，而不是"把聊天窗口原样丢过去"。
+> 用户原话：如果把 LLM 当作一个人，那么它应该是从过去的对话中**记住一些东西**而不是直接把聊天窗口丢给 LLM。
+
+### 四层记忆（定稿）
+
+| 层 | 用途 | 生命周期 | 注入策略 | 写入主体 |
+| --- | --- | --- | --- | --- |
+| **Persona（个性）** | 关于用户的稳定事实 / 偏好，如"偏好 TypeScript"、"喜欢源码级解释" | 永久 | Top-10 常驻 system prompt（仅 reviewedByUser=true） | 辅 LLM 异步反思 + 主 LLM `remember_persona` tool |
+| **Episodic（事件）** | 对话/阅读的长期历史，两级粒度：`episodes_msg`（消息原文） + `episodes_visit_summary`（visit 摘要 + embedding） | 永久 | **默认不注入，按需召回** | 代码同步写 msg 级；辅 LLM 异步写 summary 级 |
+| **SessionTopic（情景）** | 当前 PageVisit 的领域焦点（类似 system prompt 角色指令），用于约束 LLM 注意力；对用户透明 | PageVisit 级 | 常驻一行 | 辅 LLM 每 3-5 轮识别 |
+| **WorkingMemory（工作）** | 按 canonicalUrl 绑定的 TodoList + ActiveGoal，让 Agent 知道"正在做什么" | 30 天 LRU 软 TTL | 常驻列表 | 主 LLM 通过 7 个细粒度 tool |
+
+### PageVisit 替代 session 概念
+
+- **PageVisit** = 一次 tab 开→关的物理 UI 边界
+- 切换 canonicalUrl 或 `/new` 命令 = 新 PageVisit
+- 对话连续性**不靠 session 实体**，靠记忆召回自动恢复（用户类比："人第二天依然可以接着前一天的工作来"）
+- `PageVisitManager`（`packages/agent/src/page-visit/`）负责生命周期
+
+### URL 归一化
+
+- 优先 `<link rel="canonical">` / `og:url` / `twitter:url`
+- 回退：原始 URL 剥离 UTM 家族 / fbclid / gclid → 去 hash → 去结尾斜杠
+- 实现：`packages/shared/src/url-normalize.ts`
+
+### 召回策略
+
+- **默认常驻注入**：Persona / SessionTopic / WorkingMemory / ChatHistory / Page / Reference
+- **按需召回**（RelevantMemorySource priority=40）：
+  - 代码关键词粗匹配（"上次 / 之前 / 前几天 / 还记得 / 我们聊过 / 昨天 / ..."）
+  - 命中后**辅 LLM intent 二次确认**防止假阳性
+  - 确认后走 embedding 向量召回 Top-K
+- **主 LLM 主动路径**：`recall_memory` tool
+- **用户显式路径**：`/recall <query>` 命令
+
+### 三套 Provider 配置
+
+- `main`：主对话（必填，v0.1 → v0.2 自动迁移旧 QWEN_CONFIG）
+- `auxiliary`：话题识别 / 反思 / Intent 精判（默认复用主，可单独配 qwen-turbo 省钱）
+- `embedding`：visit_summary 向量化 + query 向量化（默认复用主的 baseURL+apiKey，model 单独填 v2/v3）
+- 所有 Provider 统一 `baseUrl + model + apiKey` 规范，可接入本地或云端
+
+### 敏感信息过滤
+
+- 默认**开启**（用户可关）
+- 模式：email / 手机号 / 身份证 / apiKey（sk-/ghp_/AKID/JWT 等）/ 信用卡号
+- 处理：写入 IDB 前替换为 `[REDACTED:type]`；LLM 上下文也是占位符
+- 实现：`packages/shared/src/sensitive-filter.ts`
+
+### 反思 Job（可靠性设计）
+
+- **同步必做**：每条消息到达立即同步写 `episodes_msg` + `working_memories.touchLastAccessed`
+- **异步补跑**：PageVisit 结束时登记 `reflection_tasks`，当场尝试执行（失败无妨）
+- **补跑时机**：下次 sidebar 打开扫 pending + `chrome.alarms` 每 60 分钟扫描
+- **容错**：失败重试 3 次 → 标记 failed 不再重试
+- 关键：原始消息**绝对落盘**，反思失败只影响 summary/persona 生成
+
+### Persona 审核交互
+
+- **配置页 Tab**：完整审核列表（批量接受/拒绝/编辑）
+- **sidebar 折叠条**：参考 codebuddy 文件变更确认条样式
+  - 折叠态：`> N 条新的个性记忆待审核 [接受全部][忽略][去配置页]`
+  - 展开态：逐条显示 content / 来源 / 置信度 / [✓接受][✗拒绝][编辑]
+- **丢弃语义**：tab 关闭即丢 UI 提醒，数据保留在 IDB，用户随时可去配置页批量审核
+- **不重复打扰**：已浮现过的 candidate 不再主动浮（b 选项）
+
+### 命令语义
+
+| 命令 | 语义 |
+| --- | --- |
+| `/new` | 重启 = 清 UI + 清 history + 新 visitId；**不清** WorkingMemory / Persona / Episodic |
+| `/topic` | 强制辅 LLM 重识别主题（高级用户） |
+| `/topic <文本>` | 手动设置领域焦点（高级用户） |
+| `/recall <query>` | 显式语义召回 Episodic |
+| `/forget` | 本期不做（延后） |
+
+### 分工原则
+
+- **纯确定性任务 → 代码**（消息写入、URL 归一化、敏感过滤、关键词粗匹配、TTL 清理、WorkingMemory 读写）
+- **代码能做但语义易错 → 代码粗判 + 辅 LLM 精判**（召回 intent）
+- **必须语义理解 → 辅 LLM**（SessionTopic 识别、visit summary、Persona 抽取、冲突检测）
+- **主 LLM 只做主对话 + 必要时调 tool**，不承担副任务
+
+### ContextSource priority 约定（严格遵循）
+
+| priority | Source | 说明 |
+| --- | --- | --- |
+| 100 | SystemPromptSource | MVP |
+| 80 | PageContextSource | MVP |
+| 70 | ReferenceTagSource | MVP |
+| 60 | PersonaSource | **v0.2.0** |
+| 55 | SessionTopicSource | **v0.2.0** |
+| 50 | WorkingMemorySource | **v0.2.0** |
+| 40 | RelevantMemorySource | **v0.2.1** |
+| 20 | SessionSummarySource | 预留（本期不做） |
+| 10 | ChatHistorySource | MVP |
+
+### v0.2.0（基础设施）已完成 / 进行中
+
+- [x] `@doc-assistant/shared`：三套 Provider 配置 + MemorySettings + url-normalize + sensitive-filter + clampMaxTurns
+- [x] `@doc-assistant/provider`：EmbeddingProvider 接口 + QwenEmbeddingProvider
+- [x] `@doc-assistant/agent`：Loop 最后一轮兜底（纯 A）+ PageVisitManager + Phase2 ContextSource（Persona/SessionTopic/WorkingMemory）
+- [x] `@doc-assistant/memory`：DexieMemoryStore（6 张表 + 向量余弦 + LRU + 敏感过滤）+ NullMemoryStore no-op 兼容
+- [x] 配置页 Tab 分页（基础 / 记忆 / 高级 / 调试）+ ProviderConfigForm 复用组件
+- [x] Sidebar bootstrap 装配三套 Provider + DexieMemoryStore + PageVisitManager
+- [x] Service Worker 注册 `reflection-scan` alarm（占位，v0.2.1 填充执行器）
+- [x] v0.1 → v0.2 配置迁移（bootstrap 自动迁移，用户无感升级）
+
+### v0.2.1（高级能力）待实现
+
+- [ ] 辅助 LLM 调用链（SessionTopic 识别 + aux-intent）
+- [ ] ReflectionRunner + ReflectionScheduler 补跑机制
+- [ ] RelevantMemorySource + recall-triggers + 向量召回 Top-K + 邻居消息拼接
+- [ ] `recall_memory` / `remember_persona` tool + WorkingMemory 7 个 tool
+- [ ] `/recall` / `/topic` 命令 + `/new` 语义重构
+- [ ] PersonaReviewBanner（sidebar 折叠条） + PersonaReviewList（配置页）+ WorkingMemoryCard + RecallResultCard
+
+### 架构红线（ESLint 强约束）
+
+- Agent 层禁止 `import 'ai'` / `@ai-sdk/*`（通过 LLMProvider / EmbeddingProvider 接口访问）
+- **v0.2 起**：Memory 层**解除** dexie 约束（Phase2 已落地）
+- Tools 层仍禁止 `tesseract.js`（Phase3-a 才解禁）
+- ESLint `no-eval` 持续通过
+- `MemoryStore.remember / recall` 签名不得修改；新增方法一律**可选**；NullMemoryStore 提供 no-op 兜底
+- ContextSource priority 按上表约定，新 Source 不得占用已有数字
+
+### 禁止事项（红线）
+
+- ❌ API Key 不得写入 IndexedDB（仅 `chrome.storage.local`）
+- ❌ 记录中不得存储用户完整 apiKey / cookie / 登录态
+- ❌ 向量维度与 embedding 模型必须绑定；更换模型要清库重建
+- ❌ `/new` 不得清除 WorkingMemory / Persona / Episodic（语义是"重启对话线"而非"擦除记忆"）
+- ❌ SessionTopic / 反思 Job 不得污染主 LLM 请求（辅 LLM 独立调用）
+
+### 相关代码锚点
+
+- `packages/memory/src/interface.ts` · MemoryStore 契约 + 所有类型
+- `packages/memory/src/db/` · DexieMemoryStore / vector / schema
+- `packages/agent/src/context/{persona,session-topic,working-memory}.ts` · 三个新 Source
+- `packages/agent/src/page-visit/` · PageVisit 生命周期
+- `packages/agent/src/loop.ts` · Loop 兜底
+- `packages/provider/src/qwen/embedding.ts` · QwenEmbeddingProvider
+- `packages/shared/src/{url-normalize,sensitive-filter,config}.ts` · 核心工具
+- `apps/extension/src/sidebar/bootstrap.ts` · 装配入口
+- `apps/extension/src/background/index.ts` · SW alarms
+- `packages/ui/src/features/options/` · 配置页 Tab
 
 ---
 
@@ -48,28 +200,28 @@
 | `packages/tools/src/page/content/index.ts` | `contentRegistry.register(...)` 入口 |
 | `packages/tools/src/page/types.ts` | `IdentityStrategy` / `ContentExtractor` 接口，已含 `priority` 字段 |
 
-**对应单测**：`packages/tools/src/__tests__/pipeline.test.ts` 的 "支持注入更高优先级策略覆盖内置" / "支持注入自定义 extractor" 两个用例就是 Phase 2-b 的**提前演练**，实现时应继续通过这两个 test。
+**对应单测**：`packages/tools/src/__tests__/pipeline.test.ts` 的 "支持注入更高优先级策略覆盖内置" / "支持注入自定义 extractor" 两个用例就是 Phase 2-b 的**提前演练**。
 
 ### DSL Schema 草案
 
 ```ts
 interface DomainExtractorScript {
-  version: 1;                     // 未来升级的兼容 key
-  domain: string;                 // e.g. "docs.qq.com"
-  urlPattern?: string;            // 可选正则；不同子路径用不同脚本
+  version: 1;
+  domain: string;
+  urlPattern?: string;
   createdAt: number;
   lastValidatedAt: number;
 
   identity: {
-    idFrom: IdentitySource[];     // 顺序尝试
+    idFrom: IdentitySource[];
     titleFrom: IdentitySource[];
   };
 
   content: {
-    root: Selector;               // 主体节点选择器
-    exclude: Selector[];          // 排除噪音节点
+    root: Selector;
+    exclude: Selector[];
     titleSelector?: Selector;
-    format: 'text' | 'markdown';  // MVP 只支持 text
+    format: 'text' | 'markdown';
   };
 }
 
@@ -80,143 +232,21 @@ type IdentitySource =
   | { type: 'metaProperty'; name: string }
   | { type: 'jsonLdField'; jsonPath: string };
 
-type Selector = string; // CSS 选择器白名单（由解释器 sanitize）
+type Selector = string;
 ```
 
-### DSL 解释器约束（硬性）
+### DSL 解释器约束
 
-实现 `DomainDslExtractor` 时必须遵守：
-
-1. **CSS 选择器 sanitize**：禁止 `:has()` 以外的 CSS4 伪类中可能触发大量计算的用法；禁止包含 `<script>` / `<style>` 的选择器；用白名单校验。
-2. **不访问 `document.cookie` / `localStorage` / `fetch`**：DSL 工具集仅提供 DOM 查询与文本处理。
-3. **不修改页面 DOM**：只读，`document.cloneNode(true)` 后再操作。
-4. **执行时间上限**：单次提取 500ms 超时自动降级到内置 pipeline。
-
-### 触发与缓存策略
-
-- **按需触发**：用户首次对该域名的文章使用对话功能时才生成
-- **样本压缩**：向 LLM 发送的页面样本必须先做"DOM outline"
-  - 保留标签层级 + 关键属性（`id`、`class`、`role`、`itemprop`）
-  - 每个 text node 截断到 80 字符
-  - 剪掉 `<script>` / `<style>` / SVG / base64 图片
-  - 目标：< 10K tokens
-- **缓存粒度**：`domain + urlPattern` 组合；同域名可存多条脚本
-
-### 降级与失效检测
-
-- 每次执行后校验结果：title 非空、content 长度 ≥ 120 字、文字占比 ≥ 40%
-- 失败标记 `stale=true`，下次访问该域名重新生成
-- 用户可在对话框菜单手动"重新识别此站点"（对应新增命令 `/relearn-site`）
-
-### 禁止事项（红线）
-
-- ❌ 不得引入动态 `eval` / `new Function` / `script.textContent = ...` 等代码注入方式
-- ❌ 不得给 DSL 提供任何网络访问工具
-- ❌ 不得绕过本文件的白名单校验
-- ❌ ESLint 的 `no-eval` 规则必须对新增代码持续通过
-
-### 相关代码锚点
-
-- `packages/tools/src/page/types.ts:10`
-- `packages/tools/src/page/identity/index.ts:5`
-- `packages/tools/src/page/content/index.ts:4`
-- `packages/tools/src/page/pipeline.ts:8`
-- `packages/tools/src/registry.ts:5`
-
----
-
-## §2 · Phase 2-a / 2-c：记忆层落地
-
-### 设计目标
-
-> "所有对话/上下文作为一种可检索的记忆资源，由用户通过自然语言召回。"
-
-不提供传统的"会话列表 UI"，用户通过自然语言（"我上次看 MDN 时记录了什么？"）让 Agent 调用 `recall_memory` tool 召回。
-
-### 接口已定义位置
-
-- `packages/memory/src/interface.ts`：`MemoryStore` / `MemoryRecord` / `RecallQuery`
-- `packages/memory/src/null-store.ts`：MVP 注入的空实现，Phase 2 仅替换为 `DexieMemoryStore` 即可，**Agent 代码零改动**。
-
-### 实现范围
-
-#### Phase 2-a（v0.2）·无向量的 Dexie 存储
-
-- 依赖：新增 `dexie`（解除 ESLint 约束：`.eslintrc.cjs` 的 memory overrides）
-- Schema：
-  ```ts
-  db.version(1).stores({
-    records: '++pk, id, type, articleId, domain, url, timestamp, sessionId',
-    sessions: '++pk, sessionId, articleId, domain, startedAt, endedAt'
-  });
-  ```
-- `remember()`：写入 `MemoryRecord`；自动维护 `sessions` 表
-- `recall()`：按 `timeRange / domain / articleId / topic` 过滤；`semantic` 退化为**关键词 LIKE**
-- 自动清理：超过存储配额（navigator.storage.estimate()）的 80% 时删除最旧 `message` 类型记录
-
-#### Phase 2-c（v0.4）·向量化 + 语义召回
-
-- 新增 Provider：`EmbeddingProvider` 接口 + `QwenEmbeddingProvider` 实现（千问 `text-embedding-v2`）
-- `MemoryRecord.embedding: Float32Array` 在 remember 时异步填充
-- `recall()` 的 `semantic` 走余弦相似度（MVP 数据量不大，JS 内存里扫）
-- 新增 LLM Tool：`recall_memory`（在 `packages/tools/src/definitions/` 新增）
-
-### ContextSource 追加
-
-MVP 已设计好扩展接缝（`packages/agent/src/context/source.ts`、`index.ts`）：
-
-- **LongTermMemorySource**（priority 40）：从 Memory 查询 `type='fact'` 的长期记录（如"用户偏好 TypeScript"）
-- **RelevantMemorySource**（priority 30）：按 `ctx.userInput` 语义查询相关历史片段
-- **SessionSummarySource**（priority 20）：当前会话过长时提供压缩摘要
-
-Phase 2-c 实现后，在 `buildDefaultMVPSources` → `buildDefaultPhase2Sources` 追加这三个即可，其它代码零改动。
-
-### 数据模型（完整）
-
-```ts
-interface MemoryRecord {
-  id: string;
-  type: 'message' | 'summary' | 'fact' | 'reference';
-  content: string;
-  embedding?: Float32Array;
-  timestamp: number;
-
-  articleId?: string;
-  domain?: string;
-  url?: string;
-  topic?: string[];
-  sessionId?: string;
-
-  parentId?: string;
-  references?: string[];
-  meta?: Record<string, unknown>;
-}
-```
-
-### `/new` 命令语义保持不变
-
-- `/new` 永远只清 UI 当前窗口的消息与即将发给 LLM 的 history
-- **绝不影响记忆层**；新增 `/forget` 命令用于真正从记忆层删除
+1. **CSS 选择器 sanitize**（禁止 `<script>` / `<style>`，白名单校验）
+2. **不访问 `document.cookie` / `localStorage` / `fetch`**
+3. **不修改页面 DOM**（只读 + cloneNode）
+4. **执行时间上限** 500ms 超时降级
 
 ### 禁止事项
 
-- ❌ **API Key 不得写入 IndexedDB**（仅 chrome.storage.local）
-- ❌ 记录中不得存储用户的完整 apiKey / cookie / 登录态
-- ❌ 向量维度与 embedding 模型必须绑定；更换模型要写迁移
-
-### 相关代码锚点
-
-- `packages/memory/src/interface.ts:7, 21, 42`
-- `packages/memory/src/null-store.ts:7`
-- `packages/memory/src/index.ts:7`
-- `packages/agent/src/context/source.ts:8`
-- `packages/agent/src/context/index.ts:33`
-- `packages/agent/src/context/chat-history.ts:7`
-- `packages/ui/src/commands/registry.ts:4, 40`
-- `packages/ui/src/commands/types.ts:5`
-- `packages/ui/src/commands/new-command.ts:5`
-- `packages/ui/src/components/MessageBubble.tsx:7`
-- `packages/tools/src/definitions/index.ts:4`
+- ❌ 不得引入 `eval` / `new Function` / `script.textContent = ...`
+- ❌ 不得给 DSL 提供网络访问工具
+- ❌ 不得绕过白名单
 
 ---
 
@@ -228,48 +258,22 @@ interface MemoryRecord {
 
 ### 策略模式（接口已定义）
 
-`packages/tools/src/ocr/interface.ts`：`OCRStrategy` 骨架
-
-```ts
-interface OCRStrategy {
-  readonly name: string;
-  readonly priority: number;
-  recognize(input: OCRInput): Promise<OCRResult>;
-}
-```
+`packages/tools/src/ocr/interface.ts` · `OCRStrategy` 骨架。
 
 ### 预期实现
 
-1. **TesseractOCRStrategy**（轻量本地，第一步）
-   - 依赖 `tesseract.js`（解除 ESLint 的 tools overrides 约束）
-   - Web Worker 异步处理，避免阻塞主线程
-   - 支持 `chi_sim` / `eng`
-2. **MultimodalLLMOCRStrategy**（第二步）
-   - 直接调用千问多模态模型（`qwen-vl-plus`），传图片 base64
-   - 对数学公式转 LaTeX 效果更好
-3. **兜底**：若策略均失败，返回 `{ text: '', confidence: 0 }` 而非抛错
+1. **TesseractOCRStrategy**（第一步，解除 tools 的 `tesseract.js` ESLint 约束）
+2. **MultimodalLLMOCRStrategy**（第二步，调千问 `qwen-vl-plus`）
+3. **兜底**：所有策略失败返回 `{ text: '', confidence: 0 }` 不抛错
 
 ### 新增 LLM Tool
 
-- `capture_canvas`：遍历页面 `<canvas>`（含 `display:none`/`visibility:hidden`），调 `canvas.toDataURL()`
-- `capture_region`：用户框选后截取区域（`chrome.tabs.captureVisibleTab` + 裁剪）
-- `recognize_text`：对图片 data URL 调度 OCR 策略链
+- `capture_canvas` · `capture_region` · `recognize_text`
 
 ### 合规性
 
-- 识别前必须**显式告知用户识图用途**；在设置页增加开关
-- 禁止自动识别验证码、身份证等隐私敏感内容（URL 匹配黑名单）
-
-### 禁止事项
-
-- ❌ 未经用户确认，不得自动对整页做 OCR
-- ❌ 不得把 OCR 结果写入记忆层的 `fact` 类型（防止隐私泄漏）
-
-### 相关代码锚点
-
-- `packages/tools/src/ocr/interface.ts:4, 26, 30`
-- `packages/tools/src/index.ts:39`
-- `packages/tools/src/definitions/index.ts:5`
+- 识别前**显式告知用户**；配置页开关
+- 禁止自动识别验证码 / 身份证等隐私敏感内容（URL 黑名单）
 
 ---
 
@@ -279,48 +283,25 @@ interface OCRStrategy {
 
 用户阅读到某段内容时，CheckerAgent 基于上下文检测**与历史记忆的关联点、潜在错误信息**，主动推送小提示（不打断阅读）。
 
-### 触发机制（用户 27 号需求确认的方案）
+### 触发机制
 
-- **用户手动激活**：设置页或 sidebar 菜单开启"实时提醒"开关
-- **激活后监听**：对页面主体文本元素使用 `IntersectionObserver` 监听
-- **已读标记**：元素首次显示即 `Map<elementId, true>` 标记，并 `unobserve`（不再重复监听）
-- **新增内容监听**：对动态加载的 DOM 使用 `MutationObserver`
-- **防抖提交**：
-  - 新增文本量达到 ≥ 200 字符 **或**
-  - 距上次提交超过 3s
-  - 满足任一即触发 CheckerAgent
+- **用户手动激活**：设置页/sidebar 菜单开关
+- **激活后**：对页面主体文本用 `IntersectionObserver`
+- **已读标记** + **MutationObserver** 追踪新增 DOM
+- **防抖提交**：新增文本量 ≥ 200 字符 **或** 距上次 > 3s
 
 ### Agent 架构
 
-- CheckerAgent 继承 `Agent` 基类（`packages/agent/src/agent.ts`）
-- 通过 `AgentOrchestrator.register(checkerAgent)` 注册（`packages/agent/src/orchestrator.ts:5`）
-- 独立的 `ContextSource` 组合：
-  - SystemPromptSource（Checker 专属提示词："你是背景校验助手…"）
-  - PageContextSource（仅新增的文本段，不含历史）
-  - RelevantMemorySource（从记忆层召回可能相关的历史）
-  - **不使用** ChatHistorySource（Checker 是旁路检查，不涉及对话流）
-- 输出直接走一条**旁路流**（UI 上用 Toast/右上角轻提示，不进主消息流）
-
-### Orchestrator 扩展
-
-- `AgentOrchestrator` 增加 `routeProactive(event): Agent` 方法
-- 主对话 Agent 看到 Checker 的推送可以"引用"其结论
-
-### UI 改动
-
-- sidebar 新增 "监听" toggle + 激活态小红点
-- 新增 `ProactiveNotificationToast` 组件（右上角卡片，3s 自动消失，可 pin）
+- CheckerAgent 继承 `Agent` 基类
+- 通过 `AgentOrchestrator.register(checkerAgent)` 注册
+- **独立 ContextSource**：SystemPrompt（Checker 专属）+ PageContext（仅新增段）+ RelevantMemory；**不使用** ChatHistory
+- 输出走**旁路流**（Toast / 右上角轻提示，不进主消息流）
 
 ### 禁止事项
 
-- ❌ 默认**不开启**实时提醒；必须用户显式激活
-- ❌ 监听范围仅限页面正文，**不得监听输入框**内容
-- ❌ 单次 Checker 调用上下文 ≤ 2000 字符，防止 token 失控
-
-### 相关代码锚点
-
-- `packages/agent/src/agents/chat-agent.ts:6`
-- `packages/agent/src/orchestrator.ts:5, 40`
+- ❌ 默认不开启
+- ❌ 监听范围仅限页面正文，**不得监听输入框**
+- ❌ 单次 Checker 调用上下文 ≤ 2000 字符
 
 ---
 
@@ -332,32 +313,40 @@ interface OCRStrategy {
 
 ### 实现方案
 
-- 在配置页新增"云同步"区块：提供自定义 endpoint（用户自托管）
-- 同步协议走简单的 POST `/sync` JSON
-- **端到端加密（E2EE）**：使用用户本地生成的密钥加密 `MemoryRecord` 后再上传
-- 冲突策略：以 `timestamp` 为准，LWW（Last-Write-Wins）
+- 配置页"云同步"区块：自定义 endpoint（用户自托管）
+- 同步协议：POST `/sync` JSON
+- **端到端加密（E2EE）**：本地密钥加密 `MemoryRecord` 后上传
+- 冲突策略：`timestamp` LWW
 
 ### 禁止事项
 
-- ❌ 不得内置默认云端地址（防止用户误以为"数据被传到我们服务器"）
-- ❌ 同步协议中 apiKey 字段必须为空（云端也不应持有）
+- ❌ 不得内置默认云端地址
+- ❌ 同步协议中 apiKey 字段必须为空
 
 ---
 
-## §6 · 本期明确不做的功能清单（快速参考）
+## §6 · 本期（v0.2）明确延后的能力清单
 
-- [ ] 域名级 DSL 自学习提取（§1）
-- [ ] 记忆层 Dexie 实现（§2）
-- [ ] 向量化 / `recall_memory` tool（§2）
-- [ ] OCR / 多模态识图（§3）
-- [ ] 截图工具（§3）
-- [ ] CheckerAgent / 实时提醒（§4）
-- [ ] 云端同步（§5）
-- [ ] 完整 Markdown 渲染（表格/latex/mermaid）
-- [ ] Agent loop maxTurns 耗尽时兜底处理（最后一轮 LLM 仍返回 tool_calls 时，tool 执行结果被浪费、用户无任何提示，需在最后一轮强制不传 tools 或追加一轮无 tool 的兜底总结）→ `packages/agent/src/loop.ts`
-- [ ] Token 级别的上下文截断（当前按字符粗略估算）
-- [ ] 会话导出/导入
-- [ ] 权限使用日志审计页
+v0.2 范围聚焦"记忆层 + Agent Loop 兜底"，以下项目**明确延后到下一期**（v0.3+ 或单独安排）：
+
+- [ ] **完整 Markdown 渲染**（表格 / LaTeX / 代码高亮，不含 Mermaid）
+- [ ] **日志审计页**（独立 Tab / 粒度 / JSON 导出）
+- [ ] **流式响应过程可视化**（思考过程 / 工具调用 / skills 的时间线展示）
+- [ ] **配置页首次安装引导流程**（antd Tour）
+- [ ] **`/forget` 命令**（从记忆层真正删除特定条目）
+- [ ] **会话导出 / 导入**（JSON）
+- [ ] **权限使用日志审计**（与 #日志审计页 合并）
+- [ ] **Token 级上下文截断**（替代字符估算）
+- [ ] **Provider baseURL 自定义时的 `host_permissions` 动态申请**（v0.1.1 §4 遗留）
+- [ ] **SPA 场景页面摘要过期**的主动刷新策略
+- [ ] **流式响应中 tool 执行的可视化状态**（长 tool 执行时的"思考中/调用中"指示）
+- [ ] **Provider 层抽象**以支持 OpenAI / Anthropic / Ollama 等（目前仅 Qwen）
+- [ ] **WorkingMemory 归档到 Episodic**的具体内容格式（v0.2.1 填充时完善）
+- [ ] **域名级 DSL 自学习提取器**（§1）
+- [ ] **OCR / 多模态识图**（§3）
+- [ ] **CheckerAgent / 实时提醒**（§4）
+- [ ] **云端同步**（§5）
+- [ ] **`chrome.alarms` reflection-scan 的真正执行器**（v0.2.1 实装）
 
 ---
 
@@ -367,38 +356,45 @@ interface OCRStrategy {
 
 1. **通读本文件**（`docs/ROADMAP.md`）
 2. **阅读根 `README.md`** 了解项目结构与架构红线
-3. **运行 `pnpm install` → `pnpm build` → `pnpm test`** 验证 MVP 正常工作
-4. **查看 `.eslintrc.cjs`** 了解 3 条硬性架构红线：
+3. **阅读 `docs/TROUBLESHOOTING.md`** 了解已修复的"坑点"，避免回踩
+4. **运行 `pnpm install` → `pnpm build` → `pnpm test`** 验证工程正常
+5. **查看 `.eslintrc.cjs`** 了解架构红线：
    - Agent 层禁止 `import 'ai'` / `@ai-sdk/*`
-   - Memory 层 MVP 禁止 `dexie`（Phase 2 实现时才解禁）
-   - Tools 层 MVP 禁止 `tesseract.js`（Phase 3 实现时才解禁）
-5. **使用 grep 搜索 `PHASE2:` / `PHASE3:` / `PHASE4:` 锚点**，理解对应扩展位
-6. 任何偏离本文件描述的实现（包括"我觉得更好的架构"）**必须先征得用户同意**，不得擅自改动
+   - Memory 层**v0.2 起解除** dexie 约束
+   - Tools 层禁止 `tesseract.js`（Phase3-a 才解禁）
+6. **使用 grep 搜索 `PHASE2:` / `PHASE3:` / `PHASE4:` 锚点**，理解对应扩展位
+7. 任何偏离本文件描述的实现（包括"我觉得更好的架构"）**必须先征得用户同意**，不得擅自改动
 
 ### 特别强调
 
-- 记忆层接口（`MemoryStore.remember/recall`）是契约；Phase 2 实现时不得修改接口签名，只能新增可选参数
-- `ContextSource` 的 `priority` 数字范围：System=100 / Page=80 / Reference=70 / LongTermMemory=40 / RelevantMemory=30 / SessionSummary=20 / ChatHistory=10；新 Source 请勿占用这些数字
-- Tool 的 `parametersJsonSchema` 必须是合法 JSON Schema，且 `execute` 必须抛出异常或返回 `{ok:false, error}` 标准化失败（参考 `packages/tools/src/definitions/read-page-content.ts`）
+- 记忆层接口（`MemoryStore.remember/recall`）是**契约**；不得修改签名，只能新增可选参数/方法
+- `ContextSource` 的 `priority` 数字范围：System=100 / Page=80 / Reference=70 / Persona=60 / SessionTopic=55 / WorkingMemory=50 / RelevantMemory=40 / SessionSummary=20 / ChatHistory=10；新 Source 请勿占用这些数字
+- Tool 的 `parametersJsonSchema` 必须是合法 JSON Schema，且 `execute` 必须抛出异常或返回 `{ok:false, error}` 标准化失败
 - 所有 commit 使用**中文 commit message** + Conventional Commits 前缀（`feat/fix/chore/docs/test`）
 
 ---
 
-## 附录 A · MVP 已实现能力速查
+## 附录 A · v0.2.0 已实现能力速查
 
 | 模块 | 核心文件 | 说明 |
 | --- | --- | --- |
-| Provider | `packages/provider/src/qwen/index.ts` | QwenProvider，内部用 AI SDK 做协议适配，支持 enable_thinking |
-| Agent | `packages/agent/src/agent.ts` / `loop.ts` | Agent 基类 + tool-calling loop（maxTurns 5） |
-| ContextSource | `packages/agent/src/context/` | 4 个 MVP Source（System/Page/Reference/ChatHistory） |
-| Tools | `packages/tools/src/page/` | 5 Identity + 4 Content 提取器 + 3 LLM Tool |
-| UI | `packages/ui/src/features/chat/ChatPanel.tsx` | 侧边对话框 + Lexical + 斜杠命令 + 划词引用 |
-| 配置页 | `packages/ui/src/features/options/OptionsForm.tsx` | antd 表单 + zod 校验 + 测试连接 |
-| 扩展壳 | `apps/extension/` | MV3 manifest + Shadow DOM 注入 + options_ui |
+| Provider | `packages/provider/src/qwen/index.ts` + `embedding.ts` | QwenProvider（v0.1 稳定） + QwenEmbeddingProvider（v0.2 新增） |
+| Agent Loop | `packages/agent/src/loop.ts` | tool-calling loop + 最后一轮纯 A 兜底（v0.2） |
+| PageVisit | `packages/agent/src/page-visit/` | 生命周期管理，替代 session（v0.2 新增） |
+| ContextSource | `packages/agent/src/context/` | 7 个 Source（v0.1 4 个 + v0.2.0 新增 3 个） |
+| Memory | `packages/memory/src/db/` | DexieMemoryStore（v0.2 新增 6 张表） |
+| URL / 过滤 | `packages/shared/src/url-normalize.ts` + `sensitive-filter.ts` | v0.2 新增 |
+| 配置页 | `packages/ui/src/features/options/` | Tab 分页（v0.2 重构） |
+| Sidebar | `apps/extension/src/sidebar/bootstrap.ts` + `index.tsx` | 装配三套 Provider + PageVisit（v0.2 重构） |
+| Service Worker | `apps/extension/src/background/index.ts` | alarms 注册（v0.2 新增，v0.2.1 填充执行器） |
 
 ## 附录 B · 测试速查
 
-- 根目录 `pnpm test` 跑全部 44 个单测
-- Provider normalizer：18 个（`packages/provider/src/__tests__/normalizer.test.ts`）
-- Agent loop：5 个（`packages/agent/src/__tests__/loop.test.ts`）
-- Tools pipeline：21 个（`packages/tools/src/__tests__/`，含 3 份 HTML fixture）
+- 根目录 `pnpm test` 跑全部单测
+- v0.2.0 新增测试（~80 个）：
+  - `packages/shared/src/__tests__/` · url-normalize / sensitive-filter / config（59 个）
+  - `packages/provider/src/__tests__/embedding.test.ts` · QwenEmbeddingProvider（16 个）
+  - `packages/memory/src/__tests__/` · vector / dexie-store（36 个）
+  - `packages/agent/src/__tests__/page-visit.test.ts` · PageVisitManager（11 个）
+  - `packages/agent/src/__tests__/phase2-sources.test.ts` · Persona / SessionTopic / WorkingMemory Source（18 个）
+  - `packages/agent/src/__tests__/loop.test.ts` · 新增 3 个 v0.2 兜底用例（保留原 5 个）

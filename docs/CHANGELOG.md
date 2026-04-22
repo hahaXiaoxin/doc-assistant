@@ -7,7 +7,81 @@
 
 ## [Unreleased]
 
-- 无
+- v0.2.1 将在 v0.2.0 基础上实装：辅助 LLM 调用链、反思 Job 执行器、召回机制、
+  `/recall` / `/topic` 命令、WorkingMemory 工具与 UI 卡片、Persona 审核 UI
+
+---
+
+## [v0.2.0] · 进行中 · Phase 2 记忆层基础设施
+
+> 本版本引入"类人脑分层记忆"架构的基础设施，完成从"聊天窗口即上下文"到"按需组装上下文"
+> 的思维范式切换。相关讨论定稿见 `docs/ROADMAP.md §2`。
+
+### Added
+
+- **三套 Provider 配置**：`MAIN_PROVIDER_CONFIG` / `AUX_PROVIDER_CONFIG` /
+  `EMBEDDING_PROVIDER_CONFIG`，辅助与 embedding 均支持"复用主 Provider"开关。
+- **`@doc-assistant/provider`**：新增 `EmbeddingProvider` 接口与 `QwenEmbeddingProvider`
+  实现（OpenAI 兼容 `/embeddings` 端点，支持 `text-embedding-v2`/`v3`，单次 batch ≤ 25）。
+- **`@doc-assistant/memory`**：`DexieMemoryStore` 完整落地
+  - 6 张表：`episodes_msg` / `episodes_visit_summary` / `persona` / `session_topics`
+    / `working_memories` / `reflection_tasks` / `page_visits`
+  - 纯 JS 余弦相似度 + Top-K 召回（`< 5000` 条量级内存扫足够）
+  - WorkingMemory LRU 软 TTL 与归档到 `episodes_visit_summary` 的转换
+  - 集成 `shared.redactSensitive` 做敏感信息过滤
+- **`@doc-assistant/agent`**：
+  - `PageVisitManager`：UI 边界的统一抽象（替代 session 概念），管理
+    visit 启停、URL 变化切换、`/new` 命令重启、订阅事件
+  - 3 个新 ContextSource：`PersonaSource`（60）、`SessionTopicSource`（55）、
+    `WorkingMemorySource`（50）；工厂函数 `buildDefaultPhase2_0Sources`
+  - `createChatAgent` 新增 `phase2: boolean` 开关
+- **`@doc-assistant/shared`**：
+  - `url-normalize`：`canonicalizeUrl` / `normalizeUrlString` / `extractDomain`，
+    canonical/og:url 优先 + 剥离 UTM/fbclid/gclid/hash/结尾斜杠
+  - `sensitive-filter`：`redactSensitive` 支持 email / 手机号 / 身份证 / API Key
+    （sk-/ghp_/AKID/JWT 等）/ 信用卡号，默认启用
+  - `clampMaxTurns` 辅助函数（`[3, 15]` 夹取）
+- **配置页 Tab 重构**：
+  - 基础：主 Provider + 对话行为 + 测试连接
+  - 记忆：辅助 Provider / Embedding Provider（含"复用主模型"开关）/ 敏感过滤 /
+    反思 Job / WorkingMemory TTL / Persona 自动确认阈值
+  - 高级：`maxTurns`（3~15，默认 8）
+  - 调试：预留（日志、审计、数据导出）
+- **`ProviderConfigForm`** 复用组件：统一 Provider 配置的 UI（baseURL +
+  model + apiKey + useMain 开关）
+- **Service Worker**：`manifest.json` 新增 `alarms` 权限；注册
+  `doc-assistant.reflection-scan` alarm（60 分钟周期）。v0.2.0 占位，v0.2.1
+  实装扫描/执行。
+- **v0.1 → v0.2 自动迁移**：bootstrap 检测旧 `QWEN_CONFIG` 时自动迁移到
+  `MAIN_PROVIDER_CONFIG`，用户无感升级。
+
+### Changed
+
+- **Agent Loop 最后一轮兜底（纯 A 方案）**：`packages/agent/src/loop.ts`
+  - 默认 `maxTurns` 从 5 提升到 8（可在配置页调整，范围 `[3, 15]`）
+  - 最后一轮强制**不传 tools**，并在 messages 末尾追加临时 system 提醒
+    "已达到工具调用上限，请基于已有信息给出最终回答"
+  - 最后一轮若 LLM 仍返回 `tool-call`，代码**忽略**（不 yield、不执行、不 push）
+  - 最后一轮完全无输出时 yield `error` + `finish:error`，UI 显示"网络不佳，
+    请检查网络或查看日志"（不做假文字兜底）
+- **MemoryRecord 类型扩展**：`type` 联合追加 `'persona' | 'visit_summary'`；
+  新增可选字段 `visitId` / `orderInVisit` / `canonicalUrl` / `role`；
+  旧类型（`'message' | 'summary' | 'fact' | 'reference'`）保留兼容
+- **MemoryStore 接口扩展**：`remember/recall` 签名不变；新增可选方法
+  `getWorkingMemory` / `setWorkingMemory` / `touchWorkingMemory` /
+  `archiveStaleWorkingMemories` / `listPersonas` / `addPersonaCandidate` /
+  `updatePersona` / `setSessionTopic` / `getSessionTopic` /
+  `enqueueReflection` / `listPendingReflections` / `updateReflection` /
+  `recordPageVisit` / `close`。`NullMemoryStore` 提供 no-op 兜底。
+- **AgentInvokeContext**：`page` 新增可选 `canonicalUrl` / `domain`；顶层新增
+  可选 `visitId`；由 sidebar 在调用 Agent 前注入，用于 Phase2 ContextSource
+
+### Infrastructure
+
+- **ESLint**：memory 层解除 `dexie` 约束（仅限 `packages/memory/**`）；Agent / Tools
+  的约束完全不动
+- `packages/memory/package.json` 新增依赖 `dexie@^4`；devDependency `fake-indexeddb@^6`
+- 测试总量从 44 提升到 **187**（新增 ~143 个）
 
 ---
 
