@@ -454,7 +454,70 @@ all: initial;          /* 避免继承宿主页面样式 */
 
 ---
 
-## §10+ · 预留
+## §10 · v0.2.2 · Persona 语义错位——tool description 未界定"关于谁"导致被误用为 Agent 自我设定
+
+### 症状
+
+真机测试 v0.2.1 时抓到千问 SSE，模型自发调用 `remember_persona` 写入内容：
+```json
+{
+  "content": "我是小瑾，用户专属的文档助手，专注于陪伴用户一起阅读、理解与梳理技术文档。",
+  "tags": ["identity", "role", "document-assistant"],
+  "confidence": 1.0
+}
+```
+这是模型的**自我身份设定**，而当时 Persona 被设计为"**关于用户**的稳定偏好/事实"，
+两种语义错位地挤在同一张表。另外 UI 层 `useStreamingChat.applyChunk` 对 `tool-call` /
+`tool-result` 故意不做渲染（MVP 注释为证），用户在 UI 看不到工具调用痕迹，更易误以为
+"模型没做任何事"。
+
+### 根因
+
+1. **tool description 笼统**：只说"记住用户的稳定事实/偏好"，没强调"关于谁"、
+   也没给出"如果用户透露背景应如何转译为 Agent 规则"的示例。模型的直觉本来就倾向于
+   把"我应该怎么做"作为长期记忆的对象，于是顺着直觉写了自我设定。
+2. **`PersonaSource` 注入话术也是"关于用户..."**，与模型直觉进一步冲突。
+3. **UI 默认不显示 tool-call**，让这个语义 bug 静默发生了很久没被发现。
+
+### 修复（v0.2.2）
+
+**不改数据 schema**，只做语义重定向：Persona = "Agent 应当长期遵守的指令 / 行为规则"。
+
+- `remember_persona` description 重写，明确要求 content 是"写给 Agent 的长期指令"，
+  并给出从"用户背景"到"Agent 行为规则"的转译示例。
+- `PersonaSource` 注入段改为"# 你的长期指令（用户已确认的行为规则）"。
+- 反思 Job 的 `persona_extraction` prompt 升级：用户说"我是前端" → 归纳为
+  "回答时默认使用前端语境举例"，而不是"用户是前端工程师"。
+- UI 文案：PersonaReviewBanner / MemoryTab 全部同步（个性记忆 → 长期指令）。
+
+### 验证点
+
+- `packages/agent/src/__tests__/phase2-sources.test.ts` 新增对 system 段标题
+  "长期指令"的断言。
+- `reflection.test.ts` 更新 parsePersonaOutput / persona_extraction 用例的 candidate
+  文本为新语义示例（"默认使用 TypeScript 进行代码示例"等）。
+- 20 test files / 302 tests 全绿；lint / typecheck 0 error。
+- 真机：再次触发同样的自我声明场景，应写入形如"你的身份是..." 的指令，PersonaReviewBanner
+  会显示"采纳 / 忽略"。
+
+### 相关代码锚点
+
+- `packages/tools/src/definitions/remember-persona.ts` · description 重写
+- `packages/agent/src/context/persona.ts` · system 段话术
+- `packages/agent/src/reflection/runner.ts` · `runPersonaExtraction` 的 prompt
+- `packages/ui/src/components/PersonaReviewBanner.tsx` · 文案 / 图标 / 按钮
+- `packages/ui/src/features/options/tabs/MemoryTab.tsx` · 配置页文案
+
+### 启示
+
+**tool description 里隐含的主体（"关于谁"）必须显式写出来。**
+模型调 tool 时几乎完全依赖 description 判断用途，任何语义歧义都会被它填上自己的理解。
+同时，UI 层默认隐藏 tool-call 会让这类设计 bug 悄无声息——下一版本考虑给 assistant
+消息加一个"已调用 N 个工具"的小徽章（点击可展开详情），作为最低限度的可观测性。
+
+---
+
+## §11+ · 预留
 
 > v0.2.1 以上踩坑已沉淀。后续若遇到反思 Job 在 SW 真机失败（跨 origin 问题暴露）、
 > Dexie 在 fake-indexeddb 与真实 IDB 行为差异、千问 embedding 限流/节流等，继续按

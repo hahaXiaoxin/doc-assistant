@@ -2,7 +2,7 @@
 
 面向在线学习场景的 Chrome / Edge 浏览器扩展。在任意文档/文章页面右侧提供可折叠的对话面板，结合页面内容与千问大模型进行上下文感知对话，无需切换窗口或平台。
 
-> **当前版本：v0.2.1（Phase 2 记忆层高级能力）** · 设计原则与完整规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)
+> **当前版本：v0.2.2（Phase 2 记忆层高级能力 + Persona 语义转向）** · 设计原则与完整规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)
 
 ## 核心特性
 
@@ -11,7 +11,7 @@
 - **自动识别文章身份与正文**，作为上下文注入
 - **划词引用**（以可视化 tag 形式插入输入框）
 - **四层记忆系统**（v0.2）：
-  - **Persona（个性记忆）**：稳定偏好/事实，反思自动抽取 → 用户审核 → 注入 system prompt
+  - **Persona（Agent 长期指令）**：写给 Agent 自己的行为规则（例："称呼用户为小瑾"、"回答使用结构化要点"）。反思自动归纳 → 用户采纳 → 注入 system prompt
   - **Episodic（事件记忆）**：消息级 + visit 摘要级两级粒度，按 canonicalUrl/visitId 索引
   - **SessionTopic（情景记忆）**：每 3-5 轮辅助 LLM 识别当前话题，对用户透明
   - **WorkingMemory（工作记忆）**：按 canonicalUrl 绑定 activeGoal + TODO，支持主 LLM 通过 7 个 tool 维护，30 天 LRU 软 TTL

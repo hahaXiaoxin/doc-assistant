@@ -143,11 +143,17 @@
 - [x] PersonaReviewBanner（sidebar 折叠条 + 接受/拒绝 + 跳转配置页）+ WorkingMemoryCard（TODO 进度 + 5s 轮询）
 - [x] ChatPanel 通过可选 props 接入全部能力；保持 MVP 路径向后兼容
 
-### v0.2.2+（未来方向，未排期）
+### v0.2.2（已完成）· Persona 语义转向
 
-- [ ] `persona_conflict_check` 实装（检测 Persona 矛盾并合并/裁决）
+- [x] Persona 重定位为"Agent 长期指令"（数据 schema 零变更）：tool description、PersonaSource 注入段、反思 Job prompt、PersonaReviewBanner / MemoryTab 文案同步升级
+- [x] `PersonaRecord.content` 注释示例更新；测试断言同步新语义
+
+### v0.2.3+（未来方向，未排期）
+
+- [ ] `persona_conflict_check` 实装（检测长期指令矛盾并合并/裁决）
+- [ ] UI 层 tool-call 可观测性：assistant 消息加"已调用 N 个工具"徽章，点击展开参数/结果（源于 TROUBLESHOOTING §10 启示）
 - [ ] RecallResultCard 独立样式（目前复用 `appendAssistantNote` 以 assistant 消息形式展示）
-- [ ] PersonaReviewList：配置页 Persona Tab 的批量审核视图
+- [ ] PersonaReviewList：配置页长期指令 Tab 的批量审核视图（支持编辑）
 - [ ] `/forget` 命令：主动从记忆层删除
 - [ ] 会话导入 / 导出（JSON）
 

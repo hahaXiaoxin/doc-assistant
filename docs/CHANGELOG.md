@@ -11,6 +11,56 @@
 
 ---
 
+## [v0.2.2] · Persona 语义转向：从"用户画像"到"Agent 长期指令"
+
+> v0.2.1 实际跑起来后发现一个设计偏差：`remember_persona` tool 被模型自发用来
+> 写"我是小瑾，用户专属的文档助手..."这类**自我设定**，而原设计把 Persona 定位为
+> "关于用户的稳定事实"。两类内容混在同一张表里，注入 prompt 时话术也不顺。
+>
+> 本次小版本不改数据 schema，仅做**语义重定向**：Persona = Agent 应当长期遵守的指令 / 行为规则。
+> 同一条记忆既可以承载"称呼用户为小瑾"，也可以承载"你的身份是小瑾的文档助手"——
+> 统一用"写给 Agent 自己的陈述/祈使句"表达，模型更容易产出正确内容，prompt 注入也更直接。
+
+### Changed
+
+- **`remember_persona` tool description 重写**：明确要求 content 是"写给 Agent 的长期指令"，
+  并提供多个转译示例（用户背景 → Agent 行为规则）。
+- **`PersonaSource` 注入话术**：从"# 关于用户的长期记忆（个性 / 偏好）"改为
+  "# 你的长期指令（用户已确认的行为规则）"，提醒模型持续遵守。
+- **反思 Job `persona_extraction` prompt 升级**：不再抽取"用户偏好/事实"，改为归纳
+  "Agent 应如何长期服务用户的规则"。用户说"我是前端" → 产出"回答时默认使用前端语境举例"
+  而不是"用户是前端工程师"。
+- **UI 文案同步**：
+  - PersonaReviewBanner 标题从"N 条新的个性记忆待审核"改为"N 条新的长期指令待确认"；
+    按钮从"接受 / 拒绝"改为"采纳 / 忽略"；图标从 🧠 改为 📌。
+  - 配置页 MemoryTab：记忆层介绍将 Persona 释义从"个性"改为"Agent 长期指令"；
+    "Persona 自动确认阈值"改为"长期指令自动采纳阈值"；
+    "Persona 审核"卡片改为"长期指令审核"，文案说明来源（反思归纳 / remember_persona）。
+- **`PersonaRecord.content` 注释**：示例从"用户偏好 TypeScript"改为
+  "称呼用户为小瑾 / 回答时使用结构化要点 / 默认把 TS 理解为 TypeScript 不要反问"。
+
+### Unchanged
+
+- 数据 schema 零变更：`PersonaRecord` 字段照旧，Dexie 版本不升，已有数据兼容。
+- `addPersonaCandidate` / `updatePersona` / `listPersonas` 等 API 接口签名照旧。
+- 审核流程照旧（pending → 用户批 → confirmed）。
+- 反思 Job 调度、向量召回、WorkingMemory 等其它能力完全不受影响。
+
+### Migration
+
+- 老数据（如果 v0.2.1 期间已沉淀过"关于用户"风格的 Persona）继续有效；模型只是会读到
+  一份措辞略不同的 system 段，仍然能表达一致的意图。如需重新审视，可在 sidebar banner
+  或配置页人工确认/忽略。
+
+### Testing
+
+- `phase2-sources.test.ts` 更新 PersonaSource 断言：新增对 system 段标题"长期指令"的校验。
+- `reflection.test.ts` 更新 parsePersonaOutput 与 persona_extraction 用例的 candidate 文本，
+  示例化新的"指令"格式（例：默认使用 TypeScript 进行代码示例 / 回答时采用前端语境举例）。
+- 20 test files / 302 tests 全绿，lint 0 error，typecheck 0 error。
+
+---
+
 ## [v0.2.1] · 进行中 · Phase 2 记忆层高级能力
 
 > 在 v0.2.0 记忆层基础设施之上实装"高级能力"：辅助 LLM 调用链、反思 Job 执行器、
