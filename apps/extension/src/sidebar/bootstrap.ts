@@ -39,12 +39,14 @@ import {
   NullMemoryStore,
   type MemoryStore,
 } from '@doc-assistant/memory';
-import { buildDefaultMVPTools } from '@doc-assistant/tools';
+import { buildPhase2Tools } from '@doc-assistant/tools';
 import {
   createChatAgent,
   PageVisitManager,
   ReflectionRunner,
   ReflectionScheduler,
+  recallMemory,
+  renderRecallMatches,
   type Agent,
 } from '@doc-assistant/agent';
 
@@ -199,8 +201,29 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
   // PageVisitManager（注入 memory 以登记 page_visits）
   const pageVisitManager = new PageVisitManager({ memory });
 
-  // 装配 Agent（phase2=true 接入 Persona/SessionTopic/WorkingMemory）
-  const tools = buildDefaultMVPTools();
+  // v0.2.1：装配 Phase2 tool 集合（MVP 3 + WorkingMemory 7 + recall_memory + remember_persona）
+  const tools = buildPhase2Tools({
+    memory,
+    getCurrentVisit: () => pageVisitManager.getCurrent(),
+    // recall_memory tool 的执行器：走与 RelevantMemorySource 相同的底层链路
+    recall: async ({ query, mode, limit }) => {
+      const outcome = await recallMemory(
+        { memory, aux: auxLLM },
+        {
+          query,
+          mode: mode ?? 'explicit',
+          ...(limit !== undefined ? { limit } : {}),
+        },
+      );
+      return {
+        hit: outcome.hit,
+        count: outcome.matches.length,
+        text: outcome.hit ? renderRecallMatches(outcome.matches) : '',
+      };
+    },
+  });
+
+  // 装配 Agent（phase2=true + auxLLM → 自动启用 Phase2-1，含 RelevantMemorySource）
   const agent = createChatAgent({
     llm: mainLLM,
     memory,
@@ -209,6 +232,7 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     maxHistoryChars: chatSettings.maxContextChars,
     maxTurns: chatSettings.maxTurns,
     phase2: true,
+    auxLLM,
   });
 
   // v0.2.1：反思调度器
