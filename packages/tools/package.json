@@ -18,6 +18,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@doc-assistant/memory": "workspace:*",
     "@doc-assistant/shared": "workspace:*",
     "@mozilla/readability": "^0.5.0",
     "zod": "^3.23.8"

@@ -152,6 +152,9 @@ importers:
 
   packages/tools:
     dependencies:
+      '@doc-assistant/memory':
+        specifier: workspace:*
+        version: link:../memory
       '@doc-assistant/shared':
         specifier: workspace:*
         version: link:../shared
