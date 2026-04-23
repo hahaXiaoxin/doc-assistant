@@ -43,3 +43,19 @@ export {
   type PageVisitListener,
   type StartVisitInput,
 } from './page-visit';
+
+// v0.2.1: 辅助 LLM 调用链
+export {
+  collectText,
+  callAuxIntent,
+  parseIntentOutput,
+  identifySessionTopic,
+  parseSessionTopicOutput,
+  shouldIdentify,
+  type CollectTextOptions,
+  type AuxIntentInput,
+  type AuxIntentResult,
+  type IdentifySessionTopicInput,
+  type IdentifySessionTopicResult,
+  type IdentifyStatus,
+} from './aux';
