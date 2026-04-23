@@ -76,7 +76,7 @@
 
 ### 反思 Job（可靠性设计）
 
-- **同步必做**：每条消息到达立即同步写 `episodes_msg` + `working_memories.touchLastAccessed`
+- **同步必做**（v0.2.3 落地 ✅）：每条消息到达立即同步写 `episodes_msg`（见 `useStreamingChat.persistMessage` + `sidebar/index.tsx` 装配点）；`working_memories.touchLastAccessed` 由 `get_working_memory` tool 路径触发
 - **异步补跑**：PageVisit 结束时登记 `reflection_tasks`，当场尝试执行（失败无妨）
 - **补跑时机**：下次 sidebar 打开扫 pending + `chrome.alarms` 每 60 分钟扫描
 - **容错**：失败重试 3 次 → 标记 failed 不再重试
@@ -147,6 +147,14 @@
 
 - [x] Persona 重定位为"Agent 长期指令"（数据 schema 零变更）：tool description、PersonaSource 注入段、反思 Job prompt、PersonaReviewBanner / MemoryTab 文案同步升级
 - [x] `PersonaRecord.content` 注释示例更新；测试断言同步新语义
+
+### v0.2.3（已完成）· 修漏 + 精化 Prompt · "真正能工作的记忆"
+
+- [x] 消息持久化：`useStreamingChat.persistMessage` port + sidebar 装配，兑现 ROADMAP §79 的"同步必做"
+- [x] 刷新三段式 rehydrate：WorkingMemory → 跨 visit 近 5 轮 episodes_msg → 向量召回（按 canonicalUrl 拉，不分 visitId）
+- [x] 主 system prompt 升级为"工作方式多段守则"：真正的助手人设、不把状态贴脸上、主动维护 WorkingMemory、自然接续上次
+- [x] tool description 全面精化：WorkingMemory / remember_persona / recall_memory 全部写明"主动触发时机"；参数 description 补全
+- [x] initialHistoryForLLM 只喂 LLM 不进 UI（"像真正的助手一样"哲学）
 
 ### v0.2.3+（未来方向，未排期）
 

@@ -11,6 +11,72 @@
 
 ---
 
+## [v0.2.3] · 修漏 + 精化 Prompt · "真正能工作的记忆"
+
+> v0.2.1 落地了记忆层的完整骨架（aux、反思、召回、命令、UI），但真机跑起来之后
+> 暴露了两个必须修的问题：
+>
+> 1. **刷新页面后 Agent 完全失忆**——用户在同一 URL 下聊 2-3 轮，刷新再问"上次聊到哪"，
+>    Agent 毫无印象。根因是 `episodes_msg` 表在**生产代码路径零写入**
+>    （`memory.remember({type:'message'})` 没有任何调用点），违背 ROADMAP §79 设计要求；
+>    连锁导致反思 Job 永远 skipped、向量召回没有素材。
+> 2. **模型不会主动用记忆 tool**——`set_active_goal` / `add_todo` / `remember_persona`
+>    的 description 都只在讲"这个 tool 做什么"，没讲"什么时候应该调"；模型自然不会
+>    主动维护 WorkingMemory。前一版 `remember_persona` 被误用为"写自我设定"也反映了同一问题。
+>
+> 本版本 **先修数据链（让记忆真的能存进去）**，**再精化 Prompt（让模型知道什么时候用）**。
+
+### Added
+
+- **消息持久化**（`useStreamingChat` · `persistMessage` port）
+  - 每条 user / assistant 消息在成功产生时调用 sidebar 注入的 `persistMessage` 落入
+    `episodes_msg`，带上 `visitId / canonicalUrl / domain / orderInVisit / role`。
+  - 失败静默（打 warn，不阻塞聊天）；`persistMessage` 未注入时完全退化到 v0.1 行为。
+  - ui 包不反向依赖 memory：`persistMessage` 是一个 `{role, content}` 鸭子类型 port。
+- **刷新时 rehydrate 三段式 fallback**（`sidebar/index.tsx`）
+  - 档 1 · `WorkingMemory`：由 `WorkingMemorySource` 在 agent.run 组装 system prompt 时自动注入，无需额外动作。
+  - 档 2 · `近期消息`：sidebar mount 时按 `canonicalUrl` 跨 visit 拉 `episodes_msg` 最近 10 条（5 轮）、3000 字上限，按 `timestamp` 升序（老→新），前置到 `useStreamingChat.initialHistoryForLLM`。
+  - 档 3 · `向量召回`：不在 bootstrap 手动触发；由 `RelevantMemorySource` 在用户提问时按需召回。
+- **关键 UX 设计**（符合"像真正的助手一样、不要把状态贴脸上"）
+  - `initialHistoryForLLM` 只前置到给 LLM 的 `history`，**不进入** UI 的 `messages[]`。
+  - 用户看不到"上次对话"的卡片/消息；但 Agent 能自然接续（例："我们刚才在看你发的这篇 agent loop 文章，聊到了反思调度——你想从哪里继续？"）。
+
+### Changed · Prompt 全面升级（让记忆真的被用起来）
+
+- **主 system prompt**（`DEFAULT_CHAT_SETTINGS.systemPrompt`）升级为"工作方式多段守则"：
+  - "像真正的助手一样工作"：不把内部状态贴在对话里；不说"根据我的记忆系统..."、"让我查 WorkingMemory..."、"我调用 tool X 了"。直接给结果。
+  - "主动维护 WorkingMemory"：跨多轮任务自动 `set_active_goal`，3-5 步用 `set_todos` 规划。
+  - "主动维护长期指令"：稳定偏好/身份/风格写 `remember_persona`；转译为"对自己的指令"。
+  - "自然接续上次对话"：有线索直接续；无线索坦诚说（"我这边没有上次的记录，你能简单说一下我们聊到哪了吗？"），不编造。
+  - "页面内容优先"：需要引用原文/代码/数据时主动 `read_page_content`。
+- **tool description 升级**（覆盖全部 WorkingMemory / 记忆相关 tool）：
+  - `set_active_goal`：明确列出"跨多轮任务、用户明确研究 X"等主动触发时机；也明确"一次性问答不触发"。
+  - `add_todo`：说明"有 activeGoal 后才加 TODO"；"多条时优先 `set_todos` 一次写"。
+  - `remember_persona`：大篇幅说明与 WorkingMemory 的边界，多示例展示"用户背景 → Agent 规则"转译（v0.2.2 语义转向的延续）。
+  - `recall_memory`：主动触发时机 + query 写法建议（10-30 字，核心实体）。
+  - `get_working_memory`：说明"大部分时候 system 段已自动注入，无需显式调"。
+  - `set_todos / update_todo / complete_todo / clear_todos`：补全几乎为空的参数 description（此前 LLM 只能靠字段名推断）。
+
+### Testing
+
+- `packages/memory/src/__tests__/dexie-store.test.ts` 新增 rehydrate 核心能力测试：
+  跨 visit 按 `canonicalUrl` 召回 `type:'message'` 记录，验证 role/visitId/orderInVisit 等
+  元数据完整保留。
+- **20 test files / 303 tests 全绿**，lint 0 error，typecheck 0 error。
+
+### Not Changed
+
+- `MemoryStore` 接口契约（remember / recall 签名 100% 向后兼容）。
+- Dexie schema（无 migration）。
+- 向量召回链路。
+
+### 已知限制 / 下一步
+
+- 本期不做"跨 visit 边界提示"（消息间不插 `—— 上次访问 ——` 分隔）。如果发现模型把多次访问的对话混淆当作同一轮，再补。
+- UI 层 tool-call 可观测性（v0.2.3+ ROADMAP）仍未做——但本期的 system prompt 守则已让模型"像真正的助手一样"工作，部分对冲了 tool-call 不可见的问题。
+
+---
+
 ## [v0.2.2] · Persona 语义转向：从"用户画像"到"Agent 长期指令"
 
 > v0.2.1 实际跑起来后发现一个设计偏差：`remember_persona` tool 被模型自发用来

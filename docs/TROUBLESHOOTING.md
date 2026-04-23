@@ -517,7 +517,71 @@ all: initial;          /* 避免继承宿主页面样式 */
 
 ---
 
-## §11+ · 预留
+## §11 · v0.2.3 · 刷新页面后 Agent 完全失忆——episodes_msg 表从未被写入
+
+### 症状
+
+真机测试 v0.2.1/v0.2.2 期间：用户在同一个 URL 下聊了 2-3 轮，刷新页面后问
+"上次我们聊到哪里了"，Agent 毫无印象。看起来"记忆层建了，但从来没起效"。
+
+### 根因
+
+**全仓库除 `ReflectionRunner.runVisitSummary` 写 `visit_summary` 外，没有任何地方调用
+`memory.remember({ type: 'message' })`**。连锁反应：
+
+1. `episodes_msg` 表在生产代码路径上**永远是空的**（违背 ROADMAP §79 的"同步必做"设计要求）。
+2. `ReflectionRunner.runVisitSummary` 每次拉 episodes 都走到 `no episodes found` 分支，
+   `visit_summary` 永远写不进去。
+3. 即便 `episodes_msg` 修好，`useStreamingChat` 初始化时 `messages=[]`，
+   `ChatHistorySource` 也没有素材可用——**这是独立的第二道失忆门**。
+
+### 修复（v0.2.3）
+
+**两步补救 · 不改 schema / 不改 MemoryStore 接口 / 无 migration**：
+
+1. **写入端**：`useStreamingChat.send` 新增 `persistMessage` 可选 port；sidebar 在装配时
+   注入闭包，把当前 visit 的 `visitId/canonicalUrl/orderInVisit/role/content` 一起写入
+   `episodes_msg`。failure 只打 warn，不阻塞聊天。
+2. **读取端**：sidebar mount 时做**三段式 fallback rehydrate**：
+   - 档 1：`WorkingMemory` 已由 `WorkingMemorySource` 自动注入 system 段，无需额外动作
+   - 档 2：按 `canonicalUrl` 跨 visit 拉最近 10 条 `episodes_msg`（字数上限 3000），
+     按 `timestamp` 升序前置到 `useStreamingChat.initialHistoryForLLM`
+   - 档 3：向量召回由 `RelevantMemorySource` 在用户提问时自然触发，不需要 bootstrap 手动做
+
+**UX 关键**：`initialHistoryForLLM` 只喂 LLM，**不进入 UI 的 messages[]**。用户看不到
+"上次对话卡片"，但 Agent 能自然接续。这对应"像真正的助手一样工作——不把内部状态贴在对话里"
+的产品哲学（同步写入主 system prompt 作为行为守则）。
+
+### 验证点
+
+- `packages/memory/src/__tests__/dexie-store.test.ts` 新增"跨 visit 按 canonicalUrl 召回 message"
+  用例，验证 role/visitId/orderInVisit 完整保留。
+- 真机：同一 URL 下聊 2-3 轮 → 刷新 → 问"上次我们聊到哪" → Agent 应自然续答，
+  不会说"我没有记忆"。
+- Chrome DevTools · Application · IndexedDB · `doc-assistant` · `episodes_msg` 表应能看到
+  每条消息的记录。
+
+### 相关代码锚点
+
+- `packages/ui/src/hooks/useStreamingChat.ts` · `persistMessage` port
+- `apps/extension/src/sidebar/index.tsx` · `persistMessage` 闭包 + rehydrate useEffect
+- `packages/memory/src/db/dexie-store.ts` · `recall({canonicalUrl})` 已支持（schema 有索引）
+
+### 启示
+
+**"骨架设计完 ≠ 数据链跑通"**。v0.2.1 把 aux / 反思 / 召回 / UI / 命令一起落地，每条单链路
+都测试覆盖得很好，但"写入端"这个最朴素的环节被整个忽略了——因为它散布在 UI/sidebar 之间，
+不属于任何一个 package 的"正事"。
+
+以后新增"需要落库的数据流"时，强制问一个问题：**"在生产代码里，哪一行会调用 `.remember()`？"**
+如果答不上来，就是这个 bug 的翻版。
+
+同时，`docs/ROADMAP.md` 的"同步必做"/"异步补跑"这种**设计要求清单**应当是 PR review 的
+checklist，不能只当作一次性设计文档。
+
+---
+
+## §12+ · 预留
 
 > v0.2.1 以上踩坑已沉淀。后续若遇到反思 Job 在 SW 真机失败（跨 origin 问题暴露）、
 > Dexie 在 fake-indexeddb 与真实 IDB 行为差异、千问 embedding 限流/节流等，继续按
