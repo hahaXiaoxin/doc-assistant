@@ -163,6 +163,22 @@
 - [ ] PersonaReviewList：配置页长期指令 Tab 的批量审核视图（支持编辑）
 - [ ] `/forget` 命令：主动从记忆层删除
 - [ ] 会话导入 / 导出（JSON）
+- [ ] **跨 visit 时间维记忆检索 · Chronological Index**（用户反馈 2026-04-24）
+  - 动机：当前 `recall_memory` 基于语义向量，无法处理"今天看了哪些文章"、"本周读了什么"这类**元查询**——embedding 基于内容编码，时间维根本不在语义空间里。用户在新域名下问这类问题会拿到"未找到"，体验差。
+  - v0.2.3 的小修补：`recall_memory` 已能识别这类时间维元查询并返回 `reason='time_query_unsupported'` 的明确提示（避免假阴性），主 LLM 坦诚告诉用户"这类查询暂不支持"。完整方案见下。
+  - 目标设计：
+    - **新 tool · `list_recent_visits`**：按时间窗口列 visit_summary（参数：`timeRange`（today/yesterday/this-week/custom-start-end）、可选 `domain` 过滤、`limit`）。返回结构化的"visit 清单"——每条含 URL / title / summary / timestamp / domain。
+    - **扩展 `recall_memory`**：接受可选 `timeRange` / `domain` / `articleId` 参数。当前底层 `DexieMemoryStore.recall` 已支持这些过滤（v0.2 就写好了，只是 tool 层没暴露）。
+    - **主 system prompt 提示**：加一条"对'今天/本周看了什么'这类时间维元查询用 `list_recent_visits`，而非 `recall_memory`"的行为守则。
+    - **自动路由（可选）**：`RelevantMemorySource` 在识别到时间维查询时，跳过向量召回，直接调用 `list_recent_visits`——让用户感知不到 tool 边界。
+  - 产品哲学：这是"**助手在某项特定工作 / session 之外的记忆**"——不被 canonicalUrl / visitId 限制，类似人类的"时序自传式记忆"。
+- [ ] **记忆浏览器 Tab**（配套上一条）
+  - 配置页新增"记忆浏览器" Tab，让用户**自己**能按时间/域名浏览自己沉淀的 visit_summary（类似浏览历史，但含 AI 归纳的摘要）。
+  - 视图：按日期分组 → 每组内按域名聚合 → 点开看 summary + tags。支持"删除单条"、"导出"。
+  - 价值：
+    1. 让"记忆系统"对用户**可见可审**（目前记忆都在 IDB 里黑盒）
+    2. 配合 `/forget` 命令（未排期那一条）做可视化删除
+    3. 用户信任的基础：能看到 AI 记了什么、能改/能删
 
 #### UI / 可观测性
 - [ ] UI 层 tool-call 可观测性：assistant 消息加"已调用 N 个工具"徽章，点击展开参数/结果（源于 TROUBLESHOOTING §10 启示）
