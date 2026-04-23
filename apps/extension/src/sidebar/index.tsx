@@ -286,6 +286,48 @@ function SidebarApp(props: MountOptions) {
       onRecall={onRecall}
       onTopicIdentify={onTopicIdentify}
       onTopicSet={onTopicSet}
+      getPendingPersonas={async () => {
+        if (!bootstrap.memory.listPersonas) return [];
+        const list = await bootstrap.memory.listPersonas({ status: 'pending' });
+        return list.map((p) => ({
+          id: p.id,
+          content: p.content,
+          confidence: p.confidence,
+          createdAt: p.createdAt,
+          ...(p.tags && p.tags.length ? { tags: p.tags } : {}),
+        }));
+      }}
+      getWorkingMemory={async () => {
+        const visit = bootstrap.pageVisitManager.getCurrent();
+        if (!visit?.canonicalUrl || !bootstrap.memory.getWorkingMemory) return null;
+        const wm = await bootstrap.memory.getWorkingMemory(visit.canonicalUrl);
+        if (!wm) return null;
+        return {
+          canonicalUrl: wm.canonicalUrl,
+          ...(wm.activeGoal !== undefined ? { activeGoal: wm.activeGoal } : {}),
+          todos: wm.todos.map((t) => ({
+            id: t.id,
+            content: t.content,
+            status: t.status,
+            ...(t.priority !== undefined ? { priority: t.priority } : {}),
+            ...(t.notes !== undefined ? { notes: t.notes } : {}),
+          })),
+        };
+      }}
+      onConfirmPersona={async (id) => {
+        await bootstrap.memory.updatePersona?.(
+          id,
+          { status: 'confirmed', reviewedByUser: true },
+          'user confirm via banner',
+        );
+      }}
+      onRejectPersona={async (id) => {
+        await bootstrap.memory.updatePersona?.(
+          id,
+          { status: 'rejected', reviewedByUser: true },
+          'user reject via banner',
+        );
+      }}
     />
   );
 }

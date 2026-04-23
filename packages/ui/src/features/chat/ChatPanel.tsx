@@ -12,13 +12,21 @@
  * - agent：已由 sidebar bootstrap 构造好的 Agent 实例（注入 Qwen + tools + NullMemoryStore）
  * - buildInvokeContext / buildToolExecCtx：由 sidebar 提供，持有最新 page context
  */
-import { useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { message } from 'antd';
 import type { Agent, AgentInvokeContext } from '@doc-assistant/agent';
 import { tokens } from '../../theme/tokens';
 import { GlobalStyle } from '../../theme/GlobalStyle';
 import { CollapsiblePanel } from '../../components/CollapsiblePanel';
+import {
+  PersonaReviewBanner,
+  type PersonaView,
+} from '../../components/PersonaReviewBanner';
+import {
+  WorkingMemoryCard,
+  type WorkingMemoryView,
+} from '../../components/WorkingMemoryCard';
 import { LexicalChatInput, type ChatInputActions } from '../../editor/LexicalChatInput';
 import { MessageList } from './MessageList';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
@@ -72,6 +80,17 @@ export interface ChatPanelProps {
    * /topic <text>（有参）：手动设置当前 visit 的 SessionTopic。
    */
   onTopicSet?: (text: string) => Promise<void>;
+
+  /* -------- v0.2.1 Persona 审核 / WorkingMemory 卡片相关 -------- */
+
+  /** 获取当前 pending 的 Persona 候选（由反思 Job 产出）。返回空数组组件自动隐藏。 */
+  getPendingPersonas?: () => Promise<PersonaView[]>;
+  /** 获取当前 canonicalUrl 对应的 WorkingMemory。返回 null 组件自动隐藏。 */
+  getWorkingMemory?: () => Promise<WorkingMemoryView | null>;
+  /** Persona 审核动作：confirm（接受 → status:'confirmed', reviewedByUser:true） */
+  onConfirmPersona?: (id: string) => Promise<void>;
+  /** Persona 审核动作：reject（拒绝 → status:'rejected'） */
+  onRejectPersona?: (id: string) => Promise<void>;
 }
 
 const Header = styled.header`
@@ -190,6 +209,10 @@ export function ChatPanel({
   onRecall,
   onTopicIdentify,
   onTopicSet,
+  getPendingPersonas,
+  getWorkingMemory,
+  onConfirmPersona,
+  onRejectPersona,
 }: ChatPanelProps) {
   const [messageApi, contextHolder] = message.useMessage({ top: 52 });
   const inputActionsRef = useRef<ChatInputActions | null>(null);
@@ -229,6 +252,61 @@ export function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [visible],
   );
+
+  // v0.2.1：WorkingMemory / Persona 数据刷新
+  // 策略：
+  // - mount 时刷一次；
+  // - 每 5s 轮询 WorkingMemory（assistant 可能调 tool 改动过）；
+  // - 每次 chat.streaming 从非 null 回到 null（对话结束）时触发一次 Persona 刷新（delayed 3s，
+  //   因为反思 Job 是异步的，立即查大概率还没入库）；
+  // - refreshKey 递增让子组件内部的 useEffect 重跑 getter。
+  const [wmRefreshKey, setWmRefreshKey] = useState(0);
+  const [personaRefreshKey, setPersonaRefreshKey] = useState(0);
+  const [workingMemory, setWorkingMemory] = useState<WorkingMemoryView | null>(null);
+  const prevStreamingRef = useRef(chat.streaming);
+
+  // WorkingMemory：5s 轮询 + 依 wmRefreshKey 变化触发
+  useEffect(() => {
+    if (!getWorkingMemory) return;
+    let cancelled = false;
+    const reload = async () => {
+      try {
+        const wm = await getWorkingMemory();
+        if (!cancelled) setWorkingMemory(wm);
+      } catch {
+        if (!cancelled) setWorkingMemory(null);
+      }
+    };
+    void reload();
+    const id = window.setInterval(reload, 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [getWorkingMemory, wmRefreshKey]);
+
+  // 对话结束信号 → 刷新 WorkingMemory 立即；Persona 延迟 3s
+  useEffect(() => {
+    const prev = prevStreamingRef.current;
+    prevStreamingRef.current = chat.streaming;
+    if (prev !== null && chat.streaming === null) {
+      setWmRefreshKey((k) => k + 1);
+      const t = window.setTimeout(() => {
+        setPersonaRefreshKey((k) => k + 1);
+      }, 3_000);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [chat.streaming]);
+
+  const memoizedGetPendingPersonas = useCallback(async () => {
+    if (!getPendingPersonas) return [];
+    try {
+      return await getPendingPersonas();
+    } catch {
+      return [];
+    }
+  }, [getPendingPersonas]);
 
   const slashCtx: SlashCommandContext = {
     clearConversation: () => {
@@ -289,6 +367,18 @@ export function ChatPanel({
             </IconButton>
           </div>
         </Header>
+
+        {/* v0.2.1：Persona 审核条 + WorkingMemory 卡片 */}
+        {getPendingPersonas && onConfirmPersona && onRejectPersona && (
+          <PersonaReviewBanner
+            getPending={memoizedGetPendingPersonas}
+            onConfirm={onConfirmPersona}
+            onReject={onRejectPersona}
+            onOpenOptions={onOpenOptions}
+            refreshKey={personaRefreshKey}
+          />
+        )}
+        <WorkingMemoryCard wm={workingMemory} />
 
         {pageSummary && (
           <ContextCard>
