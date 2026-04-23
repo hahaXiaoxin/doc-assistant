@@ -50,7 +50,7 @@ export function MemoryTab(props: MemoryTabProps) {
         message="记忆层（v0.2）"
         description={
           <>
-            四层记忆：Persona（个性）/ Episodic（事件）/ SessionTopic（情景）/ WorkingMemory（工作）。
+            四层记忆：Persona（Agent 长期指令）/ Episodic（事件）/ SessionTopic（情景）/ WorkingMemory（工作）。
             辅助 Provider 用于话题识别、反思归纳、Intent 精判；Embedding Provider 用于事件召回的向量化。
             默认都复用主 Provider 配置，按需单独配置更便宜的模型。
           </>
@@ -96,7 +96,7 @@ export function MemoryTab(props: MemoryTabProps) {
 
           <Form.Item
             label="反思 Job"
-            extra="PageVisit 结束后异步生成 visit_summary、抽取 Persona 候选；关闭后记忆不再沉淀。"
+            extra="PageVisit 结束后异步生成 visit_summary、归纳 Agent 长期指令候选；关闭后记忆不再沉淀。"
           >
             <Switch
               checked={settings.reflectionEnabled}
@@ -120,8 +120,8 @@ export function MemoryTab(props: MemoryTabProps) {
           </Form.Item>
 
           <Form.Item
-            label="Persona 自动确认阈值"
-            extra="反思命中同一条 Persona 达到该次数时自动标记为 confirmed；其余 candidate 需用户审核。"
+            label="长期指令自动采纳阈值"
+            extra="反思命中同一条长期指令达到该次数时自动标记为 confirmed；其余 candidate 需用户确认。"
           >
             <InputNumber
               min={1}
@@ -136,10 +136,11 @@ export function MemoryTab(props: MemoryTabProps) {
         </Form>
       </Card>
 
-      <Card title="Persona 审核">
+      <Card title="长期指令审核">
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          Persona 候选审核列表将在 <strong>v0.2.1</strong> 接入反思 Job 后实装。届时此处会展示
-          待审核的个性记忆（接受 / 拒绝 / 编辑），以及已确认的常驻项。
+          Agent 的长期指令（由反思 Job 归纳或对话中 <code>remember_persona</code> 工具写入）的
+          批量审核列表将在后续版本接入。届时此处会展示待确认的指令（采纳 / 忽略 / 编辑），
+          以及已确认的常驻项。当前版本可在 sidebar 顶部折叠条中对最近的候选进行一键操作。
         </Typography.Paragraph>
       </Card>
     </>

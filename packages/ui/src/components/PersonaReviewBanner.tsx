@@ -1,16 +1,18 @@
 /**
- * PersonaReviewBanner · sidebar 顶部"待审核 Persona"折叠条
+ * PersonaReviewBanner · sidebar 顶部"待审核长期指令"折叠条
  * ---------------------------------------------
  * v0.2.1 · 反思 Job（persona_extraction）产出的 pending PersonaRecord 在此浮现。
+ * v0.2.2 · 语义转向：每条 Persona 现在是"Agent 应长期遵守的指令"
+ *   （而非"关于用户的事实"）。文案同步从"个性记忆"改为"长期指令"。
  *
  * 视觉：
- * - 折叠态（默认）：一行：🧠 `N 条新的个性记忆待审核` · 箭头
- * - 展开态：逐条显示 content / tags / [✓ 接受] [✗ 拒绝] [设置] 三个按钮。
- *   "设置"不在此直接处理，引导用户去 options 页批量管理（传 onOpenOptions）。
+ * - 折叠态（默认）：一行：📌 `N 条新的长期指令待确认` · 箭头
+ * - 展开态：逐条显示 content / tags / [✓ 采纳] [✗ 忽略] 三个按钮。
+ *   "去配置页批量管理"不在此直接处理，引导用户去 options 页（传 onOpenOptions）。
  *
  * UX：
  * - 每次 mount 与对话结束时刷新（由父组件通过 `refreshKey` 触发）。
- * - 接受/拒绝调用 `onConfirm(id)` / `onReject(id)`，成功后本地列表剔除该条。
+ * - 采纳/忽略调用 `onConfirm(id)` / `onReject(id)`，成功后本地列表剔除该条。
  *
  * 鸭子类型：仅依赖 PersonaView（见下方），保持 UI 不反向依赖 memory 类型。
  */
@@ -213,10 +215,10 @@ export function PersonaReviewBanner({
   };
 
   return (
-    <Wrap aria-label="Persona 审核条">
+    <Wrap aria-label="长期指令审核条">
       <Header onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span style={{ fontSize: 14 }}>🧠</span>
-        <Title>{list.length} 条新的个性记忆待审核</Title>
+        <span style={{ fontSize: 14 }}>📌</span>
+        <Title>{list.length} 条新的长期指令待确认</Title>
         <Chevron $open={open}>›</Chevron>
       </Header>
       {open && (
@@ -236,14 +238,14 @@ export function PersonaReviewBanner({
                   disabled={!!busy[p.id]}
                   onClick={() => void handle(p.id, 'confirm')}
                 >
-                  接受
+                  采纳
                 </ActionButton>
                 <ActionButton
                   $variant="danger"
                   disabled={!!busy[p.id]}
                   onClick={() => void handle(p.id, 'reject')}
                 >
-                  拒绝
+                  忽略
                 </ActionButton>
               </Actions>
             </PersonaRow>
