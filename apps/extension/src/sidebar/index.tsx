@@ -171,6 +171,115 @@ function SidebarApp(props: MountOptions) {
     [visible, bootstrap],
   );
 
+  /* ----------- v0.2.3 消息持久化 + 刷新预热 ----------- */
+
+  /**
+   * orderInVisit 单调递增计数器：用于 episodes_msg 的 (visitId, orderInVisit) 排序。
+   * visit 切换时不重置（每个 visit 的 orderInVisit 通过当前 visitId 区分），
+   * 但我们用一个 ref 累计本次 sidebar 生命周期里的顺序即可——刷新/重载后新的 sidebar
+   * 从 0 重启是可以接受的（orderInVisit 只是 visit 内的相对序，不是全局唯一）。
+   */
+  const orderInVisitRef = useRef(0);
+  const lastVisitIdRef = useRef<string | null>(null);
+
+  /**
+   * 持久化一条消息到 episodes_msg。
+   * - 失败（例如 NullStore / DexieMemoryStore 尚未 ready）会 throw，useStreamingChat 捕获并打 warn 不阻塞。
+   * - visit 未建立时跳过写入（不算错误）。
+   */
+  const persistMessage = useCallback(
+    async (msg: { role: 'user' | 'assistant'; content: string }): Promise<void> => {
+      if (!bootstrap) return;
+      const visit = bootstrap.pageVisitManager.getCurrent();
+      if (!visit) return; // 还没建立 visit 不落库
+
+      // 切换 visit 时重置 orderInVisit（新 visit 从 0 开始）
+      if (lastVisitIdRef.current !== visit.visitId) {
+        orderInVisitRef.current = 0;
+        lastVisitIdRef.current = visit.visitId;
+      }
+
+      const now = Date.now();
+      const id = `msg_${now}_${Math.random().toString(36).slice(2, 8)}`;
+      await bootstrap.memory.remember({
+        id,
+        type: 'message',
+        role: msg.role,
+        content: msg.content,
+        timestamp: now,
+        visitId: visit.visitId,
+        orderInVisit: orderInVisitRef.current++,
+        ...(visit.canonicalUrl !== undefined ? { canonicalUrl: visit.canonicalUrl } : {}),
+        ...(visit.domain !== undefined ? { domain: visit.domain } : {}),
+        ...(visit.articleId !== undefined ? { articleId: visit.articleId } : {}),
+      });
+    },
+    [bootstrap],
+  );
+
+  /**
+   * v0.2.3：刷新预热 history 供 LLM。
+   * 三段式 fallback（见 docs/ROADMAP.md v0.2.3）：
+   *   1. WorkingMemoryArchive：已由 WorkingMemorySource 自动注入 system prompt，本处不重复
+   *   2. 近期消息档：按 canonicalUrl 跨 visit 拉最近 5 轮（10 条）消息
+   *   3. 向量召回档：不在此处触发；由用户提问时 RelevantMemorySource 自动召回
+   *
+   * 注：**不会展示在 UI** —— 只用于组装给 LLM 的 history。
+   * 由 ChatPanel.initialHistoryForLLM 消费。
+   */
+  const [initialHistoryForLLM, setInitialHistoryForLLM] = useState<
+    Array<{ role: 'user' | 'assistant' | 'system' | 'tool'; content: string }>
+  >([]);
+  const rehydratedRef = useRef(false);
+  useEffect(() => {
+    if (!bootstrap || rehydratedRef.current) return;
+    const visit = bootstrap.pageVisitManager.getCurrent();
+    if (!visit?.canonicalUrl) return; // 还没建立 visit，下次 effect 再试
+    rehydratedRef.current = true;
+
+    void (async () => {
+      try {
+        // 第 2 档：跨 visit 拉当前 canonicalUrl 的最近消息
+        const recalled = await bootstrap.memory.recall({
+          types: ['message'],
+          canonicalUrl: visit.canonicalUrl!,
+          limit: 50, // 拉 50 条作为候选池，后续裁剪为 10 条
+        });
+        if (recalled.length === 0) return;
+
+        // 按 timestamp 升序（老 → 新）
+        const sorted = [...recalled].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+        // 取最近 10 条（5 轮），超过 3000 字从最早开始裁
+        const MAX_MESSAGES = 10;
+        const MAX_CHARS = 3000;
+        const recent = sorted.slice(-MAX_MESSAGES);
+        // 字数裁剪
+        let totalChars = recent.reduce((s, r) => s + (r.content?.length ?? 0), 0);
+        let start = 0;
+        while (totalChars > MAX_CHARS && start < recent.length - 1) {
+          totalChars -= recent[start]!.content?.length ?? 0;
+          start++;
+        }
+        const final = recent.slice(start).map((r) => ({
+          role: (r.role === 'user' || r.role === 'assistant' ? r.role : 'user') as
+            | 'user'
+            | 'assistant',
+          content: r.content ?? '',
+        }));
+        if (final.length > 0) {
+          logger.info('rehydrate: 预热 history', {
+            count: final.length,
+            totalChars: final.reduce((s, m) => s + m.content.length, 0),
+            firstRole: final[0]!.role,
+          });
+          setInitialHistoryForLLM(final);
+        }
+      } catch (err) {
+        logger.warn('rehydrate 失败', (err as Error).message);
+      }
+    })();
+  }, [bootstrap]);
+
   /* ----------- v0.2.1 slash 命令回调 ----------- */
 
   const onStartNewVisit = useCallback(async () => {
@@ -328,6 +437,8 @@ function SidebarApp(props: MountOptions) {
           'user reject via banner',
         );
       }}
+      persistMessage={persistMessage}
+      initialHistoryForLLM={initialHistoryForLLM}
     />
   );
 }

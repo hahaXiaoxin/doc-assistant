@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
 import { message } from 'antd';
 import type { Agent, AgentInvokeContext } from '@doc-assistant/agent';
+import type { ChatMessage } from '@doc-assistant/shared';
 import { tokens } from '../../theme/tokens';
 import { GlobalStyle } from '../../theme/GlobalStyle';
 import { CollapsiblePanel } from '../../components/CollapsiblePanel';
@@ -91,6 +92,20 @@ export interface ChatPanelProps {
   onConfirmPersona?: (id: string) => Promise<void>;
   /** Persona 审核动作：reject（拒绝 → status:'rejected'） */
   onRejectPersona?: (id: string) => Promise<void>;
+
+  /* -------- v0.2.3 消息持久化 + 刷新预热 -------- */
+
+  /**
+   * v0.2.3：每条 user/assistant 消息成功产生时调用一次，
+   * 由 sidebar 负责写入 episodes_msg（含 visitId/canonicalUrl/orderInVisit）。
+   * 缺省时聊天仍可用，只是不落库（退化到 v0.1 行为）。
+   */
+  persistMessage?: (msg: { role: 'user' | 'assistant'; content: string }) => Promise<void>;
+  /**
+   * v0.2.3：从 IDB 预热的"上次对话"消息。**不进 UI**，仅在 send() 组装 history 时前置。
+   * 由 sidebar 在 mount 后按"WorkingMemory → 跨 visit 近 5 轮 → 向量召回"三段式策略生成。
+   */
+  initialHistoryForLLM?: ChatMessage[];
 }
 
 const Header = styled.header`
@@ -213,6 +228,8 @@ export function ChatPanel({
   getWorkingMemory,
   onConfirmPersona,
   onRejectPersona,
+  persistMessage,
+  initialHistoryForLLM,
 }: ChatPanelProps) {
   const [messageApi, contextHolder] = message.useMessage({ top: 52 });
   const inputActionsRef = useRef<ChatInputActions | null>(null);
@@ -239,6 +256,8 @@ export function ChatPanel({
       };
     },
     buildToolExecCtx: () => buildToolMeta(),
+    ...(persistMessage ? { persistMessage } : {}),
+    ...(initialHistoryForLLM ? { initialHistoryForLLM } : {}),
   });
 
   useSelectionBridge(() => inputActionsRef.current?.insertReference ?? null);

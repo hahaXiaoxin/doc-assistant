@@ -59,6 +59,67 @@ describe('DexieMemoryStore · remember + recall 基础', () => {
     expect(out2[0]?.content).toBe('hello');
   });
 
+  // v0.2.3 · rehydrate 核心链路：跨 visit 按 canonicalUrl 召回消息
+  it('message 跨 visit 按 canonicalUrl 召回（rehydrate 的底层能力）', async () => {
+    const url = 'https://example.com/article';
+    // visit A 的消息
+    await store.remember({
+      id: 'a1',
+      type: 'message',
+      content: '我们聊 agent loop',
+      role: 'user',
+      timestamp: 100,
+      visitId: 'visit-a',
+      canonicalUrl: url,
+      orderInVisit: 0,
+    });
+    await store.remember({
+      id: 'a2',
+      type: 'message',
+      content: '好的，loop 是怎么设计的...',
+      role: 'assistant',
+      timestamp: 110,
+      visitId: 'visit-a',
+      canonicalUrl: url,
+      orderInVisit: 1,
+    });
+    // visit B 的消息（同一 canonicalUrl，不同 visitId——模拟用户刷新页面）
+    await store.remember({
+      id: 'b1',
+      type: 'message',
+      content: '上次我们聊到哪了',
+      role: 'user',
+      timestamp: 200,
+      visitId: 'visit-b',
+      canonicalUrl: url,
+      orderInVisit: 0,
+    });
+    // 无关 URL 的消息（不该被召回）
+    await store.remember({
+      id: 'c1',
+      type: 'message',
+      content: '其他页面的对话',
+      role: 'user',
+      timestamp: 150,
+      visitId: 'visit-c',
+      canonicalUrl: 'https://other.com/x',
+      orderInVisit: 0,
+    });
+
+    const out = await store.recall({
+      types: ['message'],
+      canonicalUrl: url,
+      limit: 50,
+    });
+    // 只应拿到 a1/a2/b1 三条，按 timestamp 降序（dexie 默认），不含 c1
+    expect(out.map((r) => r.id).sort()).toEqual(['a1', 'a2', 'b1']);
+    // 验证关键元数据都保留：role / visitId / orderInVisit 在 rehydrate 时要用
+    const a1 = out.find((r) => r.id === 'a1');
+    expect(a1?.role).toBe('user');
+    expect(a1?.visitId).toBe('visit-a');
+    expect(a1?.orderInVisit).toBe(0);
+  });
+
   it('多条按 timestamp 倒序返回', async () => {
     await store.remember({ id: 'a', type: 'visit_summary', content: 'a', timestamp: 100 });
     await store.remember({ id: 'b', type: 'visit_summary', content: 'b', timestamp: 300 });

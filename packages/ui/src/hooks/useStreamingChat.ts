@@ -6,6 +6,14 @@
  * - 维护 streamingAssistant：正在流式的 assistant 消息（正文 + 思考过程）
  * - 提供 send(userInput, references) / abort() / clear() 方法
  *
+ * v0.2.3：
+ * - 新增 `persistMessage`（可选）：每条 user/assistant 消息成功产生时调用一次，
+ *   让上层（sidebar/bootstrap）把消息写入 episodes_msg。本 hook 不知道 MemoryStore 的存在，
+ *   只是一个鸭子类型的 port，保持 ui 包不反向依赖 memory。
+ * - 新增 `initialHistoryForLLM`（可选）：用于 ChatPanel 在 mount 时从 IDB 预热的"近期消息 + 可能的元信息"。
+ *   **不会进入 UI 的 messages[]**（对用户透明），只在 send() 组装 agent 请求时前置到 history。
+ *   对应用户"像真正的助手一样，不要把状态贴脸上"的诉求。
+ *
  * 注意：
  * - 使用 ref 累积 text/reasoning 以避免大量 setState；定时 flush 到 state
  * - clear() 只清 UI 与 history；不触碰记忆层（MVP 也没有）
@@ -50,6 +58,19 @@ export interface UseStreamingChatOptions {
   ) => Omit<AgentInvokeContext, 'history' | 'userInput' | 'references'>;
   /** tool 执行上下文（pageContext 等） */
   buildToolExecCtx: () => ToolExecutionContext['meta'];
+  /**
+   * v0.2.3 · 可选：持久化一条消息到 MemoryStore（episodes_msg）。
+   * - user 消息在进入 setMessages 后立即调用；
+   * - assistant 消息在 flush 时调用（只持久化成功产出的正文，不持久化 error 消息）。
+   * 失败会被忽略并记录 warn 日志，不影响聊天流。
+   */
+  persistMessage?: (msg: { role: 'user' | 'assistant'; content: string }) => Promise<void>;
+  /**
+   * v0.2.3 · 可选：从 IDB 预热的"上次对话"消息。**不会进入 UI 的 messages[]**，
+   * 只会在 send() 组装 agent 请求时前置到 history，让 Agent 能自然接续。
+   * 变化时不会触发 UI 重渲染（用 ref 保存）。
+   */
+  initialHistoryForLLM?: ChatMessage[];
 }
 
 function genId(): string {
@@ -104,6 +125,13 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
       };
       setMessages((prev) => [...prev, userMsg]);
 
+      // v0.2.3：落库 user 消息（失败不阻塞聊天）
+      if (opts.persistMessage) {
+        void opts.persistMessage({ role: 'user', content: trimmed }).catch((err: Error) => {
+          logger.warn('persistMessage(user) 失败', err.message);
+        });
+      }
+
       // 初始化 streaming assistant
       setStreaming({
         text: '',
@@ -114,7 +142,11 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      // v0.2.3：history = 预热历史（跨 visit / 过去对话）+ 本轮 UI 内累积消息
+      // 注：initialHistoryForLLM 仅喂给 LLM，**不进 UI messages[]**，对用户透明
+      const preloaded = opts.initialHistoryForLLM ?? [];
       const history: ChatMessage[] = [
+        ...preloaded,
         ...messages.map(
           (m): ChatMessage => ({
             role: m.role,
@@ -159,19 +191,29 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
       // flush：把 streaming 的内容 commit 成一条 assistant UIMessage
       setStreaming((s) => {
         if (!s) return null;
+        const assistantText = s.text;
+        const hadError = !!s.error;
         setMessages((prev) => [
           ...prev,
           {
             id: genId(),
             role: 'assistant',
-            content: s.text,
+            content: assistantText,
             ...(s.reasoning ? { reasoning: s.reasoning } : {}),
             ...(typeof s.thinkingElapsedMs === 'number'
               ? { reasoningElapsedMs: s.thinkingElapsedMs }
               : {}),
-            ...(s.error ? { error: true } : {}),
+            ...(hadError ? { error: true } : {}),
           },
         ]);
+        // v0.2.3：落库 assistant 消息（仅正常产出；error/空串不写）
+        if (!hadError && assistantText.trim() && opts.persistMessage) {
+          void opts
+            .persistMessage({ role: 'assistant', content: assistantText })
+            .catch((err: Error) => {
+              logger.warn('persistMessage(assistant) 失败', err.message);
+            });
+        }
         return null;
       });
       abortRef.current = null;
