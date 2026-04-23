@@ -171,6 +171,7 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
     send,
     clear,
     abort,
+    appendAssistantNote,
     isBusy: streaming !== null,
   };
 }

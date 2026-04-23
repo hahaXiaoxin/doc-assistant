@@ -51,6 +51,27 @@ export interface ChatPanelProps {
   getPageSummary: () => PageSummary | null;
   /** 构造 tool 执行上下文（注入 pageContext 供 read_page_content 等 tool 使用） */
   buildToolMeta: () => Record<string, unknown>;
+
+  /* -------- v0.2.1 slash 命令相关回调（全部可选） -------- */
+
+  /**
+   * /new 命令：开启新 PageVisit。通常实现为 `pageVisitManager.endCurrent()` 后
+   * 立即 `startNewVisit({...current})`；不清 WorkingMemory/Persona/Episodic。
+   */
+  onStartNewVisit?: () => Promise<void> | void;
+  /**
+   * /recall <query> 命令：执行召回并返回一段格式化文本（通常由 `recallMemory` +
+   * `renderRecallMatches` 产出）。返回 null 表示未命中。
+   */
+  onRecall?: (query: string) => Promise<{ text: string; hit: boolean } | null>;
+  /**
+   * /topic（无参）：强制触发一次辅助 LLM 主题识别。
+   */
+  onTopicIdentify?: () => Promise<void>;
+  /**
+   * /topic <text>（有参）：手动设置当前 visit 的 SessionTopic。
+   */
+  onTopicSet?: (text: string) => Promise<void>;
 }
 
 const Header = styled.header`
@@ -165,6 +186,10 @@ export function ChatPanel({
   agent,
   getPageSummary,
   buildToolMeta,
+  onStartNewVisit,
+  onRecall,
+  onTopicIdentify,
+  onTopicSet,
 }: ChatPanelProps) {
   const [messageApi, contextHolder] = message.useMessage({ top: 52 });
   const inputActionsRef = useRef<ChatInputActions | null>(null);
@@ -213,6 +238,22 @@ export function ChatPanel({
     },
     closeMenu: () => {},
     notify: (msg) => messageApi.success(msg),
+    appendAssistantNote: (content) => chat.appendAssistantNote(content),
+    ...(onStartNewVisit ? { startNewVisit: onStartNewVisit } : {}),
+    ...(onRecall
+      ? {
+          triggerRecall: async (query: string) => {
+            const out = await onRecall(query);
+            if (!out || !out.hit) {
+              messageApi.info('未在历史记忆中找到相关内容');
+              return;
+            }
+            chat.appendAssistantNote(out.text);
+          },
+        }
+      : {}),
+    ...(onTopicIdentify ? { triggerTopicIdentify: onTopicIdentify } : {}),
+    ...(onTopicSet ? { setSessionTopic: onTopicSet } : {}),
   };
 
   const handleSubmit = (payload: {

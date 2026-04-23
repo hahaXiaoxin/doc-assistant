@@ -58,7 +58,11 @@ export function SlashCommandPlugin({ registry, context }: SlashCommandPluginProp
   const [activeIdx, setActiveIdx] = useState(0);
 
   const filtered = useMemo(() => {
-    return state.query ? registry.query(state.query.slice(1)) : registry.list();
+    // state.query 形如 `/recall agent loop`；按空格切出命令名用于前缀过滤
+    if (!state.query) return registry.list();
+    const withoutSlash = state.query.slice(1);
+    const firstToken = withoutSlash.split(/\s/, 1)[0] ?? '';
+    return registry.query(firstToken);
   }, [registry, state.query]);
 
   const close = useCallback(() => {
@@ -78,14 +82,20 @@ export function SlashCommandPlugin({ registry, context }: SlashCommandPluginProp
         const anchor = sel.anchor;
         const node = anchor.getNode();
         const text = node.getTextContent();
-        // 取光标前的最后一段非空白
+        // 取光标前的最后一段。允许 /name 后跟任意非换行字符（含空格）以支持带参命令。
         const before = text.slice(0, anchor.offset);
-        const m = /(?:^|[\s\n])?(\/[A-Za-z0-9_-]*)$/.exec(before);
+        // (?:^|[\s\n])?  可选的前置空白
+        // (\/[A-Za-z0-9_-]+  )  命令名
+        // ([^\n]*)  可选的 参数区（非换行字符）
+        // $  光标在末尾
+        const m = /(?:^|[\s\n])?(\/[A-Za-z0-9_-]+)([^\n]*)$/.exec(before);
         if (!m || !m[1]) {
           close();
           return;
         }
-        const query = m[1];
+        const cmdName = m[1]; // 形如 "/recall"
+        const argsPart = m[2] ?? ''; // 形如 " agent loop" 或 ""
+        const query = cmdName + argsPart;
         logger.debug('匹配 slash 前缀', { query, anchorOffset: anchor.offset });
 
         // 菜单位置 · 固定出现在输入框上方：
@@ -209,7 +219,11 @@ export function SlashCommandPlugin({ registry, context }: SlashCommandPluginProp
       });
     }
     close();
-    void cmd.execute(context);
+    // 解析参数：state.query 形如 `/recall agent loop`；剥掉 `/cmd ` 前缀作为 rawArgs
+    const afterSlash = state.query.slice(1); // "recall agent loop"
+    const spaceIdx = afterSlash.indexOf(' ');
+    const rawArgs = spaceIdx >= 0 ? afterSlash.slice(spaceIdx + 1).trim() : undefined;
+    void cmd.execute(context, rawArgs);
   };
 
   // 找到 editor 根节点所在的 shadowRoot，用作 portal 目标；

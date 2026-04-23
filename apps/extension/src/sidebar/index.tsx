@@ -14,7 +14,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { StyleSheetManager } from 'styled-components';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { canonicalizeUrl, createLogger, extractDomain, MessageType } from '@doc-assistant/shared';
 import {
   runIdentityPipeline,
@@ -22,6 +22,11 @@ import {
   contentRegistry,
   type ContentExtractor,
 } from '@doc-assistant/tools';
+import {
+  identifySessionTopic,
+  recallMemory,
+  renderRecallMatches,
+} from '@doc-assistant/agent';
 import { ChatPanel, type PageSummary } from '@doc-assistant/ui';
 import { bootstrapAgent } from './bootstrap';
 import { installShadowSelectionPatch } from './patch-shadow-selection';
@@ -166,6 +171,90 @@ function SidebarApp(props: MountOptions) {
     [visible, bootstrap],
   );
 
+  /* ----------- v0.2.1 slash 命令回调 ----------- */
+
+  const onStartNewVisit = useCallback(async () => {
+    if (!bootstrap) return;
+    const pvm = bootstrap.pageVisitManager;
+    const identity = safeRunIdentity();
+    // 先 end 当前（触发反思 Job 登记），再开新 visit
+    await pvm.endCurrent();
+    await pvm.startNewVisit({
+      url: location.href,
+      doc: document,
+      ...(identity?.id ? { articleId: identity.id } : {}),
+      ...(identity?.title ? { title: identity.title } : {}),
+    });
+  }, [bootstrap]);
+
+  const onRecall = useCallback(
+    async (query: string): Promise<{ text: string; hit: boolean } | null> => {
+      if (!bootstrap) return null;
+      const outcome = await recallMemory(
+        { memory: bootstrap.memory, aux: bootstrap.auxLLM },
+        { query, mode: 'explicit' },
+      );
+      if (!outcome.hit) return { text: '', hit: false };
+      return { text: renderRecallMatches(outcome.matches), hit: true };
+    },
+    [bootstrap],
+  );
+
+  const onTopicIdentify = useCallback(async () => {
+    if (!bootstrap) return;
+    const visit = bootstrap.pageVisitManager.getCurrent();
+    if (!visit) {
+      logger.warn('/topic 识别失败：当前无活跃 PageVisit');
+      return;
+    }
+    // 从 UI 取最近消息（通过 ChatPanel 的 pageSummary 并非理想做法；这里偷懒用
+    // page summary 的 summary 作为"最近内容"占位，实际效果由辅 LLM 评估）
+    const sum = pageSummaryMemo();
+    const recentMessages = sum?.summary
+      ? [{ role: 'user' as const, content: sum.summary }]
+      : [];
+    await identifySessionTopic({
+      aux: bootstrap.auxLLM,
+      memory: bootstrap.memory,
+      visitId: visit.visitId,
+      ...(visit.canonicalUrl !== undefined ? { canonicalUrl: visit.canonicalUrl } : {}),
+      ...(visit.articleId !== undefined ? { articleId: visit.articleId } : {}),
+      recentMessages,
+    });
+  }, [bootstrap, pageSummaryMemo]);
+
+  const onTopicSet = useCallback(
+    async (text: string) => {
+      if (!bootstrap) return;
+      const visit = bootstrap.pageVisitManager.getCurrent();
+      if (!visit || !bootstrap.memory.setSessionTopic) return;
+      const existing = bootstrap.memory.getSessionTopic
+        ? await bootstrap.memory.getSessionTopic(visit.visitId)
+        : null;
+      await bootstrap.memory.setSessionTopic({
+        visitId: visit.visitId,
+        currentTopic: text,
+        tags: existing?.tags ?? [],
+        updatedAt: Date.now(),
+        history: [
+          ...(existing?.history ?? []),
+          { at: Date.now(), topic: text, triggeredBy: 'user_command' },
+        ].slice(-20),
+        ...(existing?.canonicalUrl !== undefined
+          ? { canonicalUrl: existing.canonicalUrl }
+          : visit.canonicalUrl !== undefined
+            ? { canonicalUrl: visit.canonicalUrl }
+            : {}),
+        ...(existing?.articleId !== undefined
+          ? { articleId: existing.articleId }
+          : visit.articleId !== undefined
+            ? { articleId: visit.articleId }
+            : {}),
+      });
+    },
+    [bootstrap],
+  );
+
   if (!bootstrap) {
     return null; // 静默等待 bootstrap
   }
@@ -193,6 +282,10 @@ function SidebarApp(props: MountOptions) {
           selectionText: window.getSelection()?.toString() ?? '',
         },
       })}
+      onStartNewVisit={onStartNewVisit}
+      onRecall={onRecall}
+      onTopicIdentify={onTopicIdentify}
+      onTopicSet={onTopicSet}
     />
   );
 }
