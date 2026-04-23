@@ -43,6 +43,8 @@ import { buildDefaultMVPTools } from '@doc-assistant/tools';
 import {
   createChatAgent,
   PageVisitManager,
+  ReflectionRunner,
+  ReflectionScheduler,
   type Agent,
 } from '@doc-assistant/agent';
 
@@ -55,6 +57,12 @@ export interface BootstrapResult {
   mainProvider: LLMProviderConfig;
   memory: MemoryStore;
   pageVisitManager: PageVisitManager;
+  /** v0.2.1：反思任务调度器（sidebar 启动后调用 runPending，并订阅 PageVisit 结束） */
+  reflectionScheduler: ReflectionScheduler | null;
+  /** v0.2.1：辅助 LLM（供 ChatAgent 后续做 SessionTopic 识别 / recall intent 精判） */
+  auxLLM: LLMProvider;
+  /** v0.2.1：Embedding Provider（可能为 null，召回将降级到关键词） */
+  embeddingProvider: EmbeddingProvider | null;
   /** 主 Provider 是否缺失必要配置（apiKey 未填） */
   missingConfig: boolean;
 }
@@ -203,20 +211,44 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     phase2: true,
   });
 
+  // v0.2.1：反思调度器
+  // - 仅在 memorySettings.reflectionEnabled 时挂；
+  // - 失败不阻塞启动（scheduler=null 意味着 PageVisit 结束后不登记任务）。
+  let reflectionScheduler: ReflectionScheduler | null = null;
+  if (memorySettings.reflectionEnabled) {
+    try {
+      const runner = new ReflectionRunner({
+        memory,
+        aux: auxLLM,
+        embedding: embeddingProvider,
+      });
+      reflectionScheduler = new ReflectionScheduler({ memory, runner });
+      // 订阅 PageVisit 结束 → 自动登记 3 条反思任务并尝试立即跑
+      reflectionScheduler.registerOnPageVisitEnd(pageVisitManager);
+      // 启动时补跑一次历史 pending 任务（fire-and-forget）
+      void reflectionScheduler.runPending().catch((err: Error) => {
+        logger.warn('ReflectionScheduler.runPending 启动补跑失败', err.message);
+      });
+    } catch (err) {
+      logger.warn(
+        'ReflectionScheduler 构建失败（不阻塞启动；反思任务将不会被处理）',
+        (err as Error).message,
+      );
+      reflectionScheduler = null;
+    }
+  }
+
   logger.info('Sidebar bootstrap 完成', {
     mainModel: mainProvider.model,
     auxUseMain: isUseMain(auxConfig),
     embUseMain: isUseMain(embConfig),
     hasEmbedding: !!embeddingProvider,
+    reflectionEnabled: !!reflectionScheduler,
     memoryKind: memory instanceof NullMemoryStore ? 'null' : 'dexie',
     tools: tools.map((t) => t.name),
     maxTurns: chatSettings.maxTurns,
     missingConfig,
   });
-
-  // auxLLM 目前 bootstrap 暂未使用到（v0.2.1 反思 / 情景识别时才用）
-  // 此处保留变量引用，避免 TS no-unused 警告
-  void auxLLM;
 
   return {
     agent,
@@ -225,6 +257,9 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     mainProvider,
     memory,
     pageVisitManager,
+    reflectionScheduler,
+    auxLLM,
+    embeddingProvider,
     missingConfig,
   };
 }

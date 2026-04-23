@@ -88,6 +88,23 @@ function SidebarApp(props: MountOptions) {
       });
   }, []);
 
+  // v0.2.1：监听 SW 的 REFLECTION_SCAN_TICK（chrome.alarms 每 60 分钟触发一次）
+  useEffect(() => {
+    if (!bootstrap?.reflectionScheduler) return;
+    const scheduler = bootstrap.reflectionScheduler;
+    const handler = (message: { type?: string } | undefined) => {
+      if (message?.type !== MessageType.REFLECTION_SCAN_TICK) return;
+      logger.info('收到 REFLECTION_SCAN_TICK，触发 runPending');
+      void scheduler.runPending().catch((err: Error) => {
+        logger.warn('runPending 失败', err.message);
+      });
+    };
+    chrome.runtime.onMessage.addListener(handler);
+    return () => {
+      chrome.runtime.onMessage.removeListener(handler);
+    };
+  }, [bootstrap]);
+
   // v0.2：PageVisit 生命周期管理
   const visitStartedRef = useRef(false);
   useEffect(() => {

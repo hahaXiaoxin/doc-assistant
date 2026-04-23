@@ -67,17 +67,31 @@ chrome.runtime.onMessage.addListener(
 );
 
 /* ------------------------------------------------------------------ */
-/* v0.2: chrome.alarms 反思扫描占位                                    */
-/* v0.2.0：alarm 已注册并会触发，但执行器在 v0.2.1 实装；               */
-/* 本期仅打印日志，证明注册/触发链路通畅，避免上线后发现 alarm 根本没跑。 */
+/* v0.2.1: chrome.alarms 反思扫描                                      */
+/* ---                                                                 */
+/* 架构决策（v0.2.1）：                                                 */
+/* - IndexedDB 在 SW 与 sidebar 之间的同源隔离仍是风险点，因此本期       */
+/*   选择"SW 只做唤醒、真正跑在 sidebar"的稳妥方案：                    */
+/*   - alarm 触发 → chrome.runtime.sendMessage 广播 REFLECTION_SCAN_TICK */
+/*   - 在线的 sidebar 收到后调用 ReflectionScheduler.runPending()       */
+/*   - 没有 sidebar 在线时消息丢弃；下次打开 sidebar 会自动补跑         */
+/* - 如果未来确认 SW 与 sidebar 同 origin 且 Dexie 可跨上下文共享，     */
+/*   可以把执行器搬到 SW（见 docs/ROADMAP.md §2 附录）                  */
 /* ------------------------------------------------------------------ */
 
 export const REFLECTION_ALARM_NAME = 'doc-assistant.reflection-scan';
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== REFLECTION_ALARM_NAME) return;
-  logger.info(
-    `收到 alarm ${REFLECTION_ALARM_NAME} · v0.2.0 仅日志占位；v0.2.1 将在此扫描 reflection_tasks`,
-  );
-  // TODO v0.2.1: 调用 reflection-worker.ts 的 runPendingReflections()
+  logger.info(`收到 alarm ${REFLECTION_ALARM_NAME} · 广播 REFLECTION_SCAN_TICK`);
+  // fire-and-forget；无监听方时 chrome.runtime.sendMessage 会抛 "Could not establish connection"
+  chrome.runtime
+    .sendMessage({
+      type: MessageType.REFLECTION_SCAN_TICK,
+      at: Date.now(),
+    })
+    .catch((err: Error) => {
+      // 绝大多数情况下是"sidebar 未在线"，属于预期；只打 debug 级日志
+      logger.debug('REFLECTION_SCAN_TICK 无人接收（sidebar 未在线）', err.message);
+    });
 });

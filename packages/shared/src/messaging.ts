@@ -21,6 +21,13 @@ export const MessageType = {
   OPEN_OPTIONS: 'doc-assistant/open-options',
   /** 通用 ACK */
   ACK: 'doc-assistant/ack',
+  /**
+   * v0.2.1：SW alarm 触发时广播给 sidebar，让在线的 sidebar 调用
+   * `ReflectionScheduler.runPending()`。
+   * 若没有 sidebar 在线，此消息被浏览器丢弃；下次 sidebar 打开时 bootstrap
+   * 会主动补跑一次。
+   */
+  REFLECTION_SCAN_TICK: 'doc-assistant/reflection-scan-tick',
 } as const;
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType];
@@ -60,12 +67,20 @@ export interface AckMessage {
   error?: string;
 }
 
+/** v0.2.1：反思任务扫描 tick（SW alarm → sidebar） */
+export interface ReflectionScanTickMessage {
+  type: typeof MessageType.REFLECTION_SCAN_TICK;
+  /** alarm 触发时刻（毫秒） */
+  at: number;
+}
+
 export type ExtensionMessage =
   | InsertReferenceMessage
   | ToggleSidebarMessage
   | OpenSidebarMessage
   | OpenOptionsMessage
-  | AckMessage;
+  | AckMessage
+  | ReflectionScanTickMessage;
 
 /**
  * 同 tab 内 content ↔ sidebar 的 CustomEvent 名
