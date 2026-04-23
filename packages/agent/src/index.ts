@@ -59,3 +59,16 @@ export {
   type IdentifySessionTopicResult,
   type IdentifyStatus,
 } from './aux';
+
+// v0.2.1: 反思任务执行器 + 调度器
+export {
+  ReflectionRunner,
+  ReflectionScheduler,
+  parseSummaryOutput,
+  parsePersonaOutput,
+  type ReflectionRunnerDeps,
+  type ReflectionRunOutcome,
+  type ReflectionSchedulerOptions,
+  type RunPendingResult,
+  type ParsedPersonaCandidate,
+} from './reflection';
