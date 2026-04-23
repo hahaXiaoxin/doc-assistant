@@ -158,12 +158,40 @@
 
 ### v0.2.3+（未来方向，未排期）
 
+#### 记忆层完善
 - [ ] `persona_conflict_check` 实装（检测长期指令矛盾并合并/裁决）
-- [ ] UI 层 tool-call 可观测性：assistant 消息加"已调用 N 个工具"徽章，点击展开参数/结果（源于 TROUBLESHOOTING §10 启示）
-- [ ] RecallResultCard 独立样式（目前复用 `appendAssistantNote` 以 assistant 消息形式展示）
 - [ ] PersonaReviewList：配置页长期指令 Tab 的批量审核视图（支持编辑）
 - [ ] `/forget` 命令：主动从记忆层删除
 - [ ] 会话导入 / 导出（JSON）
+
+#### UI / 可观测性
+- [ ] UI 层 tool-call 可观测性：assistant 消息加"已调用 N 个工具"徽章，点击展开参数/结果（源于 TROUBLESHOOTING §10 启示）
+- [ ] RecallResultCard 独立样式（目前复用 `appendAssistantNote` 以 assistant 消息形式展示）
+- [ ] **Token 用量看板**（用户反馈，优先级偏高）
+  - 目标：直观看到"今天主/辅 LLM 各花了多少 token"，为调参/换模型提供依据
+  - 数据采集：
+    - 在 `QwenProvider.chat` / `QwenEmbeddingProvider.embed` 的 stream `finish` / 响应处拿 `usage.promptTokens / completionTokens / reasoningTokens`
+    - 按 `provider-kind × model-id × 日期`（UTC+8）聚合，写入新表 `token_usage`（Dexie 新表，schema 升级）
+    - 需要区分**主 / 辅 / embedding 三路**（靠 Provider 实例的"角色"标签区分——bootstrap 装配时打标）
+  - 展示：配置页新增"用量"Tab
+    - 今日：主 / 辅 / embedding 各模型的 token 柱状图 + 总数
+    - 最近 7 天趋势折线
+    - 各模型的累计（便于估算成本，若用户填了单价可展示金额）
+  - 注意：
+    - 反思 Job 也会调 aux / embedding，记得打"reflection"来源标签便于追溯哪类调用最耗
+    - 数据只在本地 IDB，不上传；清理策略：保留 90 天，每次启动时清理过期
+    - 千问 usage 字段在 AI SDK stream 的 `finish` part 里，`normalizer.ts` 已归一化为 `ChatChunk.usage`，可直接消费
+
+#### 代码清理
+- [ ] **移除 v0.1 向后兼容代码**（用户反馈，适合在稳定一版后做）
+  - 项目尚未正式发布，旧版本（v0.1）的兼容代码属于无用包袱，集中清理避免混乱
+  - 清理清单（初步）：
+    - `packages/shared/src/config.ts` · `STORAGE_KEYS.QWEN_CONFIG` 与 `QwenProviderConfig` 旧字段（v0.2 已迁移到 MAIN_PROVIDER_CONFIG）
+    - `apps/extension/src/sidebar/bootstrap.ts` · 旧 `QWEN_CONFIG` 自动迁移逻辑
+    - `packages/memory/src/interface.ts` · `MemoryRecord.sessionId`（v0.1 兼容字段，已被 `visitId` 取代）
+    - `packages/memory/src/interface.ts` · `MemoryRecordType` 里的 `'summary' | 'fact' | 'reference'`（v0.1 占位，v0.2 后未被任何代码写入）
+    - ChatSettings.systemPrompt 的"用户可改"逻辑如仍存在旧存储 key，一并清
+  - 风险：清理前先扫全仓确认无读写引用；IndexedDB 老数据（若有）需要明确是否允许丢弃
 
 ### 架构红线（ESLint 强约束）
 
