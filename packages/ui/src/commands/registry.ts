@@ -1,10 +1,13 @@
 /**
  * 斜杠命令注册中心
  * ---------------------------------------------
- * PHASE2: /forget（真的从记忆层删除）/recall /summary 等在此注册。
+ * v0.2.1 默认注册：/new /recall /topic
+ * PHASE3: /forget（真的从记忆层删除）/summary 等会在此注册。
  */
 import type { SlashCommand } from './types';
 import { newCommand } from './new-command';
+import { recallCommand } from './recall-command';
+import { topicCommand } from './topic-command';
 
 export class SlashCommandRegistry {
   private cmds = new Map<string, SlashCommand>();
@@ -37,6 +40,7 @@ export class SlashCommandRegistry {
 export function createDefaultCommandRegistry(): SlashCommandRegistry {
   const r = new SlashCommandRegistry();
   r.register(newCommand);
-  // PHASE2: r.register(forgetCommand); r.register(recallCommand); ...
+  r.register(recallCommand);
+  r.register(topicCommand);
   return r;
 }
