@@ -7,8 +7,91 @@
 
 ## [Unreleased]
 
-- v0.2.1 将在 v0.2.0 基础上实装：辅助 LLM 调用链、反思 Job 执行器、召回机制、
-  `/recall` / `/topic` 命令、WorkingMemory 工具与 UI 卡片、Persona 审核 UI
+- （留作下一个版本草稿区）
+
+---
+
+## [v0.2.1] · 进行中 · Phase 2 记忆层高级能力
+
+> 在 v0.2.0 记忆层基础设施之上实装"高级能力"：辅助 LLM 调用链、反思 Job 执行器、
+> 召回链路、命令层（/recall、/topic、/new 语义重构）、Persona 审核 UI、
+> WorkingMemory 卡片。至此"类人脑分层记忆"从骨架变为可运行的闭环。
+
+### Added
+
+- **辅助 LLM 调用链（`@doc-assistant/agent/aux`）**
+  - `collectText(stream)`：把流式 `chat()` 消费为纯文本，忽略 reasoning/tool-call，
+    规范化 AbortError / ProviderError / AUX_EMPTY_RESPONSE。
+  - `callAuxIntent(aux, { userMessage, historyHint })`：召回链的 "精判" 环节；
+    宽松解析 `ANSWER: yes/no + CONFIDENCE: 0-1`；失败降级为 no（不抛到主对话）。
+  - `identifySessionTopic({ aux, memory, visitId, recentMessages })` +
+    `shouldIdentify(userMsgCount, interval=4)`：每 N 轮触发一次主题识别；
+    JSON 宽松解析 `{currentTopic, tags, stage}`，带 history 审计（最多 20 条）。
+- **反思 Job 执行器与调度器（`@doc-assistant/agent/reflection`）**
+  - `ReflectionRunner`：
+    - `visit_summary`：根据该 visit 的 episodes_msg 生成 200 字内摘要 + 可选 embedding，
+      落 `episodes_visit_summary` 表；embedding 失败时不阻塞入库。
+    - `persona_extraction`：抽取稳定偏好/事实，dedupe 命中 +hitCount，status=pending
+      等待用户审核。
+    - `persona_conflict_check`：v0.2.1 占位（v0.2.2+ 实装）。
+  - `ReflectionScheduler`：
+    - `runPending()`：串行执行 pending 任务（默认 maxTasksPerRun=6）；
+      失败 < maxAttempts 回 pending，达到 maxAttempts 置 failed。
+    - `registerOnPageVisitEnd(pvm)`：订阅 PageVisit 结束，自动登记 3 条反思任务并尝试立即跑。
+    - running 标志位避免并发重入。
+  - **SW alarm 与 sidebar 的协同**：alarm 触发 → SW 广播 `REFLECTION_SCAN_TICK` →
+    在线 sidebar 调 `runPending()`。选择"SW 只唤醒、sidebar 执行"的稳妥方案，
+    规避 SW 与 sidebar IndexedDB 潜在的同源隔离风险。
+- **召回链路（`@doc-assistant/agent/context`）**
+  - `detectRecallTrigger`：中英双语正则粗判（"上次/之前/还记得/last time/..."）。
+  - `recallMemory({ memory, aux }, { query, mode })`：代码粗判 → aux 精判 → 向量 topK → 邻居拼接。
+    mode='explicit' 绕过粗判+精判（用于 /recall 和 tool 主动调用）。
+  - `RelevantMemorySource` (priority=40)：自动召回路径，命中后生成带邻居消息的 system 段。
+  - `buildDefaultPhase2_1Sources` + `createChatAgent({ phase2: true, auxLLM })`：
+    传 auxLLM 自动启用 Phase2-1 源组合。
+- **新增 tool（`@doc-assistant/tools`）**
+  - `recall_memory`：主 LLM 主动召回（默认 mode=explicit）。
+  - `remember_persona`：用户显式声明偏好时写 confirmed Persona（reviewedByUser=true,
+    source.extractedBy='user_explicit'）。
+  - `buildPhase2Tools(deps)` 升级为动态：根据 deps 能力按需注册 10~12 个 tool。
+- **斜杠命令（`@doc-assistant/ui/commands`）**
+  - `/new`（重构）：清 UI + 新 visitId；**不**清 WorkingMemory/Persona/Episodic。
+  - `/recall <关键词>`：走 `triggerRecall` 钩子；空参给出用法提示；
+    命中后结果以非流式 assistant 消息形式追加到聊天流（`appendAssistantNote`）。
+  - `/topic [<文本>]`：有参 setSessionTopic；无参 triggerTopicIdentify。
+  - 支持带参：`SlashCommand.execute(ctx, rawArgs?)`；`SlashCommandContext` 扩展
+    5 个可选能力；`SlashCommandPlugin` 正则与参数解析升级。
+- **UI 组件（`@doc-assistant/ui/components`）**
+  - `PersonaReviewBanner`：sidebar 顶部折叠条，pending Persona 一键接受/拒绝；
+    对话结束后延迟 3s 刷新；可跳转配置页批量管理。
+  - `WorkingMemoryCard`：sidebar 顶部折叠卡片，显示 activeGoal + TODO 进度 + 状态图标；
+    5s 轮询 + 对话结束立即刷新。
+- **WorkingMemory 7 个细粒度 tool**（早于批次 3 加入，记录于此便于检索）：
+  `get_working_memory` / `set_todos` / `add_todo` / `update_todo` / `complete_todo` /
+  `clear_todos` / `set_active_goal`。
+
+### Changed
+
+- `createChatAgent` 新增 `auxLLM` 和 `relevantMemory` 选项；phase2=true + auxLLM 存在
+  时自动升级为 Phase2-1 源集合（加入 RelevantMemorySource）。
+- `BootstrapResult` 暴露 `auxLLM / embeddingProvider / reflectionScheduler`，供 sidebar
+  注入 slash 命令回调。
+- `MessageType` 新增 `REFLECTION_SCAN_TICK` + `ReflectionScanTickMessage`。
+- `useStreamingChat` 新增 `appendAssistantNote(content)`：向聊天流追加非流式 assistant 消息。
+- sidebar `SidebarApp` 装配 4 个 slash 命令回调（startNewVisit / recall / topic identify / topic set）
+  与 3 个审核能力（getPendingPersonas / onConfirmPersona / onRejectPersona）。
+
+### Testing
+
+v0.2.1 净增 **8 个测试文件、95+ 个测试用例**：
+- `packages/agent/src/__tests__/aux.test.ts`（31）
+- `packages/agent/src/__tests__/reflection.test.ts`（21）
+- `packages/agent/src/__tests__/recall.test.ts`（18）
+- `packages/tools/src/__tests__/working-memory.test.ts`（21）
+- `packages/tools/src/__tests__/recall-persona-tools.test.ts`（12）
+- `packages/ui/src/commands/__tests__/commands.test.ts`（12）
+
+总计 **20 test files / 302 tests** 全绿，lint 0 error。
 
 ---
 

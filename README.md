@@ -2,16 +2,25 @@
 
 面向在线学习场景的 Chrome / Edge 浏览器扩展。在任意文档/文章页面右侧提供可折叠的对话面板，结合页面内容与千问大模型进行上下文感知对话，无需切换窗口或平台。
 
-> **当前版本：v0.1（MVP）** · 后续迭代规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)
+> **当前版本：v0.2.1（Phase 2 记忆层高级能力）** · 设计原则与完整规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)
 
 ## 核心特性
 
-- 侧边对话框（Content Script 注入 + Shadow DOM 样式隔离，折叠/展开/宽度拖拽）
-- 流式对话 + 思考过程（reasoning）展示
-- 自动识别文章身份与正文，作为上下文注入
-- 划词引用（以可视化 tag 形式插入输入框）
-- 斜杠命令（MVP 支持 `/new`）
-- 独立配置页（`chrome-extension://<id>/options.html`）
+- **侧边对话框**（Content Script 注入 + Shadow DOM 样式隔离，折叠/展开/宽度拖拽）
+- **流式对话 + 思考过程**（reasoning）展示
+- **自动识别文章身份与正文**，作为上下文注入
+- **划词引用**（以可视化 tag 形式插入输入框）
+- **四层记忆系统**（v0.2）：
+  - **Persona（个性记忆）**：稳定偏好/事实，反思自动抽取 → 用户审核 → 注入 system prompt
+  - **Episodic（事件记忆）**：消息级 + visit 摘要级两级粒度，按 canonicalUrl/visitId 索引
+  - **SessionTopic（情景记忆）**：每 3-5 轮辅助 LLM 识别当前话题，对用户透明
+  - **WorkingMemory（工作记忆）**：按 canonicalUrl 绑定 activeGoal + TODO，支持主 LLM 通过 7 个 tool 维护，30 天 LRU 软 TTL
+- **按需召回**（v0.2.1）：关键词粗判 → 辅 LLM 精判 → 向量 topK → 邻居消息拼接
+- **反思 Job**（v0.2.1）：PageVisit 结束后异步生成摘要 + embedding + 抽取 Persona 候选
+- **斜杠命令**：`/new`（重启会话·保留记忆）、`/recall <关键词>`（显式召回）、`/topic [<文本>]`（识别/手动设置话题）
+- **Persona 审核**：sidebar 折叠条一键接受/拒绝
+- **三套 Provider**：主对话 / 辅助（主题/召回/反思） / Embedding，均支持"复用主 Provider"
+- **独立配置页**：Tab 分页（基础 / 记忆 / 高级 / 调试）
 
 ## 技术栈
 
@@ -86,9 +95,11 @@ pnpm typecheck        # TS 类型检查
 
 ## 架构红线（ESLint 强约束）
 
-- Agent 层 **禁止** 直接 `import 'ai'` 或 `@ai-sdk/*`，必须通过 `LLMProvider` 接口
-- Memory 层 MVP **禁止** 依赖 `dexie`
-- Tools 层 MVP **禁止** 依赖 `tesseract.js`
+- Agent 层 **禁止** 直接 `import 'ai'` 或 `@ai-sdk/*`，必须通过 `LLMProvider` / `EmbeddingProvider` 接口
+- **v0.2 起**：Memory 层 `dexie` 约束**已解除**（Phase 2 已落地 DexieMemoryStore）
+- Tools 层 **禁止** 依赖 `tesseract.js`（Phase 3 才解禁）
+- `MemoryStore.remember / recall` 签名不得修改；新增方法一律**可选**，`NullMemoryStore` 提供 no-op 兜底
+- ContextSource priority 严格按 ROADMAP §2 约定（100 / 80 / 70 / 60 / 55 / 50 / 40 / 10），新 Source 不得占用已有数字
 
 ## 文档索引
 

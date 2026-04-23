@@ -133,14 +133,23 @@
 - [x] Service Worker 注册 `reflection-scan` alarm（占位，v0.2.1 填充执行器）
 - [x] v0.1 → v0.2 配置迁移（bootstrap 自动迁移，用户无感升级）
 
-### v0.2.1（高级能力）待实现
+### v0.2.1（高级能力）已完成
 
-- [ ] 辅助 LLM 调用链（SessionTopic 识别 + aux-intent）
-- [ ] ReflectionRunner + ReflectionScheduler 补跑机制
-- [ ] RelevantMemorySource + recall-triggers + 向量召回 Top-K + 邻居消息拼接
-- [ ] `recall_memory` / `remember_persona` tool + WorkingMemory 7 个 tool
-- [ ] `/recall` / `/topic` 命令 + `/new` 语义重构
-- [ ] PersonaReviewBanner（sidebar 折叠条） + PersonaReviewList（配置页）+ WorkingMemoryCard + RecallResultCard
+- [x] 辅助 LLM 调用链（`collectText` / `callAuxIntent` / `identifySessionTopic` / `shouldIdentify`，失败全部降级）
+- [x] ReflectionRunner（visit_summary / persona_extraction / conflict_check 占位）+ ReflectionScheduler（串行 + 重试上限 + SW alarm 广播）
+- [x] RelevantMemorySource（priority=40，粗判→aux→向量→邻居拼接）+ buildDefaultPhase2_1Sources
+- [x] `recall_memory` / `remember_persona` tool + WorkingMemory 7 个细粒度 tool + buildPhase2Tools 动态注册
+- [x] `/recall <query>` / `/topic [<text>]` 命令 + `/new` 语义重构（清 UI + 新 visitId，不清记忆）
+- [x] PersonaReviewBanner（sidebar 折叠条 + 接受/拒绝 + 跳转配置页）+ WorkingMemoryCard（TODO 进度 + 5s 轮询）
+- [x] ChatPanel 通过可选 props 接入全部能力；保持 MVP 路径向后兼容
+
+### v0.2.2+（未来方向，未排期）
+
+- [ ] `persona_conflict_check` 实装（检测 Persona 矛盾并合并/裁决）
+- [ ] RecallResultCard 独立样式（目前复用 `appendAssistantNote` 以 assistant 消息形式展示）
+- [ ] PersonaReviewList：配置页 Persona Tab 的批量审核视图
+- [ ] `/forget` 命令：主动从记忆层删除
+- [ ] 会话导入 / 导出（JSON）
 
 ### 架构红线（ESLint 强约束）
 

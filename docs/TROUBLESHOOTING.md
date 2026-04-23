@@ -385,13 +385,80 @@ all: initial;          /* 避免继承宿主页面样式 */
 
 ---
 
-## §8+ · v0.2 开发期间的踩坑（预留章节）
+## §8 · v0.2.1 · Service Worker 与 sidebar 的 IndexedDB 同源隔离风险
 
-> v0.2.0 已合入基础设施，暂无需要沉淀的新踩坑条目。
-> 后续 v0.2.1 实装反思 Job、向量召回、WorkingMemory 工具等能力时，
-> 若遇到新的典型踩坑（如 fake-indexeddb 与真实 Chrome IDB 行为差异、
-> Service Worker 中 Dexie 冷启动问题、千问 embedding 限流节流等），
-> 请在此继续按 §1~§7 的格式补齐条目：
+### 症状（预防性条目；本期通过架构规避未触发）
+
+- 在 SW 的 `chrome.alarms.onAlarm` 内 `new DexieMemoryStore()` 并调 `recall/remember`
+  可能**读不到** sidebar 写入的数据，或写入的数据 sidebar 也看不见。
+
+### 根因
+
+- sidebar（content script 挂载的 Shadow DOM）跑在**宿主页面 origin**下
+  （例如 `https://example.com`），IndexedDB 属于该 origin。
+- Service Worker 跑在 **`chrome-extension://<id>`** origin 下，独立的一组 IndexedDB。
+- 两边 `DexieMemoryStore` 看似打同名库，但**不是同一个 DB**。反思 Job 若在 SW 跑，
+  sidebar 永远看不到结果；反之亦然。
+
+### 修复（本期采用）
+
+选择"**SW 只唤醒、sidebar 执行**"的稳妥方案：
+- `chrome.alarms.onAlarm`（SW）→ `chrome.runtime.sendMessage({ type: REFLECTION_SCAN_TICK })` 广播
+- sidebar 监听该消息 → 调 `ReflectionScheduler.runPending()`（跑在 sidebar origin）
+- 没有 sidebar 在线时消息被丢弃，下次打开 sidebar 时 bootstrap 会主动补跑一次
+
+### 验证点
+
+- `apps/extension/src/background/index.ts` 的 alarm handler 不直接访问 Dexie
+- `apps/extension/src/sidebar/index.tsx` 的 `useEffect` 监听 `REFLECTION_SCAN_TICK`
+- 真机加载扩展后：alarm 触发 → sidebar 控制台打 "收到 REFLECTION_SCAN_TICK" 日志
+
+### 相关代码锚点
+
+- `apps/extension/src/background/index.ts` · L88-102 alarm → 广播
+- `apps/extension/src/sidebar/index.tsx` · L91-106 sidebar 监听与 runPending
+- `packages/shared/src/messaging.ts` · `MessageType.REFLECTION_SCAN_TICK`
+
+---
+
+## §9 · v0.2.1 · aux LLM 返回空 JSON 时 `parseSummaryOutput` 回退行扫描导致误判
+
+### 症状
+
+单测 "aux 返回 `{"summary":""}` → runner 返回 ok:false" 首次失败：
+实际拿到 `ok:true` 且把整串 `{"summary":""}` 当作 summary 文本落库。
+
+### 根因
+
+`parseSummaryOutput` 原逻辑：JSON 解析成功但 summary 空时**继续走行扫描回退**，
+第一行就是 `{"summary":""}` 被当作有效 summary。
+
+### 修复
+
+`parseSummaryOutput` 改为：**一旦 JSON 解析成功，无论结果是否为空都尊重其结果**
+（空 summary → 返回 null），**仅在没有合法 JSON 时**才走行扫描回退。
+
+### 验证点
+
+- `packages/agent/src/__tests__/reflection.test.ts` "aux 返回空摘要 → ok:false" 通过
+- `packages/agent/src/__tests__/reflection.test.ts` 其它解析用例均通过
+
+### 相关代码锚点
+
+- `packages/agent/src/reflection/runner.ts` · `parseSummaryOutput`
+
+### 启示
+
+**"宽松解析"不等于"多层兜底"**。当结构化解析成功但值为空，是明确的"无内容"信号，
+不应再走二次回退 —— 否则会把自身的数据结构当内容回传给主 LLM。
+
+---
+
+## §10+ · 预留
+
+> v0.2.1 以上踩坑已沉淀。后续若遇到反思 Job 在 SW 真机失败（跨 origin 问题暴露）、
+> Dexie 在 fake-indexeddb 与真实 IDB 行为差异、千问 embedding 限流/节流等，继续按
+> §1~§9 的格式补齐条目：
 >
 > - 症状 · 根因 · 修复 · 验证点 · 相关代码锚点
 
