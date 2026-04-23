@@ -238,7 +238,7 @@ function SidebarApp(props: MountOptions) {
         updatedAt: Date.now(),
         history: [
           ...(existing?.history ?? []),
-          { at: Date.now(), topic: text, triggeredBy: 'user_command' },
+          { at: Date.now(), topic: text, triggeredBy: 'user_command' as const },
         ].slice(-20),
         ...(existing?.canonicalUrl !== undefined
           ? { canonicalUrl: existing.canonicalUrl }

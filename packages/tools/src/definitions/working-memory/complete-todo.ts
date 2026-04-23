@@ -45,11 +45,12 @@ export function createCompleteTodoTool(
         if (idx < 0) return { ok: false, error: `未找到 id=${args.id} 的 TODO` };
 
         const before = record.todos[idx]!;
+        const nextNotes = args.notes !== undefined ? args.notes : before.notes;
         const updated: TodoItem = {
           ...before,
           status: 'done',
-          notes: args.notes !== undefined ? args.notes : before.notes,
           updatedAt: now,
+          ...(nextNotes !== undefined ? { notes: nextNotes } : {}),
         };
         const nextTodos = [...record.todos];
         nextTodos[idx] = updated;

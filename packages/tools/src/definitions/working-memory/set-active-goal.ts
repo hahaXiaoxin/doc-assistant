@@ -44,10 +44,14 @@ export function createSetActiveGoalTool(
         const base: WorkingMemoryRecord = existing ?? emptyWorkingMemory(visit, now);
         const next: WorkingMemoryRecord = {
           ...base,
-          activeGoal: goal || undefined,
           updatedAt: now,
           lastAccessedAt: now,
+          ...(goal ? { activeGoal: goal } : {}),
         };
+        // 空串表示清除：若 base.activeGoal 存在但新 goal 为空，需要手工剔除
+        if (!goal && base.activeGoal !== undefined) {
+          delete (next as Partial<WorkingMemoryRecord>).activeGoal;
+        }
         await deps.memory.setWorkingMemory!(next);
         return { ok: true, activeGoal: next.activeGoal ?? null };
       } catch (err) {

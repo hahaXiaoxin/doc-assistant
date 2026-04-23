@@ -73,6 +73,25 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
     abortRef.current?.abort();
   }, []);
 
+  /**
+   * v0.2.1：向聊天流追加一条 **非流式** assistant 消息。
+   * 用于 /recall 命令回显召回结果、未来可扩展为"系统提示"卡片。
+   * 不会触发 agent.run，不影响下一轮 history 的语义（它会像普通 assistant 消息
+   * 一样进入下次调用的 history）。
+   */
+  const appendAssistantNote = useCallback((content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: genId(),
+        role: 'assistant',
+        content: trimmed,
+      },
+    ]);
+  }, []);
+
   const send = useCallback(
     async (userInput: string, references?: string) => {
       const trimmed = userInput.trim();

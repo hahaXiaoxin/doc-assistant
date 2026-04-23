@@ -46,12 +46,12 @@ export function emptyWorkingMemory(
   return {
     canonicalUrl: visit.canonicalUrl,
     visitId: visit.visitId,
-    articleId: visit.articleId,
     domain: visit.domain,
     todos: [],
     createdAt: now,
     updatedAt: now,
     lastAccessedAt: now,
+    ...(visit.articleId !== undefined ? { articleId: visit.articleId } : {}),
   };
 }
 

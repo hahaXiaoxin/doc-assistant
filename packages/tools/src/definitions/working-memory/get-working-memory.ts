@@ -65,14 +65,24 @@ export function createGetWorkingMemoryTool(
           ok: true,
           canonicalUrl: record.canonicalUrl,
           activeGoal: record.activeGoal ?? null,
-          todos: record.todos.map((t) => ({
-            id: t.id,
-            content: t.content,
-            status: t.status,
-            priority: t.priority,
-            notes: t.notes,
-            updatedAt: t.updatedAt,
-          })),
+          todos: record.todos.map((t) => {
+            const entry: {
+              id: string;
+              content: string;
+              status: string;
+              priority?: string;
+              notes?: string;
+              updatedAt: number;
+            } = {
+              id: t.id,
+              content: t.content,
+              status: t.status,
+              updatedAt: t.updatedAt,
+            };
+            if (t.priority !== undefined) entry.priority = t.priority;
+            if (t.notes !== undefined) entry.notes = t.notes;
+            return entry;
+          }),
           updatedAt: record.updatedAt,
           lastAccessedAt: record.lastAccessedAt,
         };

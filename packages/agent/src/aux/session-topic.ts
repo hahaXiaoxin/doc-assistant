@@ -133,16 +133,24 @@ export async function identifySessionTopic(
     const now = getNow();
     const record: SessionTopicRecord = {
       visitId,
-      canonicalUrl: existing?.canonicalUrl ?? canonicalUrl,
-      articleId: existing?.articleId ?? articleId,
       currentTopic: parsed.currentTopic,
       tags: parsed.tags,
-      stage: parsed.stage,
       updatedAt: now,
       history: [
         ...(existing?.history ?? []),
-        { at: now, topic: parsed.currentTopic, triggeredBy: 'auto' },
+        { at: now, topic: parsed.currentTopic, triggeredBy: 'auto' as const },
       ].slice(-20), // 最多保留 20 条审计
+      ...(existing?.canonicalUrl !== undefined
+        ? { canonicalUrl: existing.canonicalUrl }
+        : canonicalUrl !== undefined
+          ? { canonicalUrl }
+          : {}),
+      ...(existing?.articleId !== undefined
+        ? { articleId: existing.articleId }
+        : articleId !== undefined
+          ? { articleId }
+          : {}),
+      ...(parsed.stage !== undefined ? { stage: parsed.stage } : {}),
     };
     await memory.setSessionTopic(record);
     logger.info('SessionTopic 已更新', {
@@ -186,7 +194,9 @@ export function parseSessionTopicOutput(raw: string): ParsedTopic | null {
         : [];
       const stage = normalizeStage(obj.stage);
       if (currentTopic) {
-        return { currentTopic, tags, stage };
+        const parsed: ParsedTopic = { currentTopic, tags };
+        if (stage) parsed.stage = stage;
+        return parsed;
       }
     } catch {
       // 继续走行扫描
@@ -206,7 +216,9 @@ export function parseSessionTopicOutput(raw: string): ParsedTopic | null {
       : [];
     const stageLine = raw.match(/^\s*stage\s*[:=]\s*(\w+)/im);
     const stage = stageLine?.[1] ? normalizeStage(stageLine[1]) : undefined;
-    return { currentTopic, tags, stage };
+    const parsed: ParsedTopic = { currentTopic, tags };
+    if (stage) parsed.stage = stage;
+    return parsed;
   }
 
   return null;

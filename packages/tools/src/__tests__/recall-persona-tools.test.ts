@@ -11,8 +11,10 @@ import {
   type Phase2ToolsDeps,
 } from '../definitions';
 
+import type { ToolDefinition } from '@doc-assistant/shared';
+
 async function runTool<T>(
-  tool: ReturnType<typeof createRecallMemoryTool>,
+  tool: ToolDefinition,
   args: Record<string, unknown>,
 ): Promise<T> {
   return (await tool.execute(args, {})) as T;

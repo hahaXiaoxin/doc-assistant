@@ -77,7 +77,7 @@ function fakeEmbedding(): EmbeddingProvider & {
   return {
     calls,
     getEmbeddingInfo(): EmbeddingInfo {
-      return { id: 'fake', dimension: 4, maxBatchSize: 25 };
+      return { id: 'fake', dimension: 4, maxBatchSize: 25, maxInputTokens: 512 };
     },
     async embed(texts) {
       calls.push(texts);
@@ -327,7 +327,7 @@ describe('ReflectionRunner · visit_summary', () => {
       { type: 'finish', finishReason: 'stop' },
     ]);
     const embedding: EmbeddingProvider = {
-      getEmbeddingInfo: () => ({ id: 'fake', dimension: 4, maxBatchSize: 25 }),
+      getEmbeddingInfo: () => ({ id: 'fake', dimension: 4, maxBatchSize: 25, maxInputTokens: 512 }),
       async embed() {
         throw new Error('network down');
       },

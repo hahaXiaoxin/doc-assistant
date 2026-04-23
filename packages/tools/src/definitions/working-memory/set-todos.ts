@@ -66,15 +66,16 @@ export function createSetTodosTool(
         const genId = deps.genId ?? defaultGenId;
         const todos: TodoItem[] = (args.todos ?? []).map((t) => {
           const content = (t.content ?? '').trim();
-          return {
+          const item: TodoItem = {
             id: t.id ?? genId(),
             content,
             status: t.status ?? 'pending',
             priority: t.priority ?? 'normal',
-            notes: t.notes,
             createdAt: now,
             updatedAt: now,
           };
+          if (t.notes !== undefined) item.notes = t.notes;
+          return item;
         });
         if (todos.some((t) => !t.content)) {
           return { ok: false, error: '存在 content 为空的 TODO' };

@@ -104,8 +104,8 @@ export async function recallMemory(
     if (deps.aux) {
       const intent = await callAuxIntent(deps.aux, {
         userMessage: trimmed,
-        recentHistoryHint: history ? buildRecentHistoryHint(history) : undefined,
-        signal,
+        ...(history ? { recentHistoryHint: buildRecentHistoryHint(history) } : {}),
+        ...(signal ? { signal } : {}),
       });
       if (intent.intent === 'no') {
         logger.info('aux-intent 判定 no，跳过召回', { trigger: trigger.matchedText });

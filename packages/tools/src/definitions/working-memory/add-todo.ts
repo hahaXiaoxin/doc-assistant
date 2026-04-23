@@ -61,9 +61,9 @@ export function createAddTodoTool(
           content,
           status: 'pending',
           priority: args.priority ?? 'normal',
-          notes: args.notes,
           createdAt: now,
           updatedAt: now,
+          ...(args.notes !== undefined ? { notes: args.notes } : {}),
         };
         const next: WorkingMemoryRecord = {
           ...base,

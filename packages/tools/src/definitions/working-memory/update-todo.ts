@@ -54,13 +54,15 @@ export function createUpdateTodoTool(
         if (idx < 0) return { ok: false, error: `未找到 id=${args.id} 的 TODO` };
 
         const before = record.todos[idx]!;
+        const nextPriority = args.priority ?? before.priority;
+        const nextNotes = args.notes !== undefined ? args.notes : before.notes;
         const updated: TodoItem = {
           ...before,
           content: args.content?.trim() ? args.content.trim() : before.content,
           status: args.status ?? before.status,
-          priority: args.priority ?? before.priority,
-          notes: args.notes !== undefined ? args.notes : before.notes,
           updatedAt: now,
+          ...(nextPriority !== undefined ? { priority: nextPriority } : {}),
+          ...(nextNotes !== undefined ? { notes: nextNotes } : {}),
         };
         const nextTodos = [...record.todos];
         nextTodos[idx] = updated;
