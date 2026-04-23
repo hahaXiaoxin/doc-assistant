@@ -84,6 +84,7 @@ export {
 } from './working-memory';
 export {
   createRecallMemoryTool,
+  detectTimeScopedMetaQuery,
   type RecallMemoryToolDeps,
 } from './recall-memory';
 export {

@@ -7,6 +7,7 @@ import {
   createRecallMemoryTool,
   createRememberPersonaTool,
   buildPhase2Tools,
+  detectTimeScopedMetaQuery,
   type PageVisitLike,
   type Phase2ToolsDeps,
 } from '../definitions';
@@ -61,6 +62,62 @@ describe('recall_memory tool', () => {
     });
     const r = (await runTool(tool, { query: '   ' })) as { ok: boolean };
     expect(r.ok).toBe(false);
+  });
+
+  // v0.2.3 · 时间维元查询识别：避免假阴性"未找到"
+  it('时间维元查询 → ok:false + reason=time_query_unsupported，不调 recall', async () => {
+    const recall = vi.fn().mockResolvedValue({ hit: false, text: '', count: 0 });
+    const tool = createRecallMemoryTool({ recall });
+    const queries = [
+      '今天看了哪些文章',
+      '昨天我们聊了什么',
+      '本周读了哪些',
+      '最近都问过什么问题',
+      'what did we talk about today',
+    ];
+    for (const q of queries) {
+      const r = (await runTool(tool, { query: q })) as {
+        ok: boolean;
+        reason?: string;
+        error?: string;
+      };
+      expect(r.ok).toBe(false);
+      expect(r.reason).toBe('time_query_unsupported');
+      expect(r.error).toContain('时间');
+    }
+    expect(recall).not.toHaveBeenCalled();
+  });
+
+  it('正常语义 query（含"上次"等历史指向但非元查询）→ 正常走 recall', async () => {
+    const recall = vi.fn().mockResolvedValue({ hit: false, text: '', count: 0 });
+    const tool = createRecallMemoryTool({ recall });
+    // 这些应当被放行，走正常召回流程
+    const queries = [
+      '上次聊到的 agent loop 兜底机制',
+      '之前讨论过的那个方案',
+      '还记得 TypeScript 配置吗',
+    ];
+    for (const q of queries) {
+      const r = (await runTool(tool, { query: q })) as { ok: boolean };
+      // 这里 ok:true 表示正常走到 recall；recall 本身返回 hit:false 没关系
+      expect(r.ok).toBe(true);
+    }
+    expect(recall).toHaveBeenCalledTimes(queries.length);
+  });
+
+  it('detectTimeScopedMetaQuery · 正反例', () => {
+    // 正例：时间 + 元查询动词
+    expect(detectTimeScopedMetaQuery('今天看了哪些')).toBe(true);
+    expect(detectTimeScopedMetaQuery('本周讨论了什么')).toBe(true);
+    expect(detectTimeScopedMetaQuery('最近都聊过什么')).toBe(true);
+    // 反例：有时间但没元查询
+    expect(detectTimeScopedMetaQuery('今天这篇文章讲了什么')).toBe(false); // "什么"不跟"聊了/看了"
+    expect(detectTimeScopedMetaQuery('今天我心情不好')).toBe(false);
+    // 反例：有元查询但没时间锚点
+    expect(detectTimeScopedMetaQuery('我们聊了什么')).toBe(false);
+    // 反例：仅历史指向（应走正常语义召回）
+    expect(detectTimeScopedMetaQuery('上次那个方案')).toBe(false);
+    expect(detectTimeScopedMetaQuery('')).toBe(false);
   });
 
   it('默认 mode=explicit', async () => {
