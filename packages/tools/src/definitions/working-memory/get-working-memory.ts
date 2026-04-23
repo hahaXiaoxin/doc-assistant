@@ -34,7 +34,7 @@ export function createGetWorkingMemoryTool(
   return {
     name: 'get_working_memory',
     description:
-      '读取当前网页的 WorkingMemory（TODO 列表与当前目标 activeGoal）。用于判断本页是否有未完成的任务、当前的目标是什么。无参数。',
+      '读取当前网页的 WorkingMemory（activeGoal + TODO 列表）。\n\n**主动触发的时机**：\n- 用户刚刷新页面或打开 sidebar，问"上次我们做到哪了"、"继续"、"接着聊"——先读 WorkingMemory，看看 activeGoal 和 pending TODO 是什么，再自然接续。\n- 你打算 update_todo / complete_todo 但不确定当前有哪些 TODO（需要先拿 id）。\n\n**不要调用**：activeGoal 已经通过 system 段注入过（你能看到"# 当前工作记忆"），大部分情况下无需再 get；只有系统提示里没有 WorkingMemory 段落且你怀疑有历史任务时才需要显式调用。',
     parametersJsonSchema: {
       type: 'object',
       properties: {},

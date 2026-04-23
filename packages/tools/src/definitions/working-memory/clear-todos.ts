@@ -22,7 +22,7 @@ export function createClearTodosTool(
   return {
     name: 'clear_todos',
     description:
-      '清空当前页面 WorkingMemory 的 TODO 列表。保留 activeGoal。无参数。',
+      '清空当前页面 WorkingMemory 的 TODO 列表，但保留 activeGoal。\n\n**触发时机**：当前任务彻底变向、用户明确要求"重新规划"、或所有 TODO 都已完成后想重新拆分子任务时调用。\n\n**不要调用**：\n- 只是完成了某几条（用 complete_todo 逐条处理）。\n- 只是想删除某一条（用 update_todo 设为 skipped）。\n- 不确定时——宁可不清。\n\n无参数。',
     parametersJsonSchema: {
       type: 'object',
       properties: {},

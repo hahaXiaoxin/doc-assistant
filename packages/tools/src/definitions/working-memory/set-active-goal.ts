@@ -25,11 +25,15 @@ export function createSetActiveGoalTool(
   return {
     name: 'set_active_goal',
     description:
-      '设置当前页面 WorkingMemory 的 activeGoal（顶层目标描述，建议一句话）。传空字符串会清除 goal。',
+      '为当前页面设置"正在做什么"的顶层目标（activeGoal）。这是 WorkingMemory 的核心字段，刷新页面 / 跨会话后仍然保留，能让你在新会话里立刻知道"我们之前在做什么"。\n\n**主动触发的时机**（不要等用户命令）：\n- 用户提出一个**跨多轮的阅读/分析任务**时：例如"帮我梳理这篇文章的所有 Hook 使用场景"、"我想把这份文档的重点整理成表格"、"解释一下这个 agent loop 的设计"——立刻调用并写一句话目标。\n- 用户明确表达"我正在研究 X / 想搞懂 Y"时。\n\n**不要调用的情况**：\n- 一次性的问答（"这段代码什么意思"）——这属于单次交互，不是跨轮目标。\n- 闲聊 / 问候 / 纠正措辞。\n\n格式建议：一句完整的祈使或陈述句，20-40 字，包含"做什么 + 产出形态"。例："梳理本文提到的所有 React Hook 并说明各自的典型场景"、"搞清楚这个 agent loop 的兜底机制是怎么设计的"。\n\n传空字符串会清除 goal（任务已完成、或用户主动要求换话题时调用）。',
     parametersJsonSchema: {
       type: 'object',
       properties: {
-        goal: { type: 'string', description: '目标描述；空串表示清除' },
+        goal: {
+          type: 'string',
+          description:
+            '目标描述：一句话（20-40 字），陈述/祈使句。空串表示清除当前目标（例如任务完成）。',
+        },
       },
       required: ['goal'],
       additionalProperties: false,

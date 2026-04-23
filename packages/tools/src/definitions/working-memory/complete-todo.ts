@@ -24,12 +24,19 @@ export function createCompleteTodoTool(
 ): ToolDefinition<CompleteTodoArgs, WMToolResult<CompleteTodoOk>> {
   return {
     name: 'complete_todo',
-    description: '把一条 TODO 标记为 done。可选 notes 填写完成备注。',
+    description:
+      '把 WorkingMemory 中的一条 TODO 标记为已完成（status=done）。适用场景：你刚完成一个 subtask（给出答案、读完一段代码、整理完一张表），立即调用以保持 TODO 列表实时反映当前进度。每完成一条都要调，不要等全部做完再一次性清。id 来自 get_working_memory 的返回结果。',
     parametersJsonSchema: {
       type: 'object',
       properties: {
-        id: { type: 'string' },
-        notes: { type: 'string' },
+        id: {
+          type: 'string',
+          description: '要标记完成的 TODO id（来自 get_working_memory）',
+        },
+        notes: {
+          type: 'string',
+          description: '可选：完成备注，写下结论/产出/遇到的意外（例："已通过阅读第 3 节找到答案"）',
+        },
       },
       required: ['id'],
       additionalProperties: false,

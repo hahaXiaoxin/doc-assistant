@@ -40,25 +40,27 @@ export function createRecallMemoryTool(
   return {
     name: 'recall_memory',
     description:
-      '从用户过去的对话摘要里召回相关内容。当用户提到"上次/之前"等线索或你需要引用过去的讨论时调用。query 建议使用当前问题的关键词或核心实体。',
+      '从用户过去的对话摘要里按语义召回相关内容。这是跨会话、跨页面的长期记忆检索入口。\n\n**主动触发的时机**：\n- 用户提到"上次/之前/还记得/我们聊过"等明确指向过去的线索。\n- 你在回答前判断"这个话题我们以前应该讨论过"（例如用户突然问"那个方案最后定下来了吗"，而当前对话里没有这个方案）。\n- 用户在新页面提起了一个似乎在其他页面讨论过的概念。\n\n**不要调用**：\n- 当前对话里已经有答案（直接引用 history 即可）。\n- 仅凭当前页面 read_page_content 就能回答的问题。\n- 闲聊 / 新话题。\n\n**query 的写法**：建议 10-30 字，包含核心实体/概念。不要把用户整句原话丢进来。例：用户说"上次我们聊的那个兜底机制是怎么实现的" → query 写"agent loop 最后一轮兜底机制"。',
     parametersJsonSchema: {
       type: 'object',
       properties: {
         query: {
           type: 'string',
-          description: '召回查询（自然语言，建议 10-30 字，指向具体主题/实体）',
+          description:
+            '召回查询：10-30 字的自然语言，围绕核心实体/主题。越具体命中率越高',
           minLength: 1,
         },
         limit: {
           type: 'integer',
-          description: '最多返回的 visit_summary 条数（默认 3）',
+          description: '最多返回的 visit_summary 条数，默认 3',
           minimum: 1,
           maximum: 10,
         },
         mode: {
           type: 'string',
           enum: ['auto', 'explicit'],
-          description: 'explicit=直接走向量（默认），auto=先走粗判+aux 精判',
+          description:
+            'explicit=直接走向量召回（默认，你主动调用时用这个）；auto=先走关键词粗判+aux 精判（主要供系统自动触发使用）',
         },
       },
       required: ['query'],

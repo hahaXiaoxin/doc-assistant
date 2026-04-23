@@ -26,18 +26,34 @@ export function createUpdateTodoTool(
 ): ToolDefinition<UpdateTodoArgs, WMToolResult<UpdateTodoOk>> {
   return {
     name: 'update_todo',
-    description: '根据 id 修改 WorkingMemory 中的一条 TODO（content/priority/notes/status）。',
+    description:
+      '修改 WorkingMemory 中已存在的一条 TODO。适用场景：subtask 进行中需要切换状态（如从 pending → in_progress）、补充 notes（例如"遇到阻碍，改用另一种方案"）、或用户调整了措辞。**不要用本 tool 完成 TODO**——用 complete_todo 更直接。id 必须来自最近一次 get_working_memory 返回的结果。',
     parametersJsonSchema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'TODO 的 id（来自 get_working_memory）' },
-        content: { type: 'string' },
+        id: {
+          type: 'string',
+          description: '要修改的 TODO id（来自 get_working_memory 的返回结果）',
+        },
+        content: {
+          type: 'string',
+          description: '可选：更新后的任务描述；不传则保留原文',
+        },
         status: {
           type: 'string',
           enum: ['pending', 'in_progress', 'done', 'skipped'],
+          description:
+            '可选：更新状态。pending=等待中；in_progress=正在处理；done=已完成（建议用 complete_todo）；skipped=已放弃/不做了',
         },
-        priority: { type: 'string', enum: ['high', 'normal', 'low'] },
-        notes: { type: 'string' },
+        priority: {
+          type: 'string',
+          enum: ['high', 'normal', 'low'],
+          description: '可选：调整优先级',
+        },
+        notes: {
+          type: 'string',
+          description: '可选：追加/替换备注。记录过程中的发现、阻碍或结论',
+        },
       },
       required: ['id'],
       additionalProperties: false,
