@@ -1,13 +1,22 @@
 /**
- * remember_persona · 主 LLM 显式记录用户的"稳定偏好/事实"
+ * remember_persona · 主 LLM 显式记录"自己应长期遵守的指令"
  * ---------------------------------------------
- * v0.2.1 · 与反思 Job 的 persona_extraction 区别：
- * - 反思路径：辅 LLM 事后抽取；产出 status='pending' 候选，等待用户审核。
- * - 本 tool：主 LLM 在对话中检测到用户**显式**声明（如"记住我..." / "以后请注意我..."），
- *   产出 status='confirmed'（`reviewedByUser=true`，但标注 source.extractedBy='user_explicit'），
- *   立即注入后续的 PersonaSource。
+ * v0.2.2 语义转向（重要）：
+ *   过去版本把 Persona 当作"关于用户的稳定事实"（例如"用户是前端工程师"）。
+ *   实践中我们发现：
+ *   - 模型自发调用本 tool 时，内容往往是"我是 XX 助手"这类**自我设定**
+ *   - 用户说"叫我小瑾"时，真正有价值的不是"用户叫小瑾"，而是 Agent 应当
+ *     "称呼用户为小瑾"这条**可执行指令**
+ *   因此从 v0.2.2 起 Persona 被重新定义为 **Agent 的长期操作指令 / 行为规则**，
+ *   存的永远是一段让 Agent 知道"**我**应该怎么做"的陈述。
  *
- * 依赖：MemoryStore.addPersonaCandidate / remember。
+ * 与反思 Job 的 persona_extraction 区别：
+ * - 反思路径：辅 LLM 事后从对话中归纳 Agent 应如何服务用户，产出 status='pending' 候选。
+ * - 本 tool：主 LLM 在对话中明确感知到"接下来起作用的规则"时调用，
+ *   产出 status='confirmed'（reviewedByUser=true, source.extractedBy='user_explicit'），
+ *   立即生效并注入后续的 PersonaSource。
+ *
+ * 依赖：MemoryStore.addPersonaCandidate。
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
 import type { MemoryStore, PersonaRecord } from '@doc-assistant/memory';
@@ -35,25 +44,31 @@ export function createRememberPersonaTool(
   return {
     name: 'remember_persona',
     description:
-      '当用户**明确**要求你记住某件关于他/她自己的稳定事实或偏好时调用（比如"以后我说 TS 就是 TypeScript"、"我是前端工程师"、"我喜欢结构化回答"）。content 必须是陈述句；对一次性问题、情绪表达不要调用此 tool。',
+      '记录一条你（Agent）应当长期遵守的指令或行为规则。内容必须是写给你自己看的祈使/陈述句，例如：' +
+      '"称呼用户为小瑾"、"回答时使用结构化要点而不是长段叙述"、"遇到 TS 默认就是 TypeScript，不要反问"、' +
+      '"你的身份是小瑾的文档助手，专注陪伴阅读技术文档"。' +
+      '不要记录一次性的提问、情绪化表达、或仅在当前页面有效的内容（那些属于 working memory）。' +
+      '如果用户讲述了自己的背景/偏好，请把它**转化成 Agent 应如何服务他的规则**再写入，' +
+      '例如用户说"我是前端" → 写"回答时默认使用前端语境举例，不必解释基础 Web 概念"。',
     parametersJsonSchema: {
       type: 'object',
       properties: {
         content: {
           type: 'string',
-          description: '关于用户的稳定陈述（一句话，10-60 字）',
+          description:
+            '一条写给 Agent 自己的长期指令（10-60 字，陈述/祈使句，不要用"用户说 ..."这种冗余叙述）',
           minLength: 2,
         },
         confidence: {
           type: 'number',
-          description: '置信度 0-1，默认 0.9（用户显式声明本应较高）',
+          description: '置信度 0-1，默认 0.9（用户或当下语境明确触达时应较高）',
           minimum: 0,
           maximum: 1,
         },
         tags: {
           type: 'array',
           items: { type: 'string' },
-          description: '可选关键词标签',
+          description: '可选关键词标签（例如 identity / style / term-alias）',
         },
       },
       required: ['content'],

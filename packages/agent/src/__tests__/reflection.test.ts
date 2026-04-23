@@ -183,7 +183,7 @@ describe('parseSummaryOutput', () => {
 describe('parsePersonaOutput', () => {
   it('解析多条候选 + 归一化 confidence', () => {
     const r = parsePersonaOutput(
-      '{"candidates":[{"content":"偏好 TS","confidence":0.9,"tags":["ts"]},{"content":"前端开发者","confidence":1.5}]}',
+      '{"candidates":[{"content":"默认使用 TypeScript 进行代码示例","confidence":0.9,"tags":["ts"]},{"content":"回答时采用前端语境举例","confidence":1.5}]}',
     );
     expect(r).toHaveLength(2);
     expect(r[0]!.tags).toEqual(['ts']);
@@ -368,7 +368,7 @@ describe('ReflectionRunner · persona_extraction', () => {
     const aux = fakeAux([
       {
         type: 'text-delta',
-        delta: '{"candidates":[{"content":"偏好 TypeScript","confidence":0.9,"tags":["ts"]}]}',
+        delta: '{"candidates":[{"content":"默认使用 TypeScript 进行代码示例","confidence":0.9,"tags":["ts"]}]}',
       },
       { type: 'finish', finishReason: 'stop' },
     ]);
@@ -392,7 +392,7 @@ describe('ReflectionRunner · persona_extraction', () => {
       personas: [
         {
           id: 'exist',
-          content: '偏好 TypeScript',
+          content: '默认使用 TypeScript 进行代码示例',
           status: 'pending',
           confidence: 0.6,
           hitCount: 1,
@@ -416,7 +416,7 @@ describe('ReflectionRunner · persona_extraction', () => {
     const aux = fakeAux([
       {
         type: 'text-delta',
-        delta: '{"candidates":[{"content":"偏好 TypeScript","confidence":0.95}]}',
+        delta: '{"candidates":[{"content":"默认使用 TypeScript 进行代码示例","confidence":0.95}]}',
       },
       { type: 'finish', finishReason: 'stop' },
     ]);

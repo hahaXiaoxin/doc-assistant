@@ -1,12 +1,13 @@
 /**
- * PersonaSource · 个性记忆注入
+ * PersonaSource · 长期指令注入
  * ---------------------------------------------
  * v0.2 · priority=60（< ReferenceTag 70，> SessionTopic 55）
  *
- * 读取 reviewedByUser=true + status=confirmed 的 Persona，按 confidence 降序取 Top-10
- * 作为 system prompt 常驻注入。
+ * v0.2.2 语义转向：Persona 存的是"Agent 应当长期遵守的指令/行为规则"
+ * （而非"关于用户的事实"）。注入时以第二人称/祈使句形式提醒模型持续遵守。
  *
- * 未确认的 candidate 不进入 prompt（审核后才生效）。
+ * 读取 reviewedByUser=true + status=confirmed 的 Persona，按 confidence 降序取 Top-N
+ * 作为 system prompt 常驻注入。未确认的 candidate 不进入 prompt（审核后才生效）。
  *
  * 容错：MemoryStore 无 listPersonas 方法（NullStore 或旧版）时返回 null，不贡献段落。
  */
@@ -55,7 +56,8 @@ export function createPersonaSource(
         message: {
           role: 'system',
           content:
-            '# 关于用户的长期记忆（个性 / 偏好）\n以下事实在过往对话中反复出现并被用户确认，回答时请保持一致：\n' +
+            '# 你的长期指令（用户已确认的行为规则）\n' +
+            '以下规则来源于过往对话的沉淀，用户已经审核通过。请在本次对话中持续遵守：\n' +
             bullets,
         },
       };

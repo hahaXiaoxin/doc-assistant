@@ -6,8 +6,9 @@
  * 支持三种任务类型（对应 ReflectionTaskType）：
  * - `visit_summary`：根据该 visit 的所有 episodes_msg 生成一段 200 字内摘要 + embedding，
  *   落 `episodes_visit_summary` 表，供后续 RelevantMemorySource 向量召回使用。
- * - `persona_extraction`：从本 visit 的用户消息抽取"稳定事实/偏好"候选，登记为
- *   `pending` 状态的 PersonaRecord，等用户在配置页/sidebar banner 审核。
+ * - `persona_extraction`：v0.2.2 语义升级。不再抽取"关于用户的事实"，改为归纳
+ *   **Agent 应如何长期服务用户的指令 / 行为规则**（祈使/陈述句，写给 Agent 自己看），
+ *   登记为 `pending` 状态的 PersonaRecord，等用户在 sidebar banner / 配置页审核。
  * - `persona_conflict_check`：（本期骨架，仅作 no-op 占位返回 ok）
  *
  * 设计原则：
@@ -205,10 +206,19 @@ export class ReflectionRunner {
       const messages: ChatMessage[] = [
         {
           role: 'system',
-          content: `你是一个 Persona（个性特征）抽取助手。阅读以下用户消息，识别其中**稳定的事实、偏好、背景**（而非一次性提问）。
-- 例如："我用 TypeScript" / "我是前端工程师" / "偏好简洁的解释"。
-- 忽略一次性的问题、情绪化表达。
-- 每条候选要独立可判断，不要堆砌。
+          content: `你在为一个名为 Doc Assistant 的阅读助手归纳它"**应当长期遵守的指令 / 行为规则**"。
+阅读下面一次 PageVisit 里用户发过的消息，识别其中**能沉淀为 Agent 长期规则**的信号。
+
+产出约束（非常重要）：
+- 每条 candidate.content 必须是**写给 Agent 看的陈述/祈使句**，不要出现"用户说..."、"用户是..."这种第三人称叙述。
+- 如果用户透露了稳定背景/偏好，请**转译为 Agent 应如何服务他的规则**：
+  * 用户说"我是前端工程师" → "回答时默认使用前端语境举例，不必解释基础 Web 概念"
+  * 用户说"叫我小瑾" → "称呼用户为小瑾"
+  * 用户说"我喜欢结构化回答" → "回答时使用结构化要点，而不是长段落叙述"
+  * 用户说"以后 TS 就是 TypeScript" → "遇到 TS 默认理解为 TypeScript，不要反问"
+- 忽略一次性的提问、情绪化表达、只在本次页面有效的事务（那是 working memory 的事）。
+- 每条候选独立可执行、10-60 字、不要堆砌。
+
 严格按 JSON 输出（candidates 可为空数组）：
 {"candidates": [{"content": "...", "confidence": 0-1, "tags": ["..."]}]}`,
         },

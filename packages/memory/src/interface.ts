@@ -101,7 +101,11 @@ export interface PersonaSource {
 
 export interface PersonaRecord {
   id: string;
-  /** 简短的陈述句："用户偏好 TypeScript" */
+  /**
+   * 简短的陈述/祈使句（写给 Agent 看的长期指令）。
+   * v0.2.2 语义转向：内容从"关于用户的事实"改为"Agent 应如何长期服务用户的规则"。
+   * 例如："称呼用户为小瑾"、"回答时使用结构化要点"、"默认把 TS 理解为 TypeScript 不要反问"。
+   */
   content: string;
   status: PersonaStatus;
   /** 置信度 0~1 */

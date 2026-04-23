@@ -82,7 +82,7 @@ describe('PersonaSource · priority=60', () => {
       listPersonas: vi.fn().mockResolvedValue([
         {
           id: '1',
-          content: '偏好 TypeScript',
+          content: '默认使用 TypeScript 举例',
           status: 'confirmed',
           confidence: 0.6,
           hitCount: 1,
@@ -93,7 +93,7 @@ describe('PersonaSource · priority=60', () => {
         },
         {
           id: '2',
-          content: '喜欢函数式',
+          content: '回答优先使用函数式风格',
           status: 'confirmed',
           confidence: 0.9,
           hitCount: 5,
@@ -109,9 +109,13 @@ describe('PersonaSource · priority=60', () => {
     expect(seg).not.toBeNull();
     expect(seg?.message.role).toBe('system');
     const content = String(seg?.message.content ?? '');
-    expect(content).toContain('喜欢函数式'); // confidence 高的排前
+    // v0.2.2：system 段标题语义转向"长期指令"
+    expect(content).toContain('长期指令');
+    expect(content).toContain('回答优先使用函数式风格'); // confidence 高的排前
     // 检查顺序：函数式先出现，TS 后出现
-    expect(content.indexOf('喜欢函数式')).toBeLessThan(content.indexOf('偏好 TypeScript'));
+    expect(content.indexOf('回答优先使用函数式风格')).toBeLessThan(
+      content.indexOf('默认使用 TypeScript 举例'),
+    );
   });
 
   it('topK 限制生效', async () => {
