@@ -250,69 +250,6 @@ function SidebarApp(props: MountOptions) {
     [bootstrap],
   );
 
-  /**
-   * v0.2.3：刷新预热 history 供 LLM。
-   * 三段式 fallback（见 docs/ROADMAP.md v0.2.3）：
-   *   1. WorkingMemoryArchive：已由 WorkingMemorySource 自动注入 system prompt，本处不重复
-   *   2. 近期消息档：按 canonicalUrl 跨 visit 拉最近 5 轮（10 条）消息
-   *   3. 向量召回档：不在此处触发；由用户提问时 RelevantMemorySource 自动召回
-   *
-   * 注：**不会展示在 UI** —— 只用于组装给 LLM 的 history。
-   * 由 ChatPanel.initialHistoryForLLM 消费。
-   */
-  const [initialHistoryForLLM, setInitialHistoryForLLM] = useState<
-    Array<{ role: 'user' | 'assistant' | 'system' | 'tool'; content: string }>
-  >([]);
-  const rehydratedRef = useRef(false);
-  useEffect(() => {
-    if (!bootstrap || rehydratedRef.current) return;
-    const visit = bootstrap.pageVisitManager.getCurrent();
-    if (!visit?.canonicalUrl) return; // 还没建立 visit，下次 effect 再试
-    rehydratedRef.current = true;
-
-    void (async () => {
-      try {
-        // 第 2 档：跨 visit 拉当前 canonicalUrl 的最近消息
-        const recalled = await bootstrap.memory.recall({
-          types: ['message'],
-          canonicalUrl: visit.canonicalUrl!,
-          limit: 50, // 拉 50 条作为候选池，后续裁剪为 10 条
-        });
-        if (recalled.length === 0) return;
-
-        // 按 timestamp 升序（老 → 新）
-        const sorted = [...recalled].sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
-        // 取最近 10 条（5 轮），超过 3000 字从最早开始裁
-        const MAX_MESSAGES = 10;
-        const MAX_CHARS = 3000;
-        const recent = sorted.slice(-MAX_MESSAGES);
-        // 字数裁剪
-        let totalChars = recent.reduce((s, r) => s + (r.content?.length ?? 0), 0);
-        let start = 0;
-        while (totalChars > MAX_CHARS && start < recent.length - 1) {
-          totalChars -= recent[start]!.content?.length ?? 0;
-          start++;
-        }
-        const final = recent.slice(start).map((r) => ({
-          role: (r.role === 'user' || r.role === 'assistant' ? r.role : 'user') as
-            | 'user'
-            | 'assistant',
-          content: r.content ?? '',
-        }));
-        if (final.length > 0) {
-          logger.info('rehydrate: 预热 history', {
-            count: final.length,
-            totalChars: final.reduce((s, m) => s + m.content.length, 0),
-            firstRole: final[0]!.role,
-          });
-          setInitialHistoryForLLM(final);
-        }
-      } catch (err) {
-        logger.warn('rehydrate 失败', (err as Error).message);
-      }
-    })();
-  }, [bootstrap]);
-
   /* ----------- v0.2.1 slash 命令回调 ----------- */
 
   const onStartNewVisit = useCallback(async () => {
@@ -498,7 +435,6 @@ function SidebarApp(props: MountOptions) {
         );
       }}
       persistMessage={persistMessage}
-      initialHistoryForLLM={initialHistoryForLLM}
       onRoundFinished={onRoundFinished}
       getCurrentVisitMeta={() => {
         const v = bootstrap.pageVisitManager.getCurrent();
