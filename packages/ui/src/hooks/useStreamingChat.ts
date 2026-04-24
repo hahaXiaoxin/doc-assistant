@@ -47,6 +47,10 @@ export interface UIMessage {
   reasoning?: string;
   reasoningElapsedMs?: number;
   error?: boolean;
+  /** v0.2.4：消息产生时所在的 PageVisit ID（用于跨 visit 分组降权） */
+  visitId?: string;
+  /** v0.2.4：消息产生时所在页面的标题（用于分组标注） */
+  visitTitle?: string;
 }
 
 export interface UseStreamingChatOptions {
@@ -81,6 +85,15 @@ export interface UseStreamingChatOptions {
     userMessageCount: number;
     recentMessages: ChatMessage[];
   }) => void;
+  /**
+   * v0.2.4 · 可选：获取当前 PageVisit 的元信息。
+   * - send() 追加 user / assistant 消息时带上 visitId + visitTitle，
+   *   使 UIMessage 带有"产生时所在页面"的溯源标签。
+   * - send() 组装 history 时，按 visitId 分组：**非当前 visit** 的消息会被前置为
+   *   system 段"【之前在《上篇文章》中的对话】"，让 Agent 知晓来源并做适当降权。
+   * 返回 null / 未注入时，退化为 v0.2.3 行为（无分组，全量透传）。
+   */
+  getCurrentVisitMeta?: () => { visitId: string; title?: string } | null;
 }
 
 function genId(): string {
@@ -128,10 +141,15 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
       const trimmed = userInput.trim();
       if (!trimmed) return;
 
+      // v0.2.4：抓一次"本轮所在的 visit"快照，用于给 user/assistant 打标
+      const currentVisitMeta = opts.getCurrentVisitMeta?.() ?? null;
+
       const userMsg: UIMessage = {
         id: genId(),
         role: 'user',
         content: trimmed,
+        ...(currentVisitMeta?.visitId ? { visitId: currentVisitMeta.visitId } : {}),
+        ...(currentVisitMeta?.title ? { visitTitle: currentVisitMeta.title } : {}),
       };
       setMessages((prev) => [...prev, userMsg]);
 
@@ -153,17 +171,14 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
       abortRef.current = controller;
 
       // v0.2.3：history = 预热历史（跨 visit / 过去对话）+ 本轮 UI 内累积消息
-      // 注：initialHistoryForLLM 仅喂给 LLM，**不进 UI messages[]**，对用户透明
+      // v0.2.4：按 visitId 分组——非当前 visit 的消息前置 system 段标注来源，让 Agent 知晓
+      //   这是"过去对话"而不是"当前正在进行"，从而做适当降权（不复述、不混淆）
       const preloaded = opts.initialHistoryForLLM ?? [];
-      const history: ChatMessage[] = [
-        ...preloaded,
-        ...messages.map(
-          (m): ChatMessage => ({
-            role: m.role,
-            content: m.content,
-          }),
-        ),
-      ];
+      const grouped = groupMessagesByVisit(
+        messages,
+        currentVisitMeta?.visitId ?? null,
+      );
+      const history: ChatMessage[] = [...preloaded, ...grouped];
 
       const invokeCtx: AgentInvokeContext = {
         userInput: trimmed,
@@ -215,6 +230,12 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
                 ? { reasoningElapsedMs: s.thinkingElapsedMs }
                 : {}),
               ...(hadError ? { error: true } : {}),
+              ...(currentVisitMeta?.visitId
+                ? { visitId: currentVisitMeta.visitId }
+                : {}),
+              ...(currentVisitMeta?.title
+                ? { visitTitle: currentVisitMeta.title }
+                : {}),
             },
           ];
           // v0.2.4：一轮对话结束后触发副作用（如 SessionTopic 自动识别）。
@@ -303,3 +324,64 @@ function applyChunk(
     }
   });
 }
+
+/**
+ * v0.2.4 · 按 visitId 分组消息 → ChatMessage[]
+ * ---------------------------------------------
+ * 规则：
+ * - 没有 visitId 的消息（v0.2.4 之前追加的旧消息）一律视为"当前 visit"，不做特殊处理。
+ * - 当前 visit 的消息原文透传（用户刚才聊的内容）。
+ * - 非当前 visit 的消息：每组（按 visitId 聚合）前置一条 system 段：
+ *     【之前在《标题》中的对话（N 条）】
+ *   然后把该组的所有消息按原顺序塞进去。Agent 能据此判断"这是过去的上下文，
+ *   不是当前正在进行的对话"。
+ *
+ * 保序：严格按 messages 数组顺序，不打乱；同一 visit 的连续块合并。
+ */
+export function groupMessagesByVisit(
+  messages: UIMessage[],
+  currentVisitId: string | null,
+): ChatMessage[] {
+  if (messages.length === 0) return [];
+
+  const out: ChatMessage[] = [];
+  let buffer: UIMessage[] = [];
+  let bufferVisitId: string | null = null;
+
+  const flushBuffer = () => {
+    if (buffer.length === 0) return;
+    const isCurrent =
+      bufferVisitId === null || bufferVisitId === currentVisitId;
+    if (!isCurrent) {
+      // 非当前 visit：前置一条 system 段标注来源
+      const title = buffer.find((m) => m.visitTitle)?.visitTitle?.trim();
+      const label = title ? `《${title}》` : '上一篇文章';
+      out.push({
+        role: 'system',
+        content: `# 之前在${label}中的对话（${buffer.length} 条）\n以下是用户在切换到当前文章之前的对话，仅作为背景参考。不要把它当作当前问题的一部分去回答；如果当前问题明显已经切换了话题，请直接基于当前文章回答。`,
+      });
+    }
+    for (const m of buffer) {
+      out.push({ role: m.role, content: m.content });
+    }
+    buffer = [];
+    bufferVisitId = null;
+  };
+
+  for (const m of messages) {
+    const visitId = m.visitId ?? null;
+    if (buffer.length === 0) {
+      buffer = [m];
+      bufferVisitId = visitId;
+    } else if (visitId === bufferVisitId) {
+      buffer.push(m);
+    } else {
+      flushBuffer();
+      buffer = [m];
+      bufferVisitId = visitId;
+    }
+  }
+  flushBuffer();
+  return out;
+}
+

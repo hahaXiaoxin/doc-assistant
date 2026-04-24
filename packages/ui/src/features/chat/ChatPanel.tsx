@@ -120,6 +120,11 @@ export interface ChatPanelProps {
     userMessageCount: number;
     recentMessages: ChatMessage[];
   }) => void;
+  /**
+   * v0.2.4：获取当前 PageVisit 元信息（visitId + title）。
+   * 用于给每条 UIMessage 打溯源标签 + 组装 history 时按 visit 分组降级。
+   */
+  getCurrentVisitMeta?: () => { visitId: string; title?: string } | null;
 }
 
 const Header = styled.header`
@@ -231,6 +236,7 @@ export function ChatPanel({
   persistMessage,
   initialHistoryForLLM,
   onRoundFinished,
+  getCurrentVisitMeta,
 }: ChatPanelProps) {
   const [messageApi, contextHolder] = message.useMessage({ top: 52 });
   const inputActionsRef = useRef<ChatInputActions | null>(null);
@@ -260,6 +266,7 @@ export function ChatPanel({
     ...(persistMessage ? { persistMessage } : {}),
     ...(initialHistoryForLLM ? { initialHistoryForLLM } : {}),
     ...(onRoundFinished ? { onRoundFinished } : {}),
+    ...(getCurrentVisitMeta ? { getCurrentVisitMeta } : {}),
   });
 
   useSelectionBridge(() => inputActionsRef.current?.insertReference ?? null);

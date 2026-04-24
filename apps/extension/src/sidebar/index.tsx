@@ -500,6 +500,14 @@ function SidebarApp(props: MountOptions) {
       persistMessage={persistMessage}
       initialHistoryForLLM={initialHistoryForLLM}
       onRoundFinished={onRoundFinished}
+      getCurrentVisitMeta={() => {
+        const v = bootstrap.pageVisitManager.getCurrent();
+        if (!v) return null;
+        return {
+          visitId: v.visitId,
+          ...(v.title ? { title: v.title } : {}),
+        };
+      }}
     />
   );
 }
