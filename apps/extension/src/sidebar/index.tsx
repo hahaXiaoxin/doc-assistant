@@ -470,6 +470,7 @@ function buildPageSummary(visitId?: string): PageSummary | null {
       domain: extractDomain(canonicalUrl),
       ...(visitId ? { visitId } : {}),
       ...(extracted ? { summary: extracted.excerpt } : {}),
+      ...(extracted?.extractor ? { extractor: extracted.extractor } : {}),
     };
   } catch (err) {
     logger.warn('buildPageSummary 失败:', (err as Error).message);

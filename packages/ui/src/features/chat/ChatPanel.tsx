@@ -28,6 +28,7 @@ import {
   WorkingMemoryCard,
   type WorkingMemoryView,
 } from '../../components/WorkingMemoryCard';
+import { PageContextCard } from '../../components/PageContextCard';
 import { LexicalChatInput, type ChatInputActions } from '../../editor/LexicalChatInput';
 import { MessageList } from './MessageList';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
@@ -47,6 +48,11 @@ export interface PageSummary {
   domain?: string;
   /** v0.2：当前活跃 PageVisit ID（用于 SessionTopicSource 等） */
   visitId?: string;
+  /**
+   * v0.2.4：摘要来源的提取器标签（readability / semantic / full-body / selection）。
+   * full-body 可信度低（可能含导航/菜单噪声），UI 需要降级提示。
+   */
+  extractor?: string;
 }
 
 export interface ChatPanelProps {
@@ -165,20 +171,6 @@ const IconButton = styled.button`
     background: rgba(0, 0, 0, 0.04);
     color: ${tokens.color.textPrimary};
   }
-`;
-
-const ContextCard = styled.div`
-  margin: 10px 12px 0;
-  padding: 8px 12px;
-  background: ${tokens.color.bgSoft};
-  border: 1px solid ${tokens.color.border};
-  border-radius: ${tokens.radius.sm};
-  font-size: ${tokens.font.sizeSmall};
-  color: ${tokens.color.textSecondary};
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
 `;
 
 const InputArea = styled.div`
@@ -399,22 +391,22 @@ export function ChatPanel({
         )}
         <WorkingMemoryCard wm={workingMemory} />
 
-        {pageSummary && (
-          <ContextCard>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              📄 {pageSummary.identityTitle ?? pageSummary.title}
-            </span>
-            <span style={{ color: tokens.color.textTertiary }}>
-              {pageSummary.summary ? `${pageSummary.summary.length}字摘要` : '无摘要'}
-            </span>
-          </ContextCard>
-        )}
-
-        {!pageSummary && (
-          <ContextCard>
-            <span style={{ flex: 1 }}>尚未识别到当前页面信息</span>
-          </ContextCard>
-        )}
+        <PageContextCard
+          page={
+            pageSummary
+              ? {
+                  title: pageSummary.identityTitle ?? pageSummary.title,
+                  url: pageSummary.url,
+                  ...(pageSummary.summary !== undefined
+                    ? { summary: pageSummary.summary }
+                    : {}),
+                  ...(pageSummary.extractor !== undefined
+                    ? { extractor: pageSummary.extractor }
+                    : {}),
+                }
+              : null
+          }
+        />
 
         <MessageList messages={chat.messages} streaming={chat.streaming} />
 

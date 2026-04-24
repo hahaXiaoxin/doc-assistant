@@ -115,6 +115,24 @@ const StatusIcon = styled.span<{ $status: TodoStatus }>`
           : tokens.color.textSecondary};
 `;
 
+const GoalDetail = styled.div`
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: ${tokens.color.bgWhite};
+  border-radius: ${tokens.radius.sm};
+  font-size: ${tokens.font.sizeSmall};
+  color: ${tokens.color.textPrimary};
+  line-height: 1.5;
+  word-break: break-word;
+`;
+
+const EmptyHint = styled.div`
+  margin-top: 6px;
+  color: ${tokens.color.textTertiary};
+  font-size: ${tokens.font.sizeSmall};
+  font-style: italic;
+`;
+
 function statusSymbol(s: TodoStatus): string {
   switch (s) {
     case 'done':
@@ -150,24 +168,37 @@ export function WorkingMemoryCard({ wm }: WorkingMemoryCardProps): JSX.Element |
         )}
         <Chevron $open={open}>›</Chevron>
       </Header>
-      {open && total > 0 && (
-        <List>
-          {wm.todos.map((t) => (
-            <TodoRow key={t.id} $done={t.status === 'done' || t.status === 'skipped'}>
-              <StatusIcon $status={t.status} aria-label={t.status}>
-                {statusSymbol(t.status)}
-              </StatusIcon>
-              <span>
-                {t.content}
-                {t.notes ? (
-                  <span style={{ color: tokens.color.textTertiary, marginLeft: 6 }}>
-                    · {t.notes}
+      {open && (
+        <>
+          {/* 展开态优先显示 activeGoal 详情（折叠态 Title 超长会省略） */}
+          {wm.activeGoal && (
+            <GoalDetail>
+              <span style={{ color: tokens.color.textTertiary }}>目标：</span>
+              {wm.activeGoal}
+            </GoalDetail>
+          )}
+          {total > 0 ? (
+            <List>
+              {wm.todos.map((t) => (
+                <TodoRow key={t.id} $done={t.status === 'done' || t.status === 'skipped'}>
+                  <StatusIcon $status={t.status} aria-label={t.status}>
+                    {statusSymbol(t.status)}
+                  </StatusIcon>
+                  <span>
+                    {t.content}
+                    {t.notes ? (
+                      <span style={{ color: tokens.color.textTertiary, marginLeft: 6 }}>
+                        · {t.notes}
+                      </span>
+                    ) : null}
                   </span>
-                ) : null}
-              </span>
-            </TodoRow>
-          ))}
-        </List>
+                </TodoRow>
+              ))}
+            </List>
+          ) : (
+            <EmptyHint>暂无 TODO</EmptyHint>
+          )}
+        </>
       )}
     </Wrap>
   );
