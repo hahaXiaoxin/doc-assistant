@@ -156,13 +156,43 @@
 - [x] tool description 全面精化：WorkingMemory / remember_persona / recall_memory 全部写明"主动触发时机"；参数 description 补全
 - [x] initialHistoryForLLM 只喂 LLM 不进 UI（"像真正的助手一样"哲学）
 
-### v0.2.3+（未来方向，未排期）
+### v0.2.4（已完成）· 上下文分层机制可用化 + UI 两处 bug 修
+
+- [x] `WorkingMemoryCard` 展开态空 bug：`activeGoal 非空 + todos 空`时展开只有 chevron 动画 → 补 GoalDetail / EmptyHint 兜底
+- [x] 顶部页面上下文卡片只显"201字摘要"不显真内容 → 抽独立 `PageContextCard`，展开显真实摘要（500 字上限 + 滚动）；`full-body` 低可信 extractor 显式标注降级提示
+- [x] `hashchange` 监听 + 清当前 topic（不切 visit，规避反思 Job 重操作）；下轮用户提问自动重新识别新文章话题
+- [x] `SessionTopic` 自动触发：`useStreamingChat.onRoundFinished` 每轮抛信号 + sidebar 用 `shouldIdentify()` 判定后调 `identifySessionTopic`（之前只有 `/topic` 命令能手动触发）
+- [x] 跨 visit 消息分组降级：`UIMessage` 加 `visitId`/`visitTitle` 标签；`groupMessagesByVisit` 组装 history 时按 visit 分组，非当前 visit 前置 system 段`# 之前在《上篇文章》中的对话（N 条）`+ 明确降权提示
+
+### v0.2.4+（未来方向，未排期）
 
 #### 记忆层完善
 - [ ] `persona_conflict_check` 实装（检测长期指令矛盾并合并/裁决）
 - [ ] PersonaReviewList：配置页长期指令 Tab 的批量审核视图（支持编辑）
 - [ ] `/forget` 命令：主动从记忆层删除
 - [ ] 会话导入 / 导出（JSON）
+- [ ] **Persona 双主体重建 · Agent 自我设定 vs 用户画像区分**（用户反馈 2026-04-24 · 重开）
+  - 背景：v0.2.2 曾把 Persona 统一为"Agent 长期指令"以消除歧义；真机跑一段后用户发现**两类记忆的混用还是会让模型糊涂**——
+    - "用户是前端工程师"（关于用户的事实） vs "回答时默认用前端语境"（Agent 行为规则）
+    - 虽然我们当时要求模型把前者转译成后者，但模型在不同 query 下两种形态都会产出，语义不清
+  - 目标设计（轻量）：给 `PersonaRecord` 加 `subject: 'agent' | 'user'` 字段，同一张表两种视角：
+    - `subject='agent'`：写给 Agent 自己的指令（当前全部属于此）
+    - `subject='user'`：关于用户本人的事实，注入时话术为"关于用户：..."，让模型可以自然说"根据我的记忆你是..."
+  - `PersonaSource` 分两段注入（两组 bullets + 不同标题）
+  - `remember_persona` tool 入参加 `subject`（默认 `agent`，description 给清例子）
+  - 反思 Job 同时产两类 candidate（同一批对话既能抽"用户是 X"也能转译"回答时应该 Y"）
+  - 审核 UI：PersonaReviewBanner 标签区分两类
+  - 工作量估计：~2h；改动集中在 memory schema + persona.ts + remember-persona.ts + reflection/runner.ts + banner.tsx
+
+#### 上下文分层机制 · 剩余工作
+- [ ] **Session Topic 话题漂移主动检测**（v0.2.4 只做了被动识别，还没做漂移检测）
+  - 现状：每 4 轮会识别一次 topic；话题如果聊着聊着漂了，要等下一次 4 轮周期才更新
+  - 目标：每轮结束时 aux 快速判"topic 是否漂移"（是 → 立即重识别），否则按原周期
+  - 或者更简单：`shouldIdentify` 加一个"相似度跌破阈值"的触发条件
+- [ ] **旧 visit 消息按距离/字数裁剪**（问题 4 的加强版）
+  - 当前 v0.2.4：非当前 visit 的消息**全保留**前置 system 段。长期积累下来可能塞爆上下文
+  - 目标：按 `(visitId, 距今时长)` 降权；同一 visit 只保留最后 N 条；再旧的走向量召回补位
+
 - [ ] **跨 visit 时间维记忆检索 · Chronological Index**（用户反馈 2026-04-24）
   - 动机：当前 `recall_memory` 基于语义向量，无法处理"今天看了哪些文章"、"本周读了什么"这类**元查询**——embedding 基于内容编码，时间维根本不在语义空间里。用户在新域名下问这类问题会拿到"未找到"，体验差。
   - v0.2.3 的小修补：`recall_memory` 已能识别这类时间维元查询并返回 `reason='time_query_unsupported'` 的明确提示（避免假阴性），主 LLM 坦诚告诉用户"这类查询暂不支持"。完整方案见下。

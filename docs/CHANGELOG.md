@@ -11,6 +11,66 @@
 
 ---
 
+## [v0.2.4] · 上下文分层机制可用化 + UI 两处 bug 修
+
+> 真机使用 v0.2.3 后发现的六个问题中的 2-6。1（Persona 双主体）改回 ROADMAP 重开讨论。
+>
+> 核心价值：让"你描述的上下文分层机制"从**架构上已有**变成**真的能运转起来**——
+> SessionTopic 终于会自动识别了；hashchange 切文章会清旧话题；跨 visit 的历史消息被正确降权；
+> 两处顶部 UI 的假象 bug 也一并修掉，让用户能看到真实信息。
+
+### Added
+
+- **`useStreamingChat.onRoundFinished` port**：每轮对话（user + assistant）完成时抛出
+  `{ userMessageCount, recentMessages }` 信号，由 sidebar 接手触发 SessionTopic 识别等副作用。
+- **`useStreamingChat.getCurrentVisitMeta` port**：send 时查询当前 PageVisit 元信息，给
+  追加的 user/assistant 消息打 `visitId` + `visitTitle` 标签。
+- **`groupMessagesByVisit()` 纯函数**：按 visitId 分组消息，非当前 visit 的消息前置
+  system 段`# 之前在《上篇文章》中的对话（N 条）` + 明确降权提示。9 个单测覆盖。
+- **`PageContextCard` 独立组件**：替代 ChatPanel 内联的 `ContextCard`，支持展开查看真实
+  摘要内容（500 字上限 + max-height 滚动）；低可信 extractor（full-body）显式标注降级提示。
+- **`PageSummary.extractor` 字段**：sidebar 的 `buildPageSummary` 透传摘要来源标签，UI
+  据此判断可信度。
+
+### Changed
+
+- **`useStreamingChat.send` 组装 history 升级**：`initialHistoryForLLM` + `groupMessagesByVisit(messages)`
+  组合，非当前 visit 的消息被自动降级注入——Agent 明确知道这是"过去对话，不是当前问题"。
+- **`UIMessage` 新增 `visitId` / `visitTitle`**：向后兼容（旧消息无这两个字段时视为当前 visit）。
+- **sidebar 新增 `hashchange` 监听**：hash 变化时清当前 visit 的 `SessionTopic`（不切 visit，
+  规避反思 Job 等重操作）；下一轮用户提问时由 `shouldIdentify(1)=true` 自然触发新话题识别。
+- **sidebar 新增 `onRoundFinished` 装配**：每轮后用 `shouldIdentify(userMessageCount)` 判定，
+  true 则调用 `identifySessionTopic`。之前 SessionTopic 只能靠 `/topic` 命令手动触发，
+  现在每 4 轮自动识别一次，配合 hashchange 清 topic 实现"话题自动跟随文章切换"。
+- **`WorkingMemoryCard` 展开态**：`activeGoal 非空 + todos 空` 时，展开显示完整 goal 详情
+  与"暂无 TODO"兜底，不再只见 chevron 旋转动画。
+
+### Fixed
+
+- **问题 5**：WorkingMemory 卡片在特定边界状态下展开只有 chevron 动画无内容。
+- **问题 6**：顶部页面上下文卡片永远显示"201 字摘要"这串元信息数字而非真实内容。
+- **问题 2**：SPA 哈希路由场景下切换文章后 Agent 仍回答上一篇内容——因为 hashchange
+  既没被监听，`canonicalizeUrl` 又会剥 hash 导致 visit 不切。
+- **问题 4**：SPA 内切换文章后，聊天窗口历史消息仍以"当前对话"身份全量喂给 LLM，
+  容易让新文章的问题被上一篇上下文污染。
+- **问题 3 的第一步**：SessionTopic 早期写了识别函数但实际生产代码**从未自动触发**，
+  只能靠用户手动执行 `/topic` 命令。现在每轮对话后自动判定，完成闭环。
+
+### Not Yet
+
+- 问题 1（Persona 双主体 agent/user 区分）改到 ROADMAP `v0.2.4+ · 记忆层完善` 重开讨论，
+  因为 v0.2.2 的"统一化"决策需要被**谨慎复审**——不想再来一次语义反转。
+- 问题 3 的剩余工作（话题漂移主动检测、旧 visit 消息按距离/字数裁剪）也在 ROADMAP。
+
+### Testing
+
+- `packages/ui/src/hooks/__tests__/group-messages.test.ts`：9 个 case 覆盖
+  `groupMessagesByVisit` 全部分支（全当前 / 全旧 / 混合 / 多旧 visit / 兼容无 visitId 旧消息 /
+  currentVisitId=null 时的两种处理）。
+- **21 test files / 315 tests 全绿**（+9 新测试），lint 0 error，typecheck 0 error。
+
+---
+
 ## [v0.2.3] · 修漏 + 精化 Prompt · "真正能工作的记忆"
 
 > v0.2.1 落地了记忆层的完整骨架（aux、反思、召回、命令、UI），但真机跑起来之后

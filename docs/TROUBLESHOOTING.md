@@ -581,7 +581,95 @@ checklist，不能只当作一次性设计文档。
 
 ---
 
-## §12+ · 预留
+## §12 · v0.2.4 · SessionTopic 识别函数写好了却从未被生产代码触发
+
+### 症状
+
+真机测试 v0.2.3 时发现：无论怎么聊，SessionTopicSource 始终没有 topic 注入
+（`# 当前领域焦点` 段永远不出现）。`/topic` 手动命令能工作，但普通对话不会自动识别。
+切换文章（pushState / hashchange）时 topic 也不会更新。
+
+### 根因
+
+`identifySessionTopic()` 与 `shouldIdentify()` 两个函数在 v0.2.1 就写好且有单测，
+但**整个生产代码路径只有一处调用**：`sidebar/index.tsx` 的 `/topic` 命令回调。
+没有任何位置在 agent.run 前后/每轮对话结束时自动调用它——相当于"识别引擎建了，
+但没人拉扳机"。
+
+与 §11 的 `episodes_msg` 零写入同属一类错误：**单元测试齐全，但集成路径漏调**。
+
+### 修复（v0.2.4）
+
+1. **每轮对话自动触发识别**：
+   - `useStreamingChat.send` 新增 `onRoundFinished` port，flush assistant 后抛信号
+   - sidebar 用 `shouldIdentify(userMessageCount)` 判定后调 `identifySessionTopic`
+2. **hashchange 触发 topic 重置**：
+   - SPA 哈希路由场景下，hash 变化清当前 topic（不切 visit，规避反思 Job 等重操作）
+   - 下一轮对话是该 visit 的第 1 轮 user → `shouldIdentify(1)=true` → 自动重新识别新话题
+
+### 验证点
+
+- 真机聊 4 轮后，应在 IndexedDB 的 `session_topics` 表看到 topic 记录
+- 切换 hash 后下一轮对话结束，topic 应该被更新为新文章的话题
+- `# 当前领域焦点` system 段会出现在 LLM 收到的 messages 中
+
+### 相关代码锚点
+
+- `packages/ui/src/hooks/useStreamingChat.ts` · `onRoundFinished` port
+- `apps/extension/src/sidebar/index.tsx` · `handleHashChange` 清 topic / `onRoundFinished` 回调
+
+### 启示
+
+**"架构里有这个模块" ≠ "这个模块真的在跑"**。v0.2.1 铺设 `shouldIdentify` 这种
+"每 N 轮触发"函数时，应当在同一个 PR 里把"谁调它"的集成路径也一并落地，不然单测
+只验证了正确性却没验证**被触达**。
+
+以后新增任何带"周期性/条件性触发"的函数，PR checklist 应包含一条：
+> "在生产代码里，哪一行会调这个函数？没有的话本 PR 不能合。"
+
+---
+
+## §13 · v0.2.4 · SPA 哈希路由切文章但 Agent 仍回答上一篇内容
+
+### 症状
+
+在哈希路由 SPA（例：`site.com/docs#/a` → `site.com/docs#/b`）切文章后，
+问"这篇讲了什么"，Agent 还在回答上一篇。
+
+### 根因（两重）
+
+1. sidebar 监听了 `pushState/replaceState/popstate`，但**没监听 `hashchange`**——
+   纯 hash 变化不会被 PageVisit 感知。
+2. 即使监听了，`canonicalizeUrl` **无条件剥 hash**（`u.hash = ''`），`onUrlChange`
+   判定"同 canonicalUrl → 不切 visit"——即使强行通知也会被当成同一 visit。
+
+### 修复（v0.2.4）
+
+选择"**保留 visit 身份、只清 SessionTopic**"的最小侵入方案：
+- 加 `hashchange` 监听
+- hash 变化 → 写空 topic 到当前 visit 的 SessionTopic 表
+- 下一轮用户提问自动触发新 topic 识别
+
+未改 `canonicalizeUrl` 的 hash 剥离行为，因为 v0.2 的记忆层索引约定（WorkingMemory
+按 canonicalUrl 分组）全都基于"hash 不算 URL 身份"。如果将来需要真正切 visit，
+应当在 `PageVisitManager` 层加"identityKey = canonicalUrl + 可选 hashFragment"的
+开关，不动 `canonicalizeUrl`。
+
+### 相关代码锚点
+
+- `apps/extension/src/sidebar/index.tsx` · `handleHashChange`
+- `packages/shared/src/url-normalize.ts` · `normalizeUrlString` 的 hash 剥离逻辑
+
+### 启示
+
+"URL 归一化"与"visit 身份"是两件事。前者服务于**索引聚合**（同一文章的不同 hash 片段
+应被视为同一篇以便记忆联通）；后者服务于**对话边界**（切章节应重识别话题）。
+同一个函数（canonicalizeUrl）不应同时决定两者——v0.2.4 用"按 visitId 分组消息 +
+hashchange 清 topic"绕过了此冲突，真正的分离留给后续重构。
+
+---
+
+## §14+ · 预留
 
 > v0.2.1 以上踩坑已沉淀。后续若遇到反思 Job 在 SW 真机失败（跨 origin 问题暴露）、
 > Dexie 在 fake-indexeddb 与真实 IDB 行为差异、千问 embedding 限流/节流等，继续按
