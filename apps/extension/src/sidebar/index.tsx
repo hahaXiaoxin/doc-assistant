@@ -16,6 +16,7 @@ import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { canonicalizeUrl, createLogger, extractDomain, MessageType } from '@doc-assistant/shared';
+import type { ChatMessage } from '@doc-assistant/shared';
 import {
   runIdentityPipeline,
   runContentPipeline,
@@ -26,6 +27,7 @@ import {
   identifySessionTopic,
   recallMemory,
   renderRecallMatches,
+  shouldIdentify,
 } from '@doc-assistant/agent';
 import { ChatPanel, type PageSummary } from '@doc-assistant/ui';
 import { bootstrapAgent } from './bootstrap';
@@ -150,6 +152,36 @@ function SidebarApp(props: MountOptions) {
     };
     window.addEventListener('popstate', handleUrlChange);
 
+    // v0.2.4 · 监听 hashchange（哈希路由 SPA 场景）：
+    // - canonicalizeUrl 会剥 hash，visit 不会切（规避反思 Job 等重操作）；
+    // - 但 SessionTopic 需要重新识别 —— 清除当前 visit 的 topic，
+    //   下一轮用户提问时由 onRoundFinished 的 shouldIdentify 自然触发新话题识别。
+    const handleHashChange = () => {
+      const current = pvm.getCurrent();
+      if (!current) return;
+      if (!bootstrap.memory.setSessionTopic) return;
+      const now = Date.now();
+      void bootstrap.memory
+        .setSessionTopic({
+          visitId: current.visitId,
+          currentTopic: '', // 清空 topic（SessionTopicSource 不再注入）
+          tags: [],
+          updatedAt: now,
+          history: [
+            { at: now, topic: '', triggeredBy: 'user_command' as const },
+          ],
+          ...(current.canonicalUrl !== undefined
+            ? { canonicalUrl: current.canonicalUrl }
+            : {}),
+          ...(current.articleId !== undefined ? { articleId: current.articleId } : {}),
+        })
+        .catch((err: Error) => {
+          logger.warn('hashchange · 清 topic 失败', err.message);
+        });
+      logger.info('hashchange · 已清当前 topic，等待下轮对话自动重新识别');
+    };
+    window.addEventListener('hashchange', handleHashChange);
+
     // tab 关闭前：end 当前 visit（为反思任务登记留出窗口）
     const handleBeforeUnload = () => {
       void pvm.endCurrent();
@@ -160,6 +192,7 @@ function SidebarApp(props: MountOptions) {
       history.pushState = originalPush;
       history.replaceState = originalReplace;
       window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleHashChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
   }, [bootstrap]);
@@ -364,6 +397,33 @@ function SidebarApp(props: MountOptions) {
     [bootstrap],
   );
 
+  /**
+   * v0.2.4 · 每轮对话完成后自动触发 SessionTopic 识别
+   * - 之前只有 `/topic` 命令或无人触发；现在每 shouldIdentify(count) = true 就识别
+   * - hashchange 清 topic 后，新 visit 下的第 1 轮对话会立即重新识别（shouldIdentify(1) = true）
+   * - fire-and-forget 失败降级
+   */
+  const onRoundFinished = useCallback(
+    (info: { userMessageCount: number; recentMessages: ChatMessage[] }) => {
+      if (!bootstrap) return;
+      if (!shouldIdentify(info.userMessageCount)) return;
+      const visit = bootstrap.pageVisitManager.getCurrent();
+      if (!visit) return;
+      if (!bootstrap.memory.setSessionTopic) return;
+      void identifySessionTopic({
+        aux: bootstrap.auxLLM,
+        memory: bootstrap.memory,
+        visitId: visit.visitId,
+        ...(visit.canonicalUrl !== undefined ? { canonicalUrl: visit.canonicalUrl } : {}),
+        ...(visit.articleId !== undefined ? { articleId: visit.articleId } : {}),
+        recentMessages: info.recentMessages,
+      }).catch((err: Error) => {
+        logger.warn('自动 SessionTopic 识别失败', err.message);
+      });
+    },
+    [bootstrap],
+  );
+
   if (!bootstrap) {
     return null; // 静默等待 bootstrap
   }
@@ -439,6 +499,7 @@ function SidebarApp(props: MountOptions) {
       }}
       persistMessage={persistMessage}
       initialHistoryForLLM={initialHistoryForLLM}
+      onRoundFinished={onRoundFinished}
     />
   );
 }

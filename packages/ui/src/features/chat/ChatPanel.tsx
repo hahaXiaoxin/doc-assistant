@@ -112,6 +112,14 @@ export interface ChatPanelProps {
    * 由 sidebar 在 mount 后按"WorkingMemory → 跨 visit 近 5 轮 → 向量召回"三段式策略生成。
    */
   initialHistoryForLLM?: ChatMessage[];
+  /**
+   * v0.2.4：每轮对话完成后的副作用回调（主要用于自动触发 SessionTopic 识别）。
+   * useStreamingChat 会带入 userMessageCount + 最近 6 条消息，由 sidebar 决定是否识别。
+   */
+  onRoundFinished?: (info: {
+    userMessageCount: number;
+    recentMessages: ChatMessage[];
+  }) => void;
 }
 
 const Header = styled.header`
@@ -222,6 +230,7 @@ export function ChatPanel({
   onRejectPersona,
   persistMessage,
   initialHistoryForLLM,
+  onRoundFinished,
 }: ChatPanelProps) {
   const [messageApi, contextHolder] = message.useMessage({ top: 52 });
   const inputActionsRef = useRef<ChatInputActions | null>(null);
@@ -250,6 +259,7 @@ export function ChatPanel({
     buildToolExecCtx: () => buildToolMeta(),
     ...(persistMessage ? { persistMessage } : {}),
     ...(initialHistoryForLLM ? { initialHistoryForLLM } : {}),
+    ...(onRoundFinished ? { onRoundFinished } : {}),
   });
 
   useSelectionBridge(() => inputActionsRef.current?.insertReference ?? null);

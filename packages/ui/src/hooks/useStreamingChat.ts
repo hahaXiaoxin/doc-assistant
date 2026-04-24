@@ -71,6 +71,16 @@ export interface UseStreamingChatOptions {
    * 变化时不会触发 UI 重渲染（用 ref 保存）。
    */
   initialHistoryForLLM?: ChatMessage[];
+  /**
+   * v0.2.4 · 可选：每轮对话（user + assistant）完成后的回调。
+   * 传入新的消息总计数（仅 user 条数，便于外部做 shouldIdentify 判定）与
+   * 最近若干条消息（含本轮的 user/assistant），用于触发 SessionTopic 识别等副作用。
+   * fire-and-forget，失败不影响聊天流。
+   */
+  onRoundFinished?: (info: {
+    userMessageCount: number;
+    recentMessages: ChatMessage[];
+  }) => void;
 }
 
 function genId(): string {
@@ -193,19 +203,40 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
         if (!s) return null;
         const assistantText = s.text;
         const hadError = !!s.error;
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: genId(),
-            role: 'assistant',
-            content: assistantText,
-            ...(s.reasoning ? { reasoning: s.reasoning } : {}),
-            ...(typeof s.thinkingElapsedMs === 'number'
-              ? { reasoningElapsedMs: s.thinkingElapsedMs }
-              : {}),
-            ...(hadError ? { error: true } : {}),
-          },
-        ]);
+        setMessages((prev) => {
+          const nextMessages: UIMessage[] = [
+            ...prev,
+            {
+              id: genId(),
+              role: 'assistant',
+              content: assistantText,
+              ...(s.reasoning ? { reasoning: s.reasoning } : {}),
+              ...(typeof s.thinkingElapsedMs === 'number'
+                ? { reasoningElapsedMs: s.thinkingElapsedMs }
+                : {}),
+              ...(hadError ? { error: true } : {}),
+            },
+          ];
+          // v0.2.4：一轮对话结束后触发副作用（如 SessionTopic 自动识别）。
+          // 只在正常产出时触发；error 轮次不算完整一轮。
+          if (!hadError && assistantText.trim() && opts.onRoundFinished) {
+            const userCount = nextMessages.filter((m) => m.role === 'user').length;
+            // 最近 6 条（含本轮）作为 topic 识别的输入
+            const recent = nextMessages.slice(-6).map((m): ChatMessage => ({
+              role: m.role,
+              content: m.content,
+            }));
+            try {
+              opts.onRoundFinished({
+                userMessageCount: userCount,
+                recentMessages: recent,
+              });
+            } catch (err) {
+              logger.warn('onRoundFinished 异常，已忽略', (err as Error).message);
+            }
+          }
+          return nextMessages;
+        });
         // v0.2.3：落库 assistant 消息（仅正常产出；error/空串不写）
         if (!hadError && assistantText.trim() && opts.persistMessage) {
           void opts
