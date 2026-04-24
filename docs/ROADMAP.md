@@ -148,13 +148,13 @@
 - [x] Persona 重定位为"Agent 长期指令"（数据 schema 零变更）：tool description、PersonaSource 注入段、反思 Job prompt、PersonaReviewBanner / MemoryTab 文案同步升级
 - [x] `PersonaRecord.content` 注释示例更新；测试断言同步新语义
 
-### v0.2.3（已完成）· 修漏 + 精化 Prompt · "真正能工作的记忆"
+### v0.2.3（已完成，部分回退见 v0.2.5）· 修漏 + 精化 Prompt · "真正能工作的记忆"
 
 - [x] 消息持久化：`useStreamingChat.persistMessage` port + sidebar 装配，兑现 ROADMAP §79 的"同步必做"
-- [x] 刷新三段式 rehydrate：WorkingMemory → 跨 visit 近 5 轮 episodes_msg → 向量召回（按 canonicalUrl 拉，不分 visitId）
+- [x] ~~刷新三段式 rehydrate：WorkingMemory → 跨 visit 近 5 轮 episodes_msg → 向量召回~~（**v0.2.5 回退**：预热机制违反"意图驱动"原则，跨 visit 消息无脑注入反而污染上下文。只保留 `persistMessage` 落库；真正的跨 visit 时间维查询由 ROADMAP · Chronological Index 专门承接）
 - [x] 主 system prompt 升级为"工作方式多段守则"：真正的助手人设、不把状态贴脸上、主动维护 WorkingMemory、自然接续上次
 - [x] tool description 全面精化：WorkingMemory / remember_persona / recall_memory 全部写明"主动触发时机"；参数 description 补全
-- [x] initialHistoryForLLM 只喂 LLM 不进 UI（"像真正的助手一样"哲学）
+- [x] initialHistoryForLLM port 保留在 useStreamingChat / ChatPanel（Chronological Index 落地时复用）
 
 ### v0.2.4（已完成）· 上下文分层机制可用化 + UI 两处 bug 修
 
@@ -164,7 +164,14 @@
 - [x] `SessionTopic` 自动触发：`useStreamingChat.onRoundFinished` 每轮抛信号 + sidebar 用 `shouldIdentify()` 判定后调 `identifySessionTopic`（之前只有 `/topic` 命令能手动触发）
 - [x] 跨 visit 消息分组降级：`UIMessage` 加 `visitId`/`visitTitle` 标签；`groupMessagesByVisit` 组装 history 时按 visit 分组，非当前 visit 前置 system 段`# 之前在《上篇文章》中的对话（N 条）`+ 明确降权提示
 
-### v0.2.4+（未来方向，未排期）
+### v0.2.5（已完成）· 刷新预热机制回退 · "意图驱动"的召回架构修正
+
+- [x] 删除 `sidebar/index.tsx` 的 rehydrate useEffect——不再 mount 时无脑按 canonicalUrl 跨 visit 拉历史消息
+- [x] 保留 `persistMessage` 落库（数据基础不变，仅撤回**注入**逻辑）
+- [x] `initialHistoryForLLM` port 定义保留，供 Chronological Index 能力未来复用
+- [x] 接受"刷新承接式失忆"的代价：刷新后"然后呢"这类承接输入需要用户补一句上下文；真机验证后如高频可加"30 分钟内同 visit"窄条件兜底
+
+### v0.2.5+（未来方向，未排期）
 
 #### 记忆层完善
 - [ ] `persona_conflict_check` 实装（检测长期指令矛盾并合并/裁决）

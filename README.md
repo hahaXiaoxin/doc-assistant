@@ -2,7 +2,7 @@
 
 面向在线学习场景的 Chrome / Edge 浏览器扩展。在任意文档/文章页面右侧提供可折叠的对话面板，结合页面内容与千问大模型进行上下文感知对话，无需切换窗口或平台。
 
-> **当前版本：v0.2.4（上下文分层机制可用化 · SessionTopic 自动识别 · 跨 visit 消息降级 · UI 顶部卡片完善）** · 设计原则与完整规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)
+> **当前版本：v0.2.5（刷新预热机制回退 · 意图驱动的召回架构修正）** · 设计原则与完整规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)
 >
 > **v0.2 大版本回顾**：从 MVP 对话到类人脑记忆系统的完整设计史与原理沉淀见 [`docs/v0.2-DESIGN-HISTORY.md`](./docs/v0.2-DESIGN-HISTORY.md)
 

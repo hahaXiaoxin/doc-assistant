@@ -11,6 +11,55 @@
 
 ---
 
+## [v0.2.5] · 刷新预热机制回退 · "意图驱动"的召回架构修正
+
+> v0.2.3 引入的"三段式 rehydrate"在真机使用后发现一个设计偏差：
+> **mount 时无脑按 canonicalUrl 跨 visit 拉 10 条消息塞进 history**，这违反了召回应当由
+> **用户意图驱动**的原则——大多数场景用户刷新是为了"继续当前任务"，
+> WorkingMemory（activeGoal + TODO）已经足够指示"正在做什么"，再塞历史消息反而：
+> - 浪费 token（每次 send 都前置这 10 条）
+> - 可能让 LLM 把旧对话当作当前对话的一部分
+> - 新文章下刷新时，完全不相关的旧对话也被喂进去
+>
+> 本版本撤回这个预热设计，恢复"**意图驱动**"的三档架构：
+>
+> - **默认（延续当前工作）**：`WorkingMemorySource` 自动注入 activeGoal + TODO
+> - **时间维元查询**（"今天/本周看了什么"）：走 Chronological Index（新能力，ROADMAP 登记）
+> - **语义历史指代**（"上次/之前聊的 XX"）：走 `RelevantMemorySource` 向量召回
+
+### Changed
+
+- **删除 `sidebar/index.tsx` 的 rehydrate useEffect**：
+  - 不再在 mount 时自动调 `memory.recall({types:['message'], canonicalUrl})` 预热 history
+  - 刷新后 `useStreamingChat.messages` 保持 `[]`（符合 React 语义）
+  - `initialHistoryForLLM` port 定义保留在 `useStreamingChat` / `ChatPanel`，
+    供未来 Chronological Index 能力落地时复用（时间维查询会通过这个 port 注入时间轴命中结果）
+
+### Unchanged（关键：保留数据基础）
+
+- **`persistMessage` 落库完全保留**：每条 user / assistant 消息仍会同步写入 `episodes_msg`。
+  这是 Chronological Index / 向量召回 / 反思 Job 共同依赖的数据基础——它是数据**沉淀**，
+  不同于数据**注入**。v0.2.3 修的这一层是必须保留的。
+- 反思 Job / SessionTopic 自动识别 / hashchange 清旧 topic / 跨 visit 消息分组降级
+  等 v0.2.1 → v0.2.4 的能力全部不变。
+
+### Acknowledged Trade-off
+
+**刷新后"承接式失忆"**：如果用户刷新前聊到一半（例如讨论某个架构的 Controller 层），
+刷新后说"然后呢"这种承接式输入，LLM 不会自动拿到上次对话。此时用户需要自己简短补一句
+上下文（"我们刚聊到 Controller..."），LLM 再基于 history 的原消息响应即可。
+
+这个代价是**有意接受的**——极小概率场景换来大多数场景的上下文纯净。如果真机发现此场景
+高频发生，可加一个"30 分钟内同 visit 的 episodes_msg 轻量兜底"的窄条件预热（已登记 ROADMAP）。
+
+### Testing
+
+- 315 tests 全绿（无减少，rehydrate 删除后对应的 dexie-store 跨 visit 召回单测仍保留——
+  底层能力未删，只是 sidebar 不再在 mount 触发）
+- lint / typecheck 0 error
+
+---
+
 ## [v0.2.4] · 上下文分层机制可用化 + UI 两处 bug 修
 
 > 真机使用 v0.2.3 后发现的六个问题中的 2-6。1（Persona 双主体）改回 ROADMAP 重开讨论。
