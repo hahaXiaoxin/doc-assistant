@@ -5,9 +5,10 @@
  * 不依赖 Dexie / fake-indexeddb，保持快速。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type {
-  MemoryStore,
-  WorkingMemoryRecord,
+import {
+  NullMemoryStore,
+  type MemoryStore,
+  type WorkingMemoryRecord,
 } from '@doc-assistant/memory';
 import {
   buildWorkingMemoryTools,
@@ -26,27 +27,22 @@ function makeMemory(): MemoryStore & {
 } {
   const store = new Map<string, WorkingMemoryRecord>();
   const touchSpy = vi.fn();
-  return {
+  const base = new NullMemoryStore();
+  return Object.assign(base, {
     _store: store,
     touchSpy,
-    async remember() {
-      /* no-op */
-    },
-    async recall() {
-      return [];
-    },
-    async getWorkingMemory(canonicalUrl) {
+    async getWorkingMemory(canonicalUrl: string): Promise<WorkingMemoryRecord | null> {
       return store.get(canonicalUrl) ?? null;
     },
-    async setWorkingMemory(record) {
+    async setWorkingMemory(record: WorkingMemoryRecord): Promise<void> {
       store.set(record.canonicalUrl, record);
     },
-    async touchWorkingMemory(canonicalUrl, at) {
+    async touchWorkingMemory(canonicalUrl: string, at?: number): Promise<void> {
       touchSpy(canonicalUrl, at);
       const r = store.get(canonicalUrl);
       if (r) r.lastAccessedAt = at ?? Date.now();
     },
-  };
+  });
 }
 
 function makeVisit(overrides: Partial<PageVisitLike> = {}): PageVisitLike {
@@ -104,9 +100,9 @@ describe('buildWorkingMemoryTools · 工厂', () => {
     );
   });
 
-  it('buildPhase2Tools = MVP 3 + WorkingMemory 7', () => {
+  it('buildPhase2Tools = MVP 3 + WorkingMemory 7 + remember_persona', () => {
     const tools = buildPhase2Tools(makeDeps(makeMemory()));
-    expect(tools.length).toBe(10);
+    expect(tools.length).toBe(11);
     expect(tools.map((t) => t.name)).toEqual(
       expect.arrayContaining([
         'read_page_content',
@@ -119,6 +115,7 @@ describe('buildWorkingMemoryTools · 工厂', () => {
         'complete_todo',
         'clear_todos',
         'set_active_goal',
+        'remember_persona',
       ]),
     );
   });

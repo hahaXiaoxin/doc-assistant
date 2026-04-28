@@ -63,7 +63,7 @@ export function createUpdateTodoTool(
       if (!resolved.ok) return resolved;
       const { visit, now } = resolved;
       try {
-        const record = await deps.memory.getWorkingMemory!(visit.canonicalUrl);
+        const record = await deps.memory.getWorkingMemory(visit.canonicalUrl);
         if (!record) return { ok: false, error: '当前页面没有 WorkingMemory，请先 add_todo' };
 
         const idx = record.todos.findIndex((t) => t.id === args.id);
@@ -88,7 +88,7 @@ export function createUpdateTodoTool(
           updatedAt: now,
           lastAccessedAt: now,
         };
-        await deps.memory.setWorkingMemory!(next);
+        await deps.memory.setWorkingMemory(next);
         return { ok: true, todo: updated };
       } catch (err) {
         return { ok: false, error: `update_todo 失败：${(err as Error).message}` };

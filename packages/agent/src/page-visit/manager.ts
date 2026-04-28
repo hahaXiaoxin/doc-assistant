@@ -104,7 +104,7 @@ export class PageVisitManager {
       articleId: visit.articleId,
     });
     // 登记到 page_visits（失败容忍）
-    if (this.memory?.recordPageVisit) {
+    if (this.memory) {
       this.memory.recordPageVisit(visit).catch((err: Error) => {
         logger.warn('recordPageVisit 失败（不阻塞 visit 启动）', err.message);
       });
@@ -122,7 +122,7 @@ export class PageVisitManager {
     const ended: PageVisit = { ...this.current, endedAt: this.getNow() };
     this.current = ended;
     logger.info('endCurrent', { visitId: ended.visitId, durationMs: ended.endedAt! - ended.startedAt });
-    if (this.memory?.recordPageVisit) {
+    if (this.memory) {
       this.memory.recordPageVisit(ended).catch((err: Error) => {
         logger.warn('recordPageVisit(end) 失败（不阻塞）', err.message);
       });

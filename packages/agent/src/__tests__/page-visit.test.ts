@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PageVisitManager } from '../page-visit';
 import type { PageVisit } from '../page-visit';
+import { NullMemoryStore } from '@doc-assistant/memory';
 
 describe('PageVisitManager', () => {
   let idCounter = 0;
@@ -156,11 +157,7 @@ describe('PageVisitManager', () => {
     const m = new PageVisitManager({
       getNow: () => 1000,
       genId: () => 'v1',
-      memory: {
-        remember: vi.fn(),
-        recall: vi.fn().mockResolvedValue([]),
-        recordPageVisit,
-      },
+      memory: Object.assign(new NullMemoryStore(), { recordPageVisit }),
     });
     await m.startNewVisit({ url: 'https://a.com', canonicalUrl: 'https://a.com' });
     await m.endCurrent();

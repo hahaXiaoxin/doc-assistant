@@ -13,12 +13,14 @@ import type {
   ModelInfo,
   EmbeddingInfo,
 } from '@doc-assistant/provider';
-import type {
-  MemoryStore,
-  MemoryRecord,
-  PersonaRecord,
-  ReflectionTask,
-  ReflectionTaskType,
+import {
+  NullMemoryStore,
+  type MemoryStore,
+  type MemoryRecord,
+  type PersonaRecord,
+  type RecallQuery,
+  type ReflectionTask,
+  type ReflectionTaskType,
 } from '@doc-assistant/memory';
 import type { ChatChunk } from '@doc-assistant/shared';
 import { PageVisitManager } from '../page-visit';
@@ -103,23 +105,28 @@ function makeMemory(state: Partial<FakeMemoryState> = {}): MemoryStore & {
     tasks: state.tasks ?? [],
   };
   let idSeq = 0;
-  const store: MemoryStore & { state: FakeMemoryState } = {
+  const base = new NullMemoryStore();
+  const store: MemoryStore & { state: FakeMemoryState } = Object.assign(base, {
     state: _state,
-    async remember(record) {
+    async remember(record: MemoryRecord): Promise<void> {
       if (record.type === 'visit_summary') _state.visitSummaries.push(record);
       else _state.episodes.push(record);
     },
-    async recall(query) {
+    async recall(query: RecallQuery): Promise<MemoryRecord[]> {
       const all =
         query.types?.includes('message') || !query.types
           ? _state.episodes
           : _state.visitSummaries;
       return all.slice(0, query.limit ?? 10);
     },
-    async listPersonas({ status } = {}) {
+    async listPersonas(
+      { status }: { status?: PersonaRecord['status'] } = {},
+    ): Promise<PersonaRecord[]> {
       return status ? _state.personas.filter((p) => p.status === status) : _state.personas;
     },
-    async addPersonaCandidate(c) {
+    async addPersonaCandidate(
+      c: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>,
+    ): Promise<PersonaRecord> {
       const rec: PersonaRecord = {
         id: `persona_${++idSeq}`,
         createdAt: 1,
@@ -129,12 +136,17 @@ function makeMemory(state: Partial<FakeMemoryState> = {}): MemoryStore & {
       _state.personas.push(rec);
       return rec;
     },
-    async updatePersona(id, patch) {
+    async updatePersona(id: string, patch: Partial<PersonaRecord>): Promise<void> {
       const i = _state.personas.findIndex((p) => p.id === id);
       if (i < 0) return;
       _state.personas[i] = { ..._state.personas[i]!, ...patch };
     },
-    async enqueueReflection(task) {
+    async enqueueReflection(
+      task: Omit<ReflectionTask, 'id' | 'createdAt' | 'attemptsCount' | 'status'> & {
+        id?: string;
+        status?: ReflectionTask['status'];
+      },
+    ): Promise<ReflectionTask> {
       const rec: ReflectionTask = {
         id: task.id ?? `task_${++idSeq}`,
         visitId: task.visitId,
@@ -146,17 +158,20 @@ function makeMemory(state: Partial<FakeMemoryState> = {}): MemoryStore & {
       _state.tasks.push(rec);
       return rec;
     },
-    async listPendingReflections(maxAttempts = 3) {
+    async listPendingReflections(maxAttempts = 3): Promise<ReflectionTask[]> {
       return _state.tasks.filter(
         (t) => t.status === 'pending' && t.attemptsCount < maxAttempts,
       );
     },
-    async updateReflection(id, patch) {
+    async updateReflection(
+      id: string,
+      patch: Partial<ReflectionTask>,
+    ): Promise<void> {
       const i = _state.tasks.findIndex((t) => t.id === id);
       if (i < 0) return;
       _state.tasks[i] = { ..._state.tasks[i]!, ...patch };
     },
-  };
+  });
   return store;
 }
 
@@ -433,26 +448,6 @@ describe('ReflectionRunner · persona_extraction', () => {
     expect(memory.state.personas).toHaveLength(1);
     expect(memory.state.personas[0]!.hitCount).toBe(2);
     expect(memory.state.personas[0]!.confidence).toBeCloseTo(0.95);
-  });
-
-  it('memory 不支持 addPersonaCandidate → skipped', async () => {
-    const partial: MemoryStore = {
-      async remember() {},
-      async recall() {
-        return [];
-      },
-    };
-    const runner = new ReflectionRunner({ memory: partial, aux: fakeAux([]) });
-    const r = await runner.run({
-      id: 't1',
-      visitId: 'v1',
-      taskType: 'persona_extraction',
-      status: 'pending',
-      attemptsCount: 0,
-      createdAt: 1,
-    });
-    expect(r.ok).toBe(true);
-    expect((r as { detail?: { skipped?: boolean } }).detail?.skipped).toBe(true);
   });
 });
 

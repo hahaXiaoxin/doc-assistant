@@ -159,7 +159,6 @@ function SidebarApp(props: MountOptions) {
     const handleHashChange = () => {
       const current = pvm.getCurrent();
       if (!current) return;
-      if (!bootstrap.memory.setSessionTopic) return;
       const now = Date.now();
       void bootstrap.memory
         .setSessionTopic({
@@ -306,10 +305,8 @@ function SidebarApp(props: MountOptions) {
     async (text: string) => {
       if (!bootstrap) return;
       const visit = bootstrap.pageVisitManager.getCurrent();
-      if (!visit || !bootstrap.memory.setSessionTopic) return;
-      const existing = bootstrap.memory.getSessionTopic
-        ? await bootstrap.memory.getSessionTopic(visit.visitId)
-        : null;
+      if (!visit) return;
+      const existing = await bootstrap.memory.getSessionTopic(visit.visitId);
       await bootstrap.memory.setSessionTopic({
         visitId: visit.visitId,
         currentTopic: text,
@@ -346,7 +343,6 @@ function SidebarApp(props: MountOptions) {
       if (!shouldIdentify(info.userMessageCount)) return;
       const visit = bootstrap.pageVisitManager.getCurrent();
       if (!visit) return;
-      if (!bootstrap.memory.setSessionTopic) return;
       void identifySessionTopic({
         aux: bootstrap.auxLLM,
         memory: bootstrap.memory,
@@ -393,7 +389,6 @@ function SidebarApp(props: MountOptions) {
       onTopicIdentify={onTopicIdentify}
       onTopicSet={onTopicSet}
       getPendingPersonas={async () => {
-        if (!bootstrap.memory.listPersonas) return [];
         const list = await bootstrap.memory.listPersonas({ status: 'pending' });
         return list.map((p) => ({
           id: p.id,
@@ -405,7 +400,7 @@ function SidebarApp(props: MountOptions) {
       }}
       getWorkingMemory={async () => {
         const visit = bootstrap.pageVisitManager.getCurrent();
-        if (!visit?.canonicalUrl || !bootstrap.memory.getWorkingMemory) return null;
+        if (!visit?.canonicalUrl) return null;
         const wm = await bootstrap.memory.getWorkingMemory(visit.canonicalUrl);
         if (!wm) return null;
         return {
@@ -421,14 +416,14 @@ function SidebarApp(props: MountOptions) {
         };
       }}
       onConfirmPersona={async (id) => {
-        await bootstrap.memory.updatePersona?.(
+        await bootstrap.memory.updatePersona(
           id,
           { status: 'confirmed', reviewedByUser: true },
           'user confirm via banner',
         );
       }}
       onRejectPersona={async (id) => {
-        await bootstrap.memory.updatePersona?.(
+        await bootstrap.memory.updatePersona(
           id,
           { status: 'rejected', reviewedByUser: true },
           'user reject via banner',

@@ -3,7 +3,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { LLMProvider, ChatParams, ModelInfo } from '@doc-assistant/provider';
-import type { MemoryStore, MemoryRecord } from '@doc-assistant/memory';
+import {
+  NullMemoryStore,
+  type MemoryStore,
+  type MemoryRecord,
+  type RecallQuery,
+} from '@doc-assistant/memory';
 import type { ChatChunk } from '@doc-assistant/shared';
 import {
   detectRecallTrigger,
@@ -54,13 +59,14 @@ function makeMemory(opts: {
 } = {}): MemoryStore {
   const vs = opts.visitSummaries ?? [];
   const eps = opts.episodes ?? [];
-  return {
+  const base = new NullMemoryStore();
+  return Object.assign(base, {
     async remember() {},
-    async recall(q) {
+    async recall(q: RecallQuery) {
       if (q.types?.includes('visit_summary')) return vs;
       return eps;
     },
-  };
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -225,12 +231,11 @@ describe('recallMemory · explicit 模式', () => {
 
 describe('recallMemory · 错误路径', () => {
   it('memory.recall 抛错 → stage=error', async () => {
-    const mem: MemoryStore = {
-      async remember() {},
-      async recall() {
+    const mem: MemoryStore = Object.assign(new NullMemoryStore(), {
+      async recall(): Promise<never> {
         throw new Error('boom');
       },
-    };
+    });
     const r = await recallMemory({ memory: mem }, { query: 'x', mode: 'explicit' });
     expect(r.hit).toBe(false);
     expect(r.stage).toBe('error');

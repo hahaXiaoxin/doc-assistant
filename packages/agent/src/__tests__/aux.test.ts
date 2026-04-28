@@ -354,16 +354,6 @@ describe('identifySessionTopic', () => {
     expect(r2.record?.canonicalUrl).toBe('https://x/y'); // 保留首次的 canonicalUrl
   });
 
-  it('memory 无 setSessionTopic → skipped', async () => {
-    const r = await identifySessionTopic({
-      aux: fakeProvider([]),
-      memory: {} as never,
-      visitId: 'v1',
-      recentMessages: [{ role: 'user', content: 'x' }],
-    });
-    expect(r.status).toBe('skipped');
-  });
-
   it('空 topic → skipped 不写库', async () => {
     const aux = fakeProvider([
       { type: 'text-delta', delta: '{}' },

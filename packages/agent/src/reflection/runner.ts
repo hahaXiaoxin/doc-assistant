@@ -180,13 +180,6 @@ export class ReflectionRunner {
 
   private async runPersonaExtraction(task: ReflectionTask): Promise<ReflectionRunOutcome> {
     const { memory, aux, getNow } = this.deps;
-    if (!memory.addPersonaCandidate) {
-      return {
-        ok: true,
-        taskType: 'persona_extraction',
-        detail: { skipped: true, reason: 'memory.addPersonaCandidate unavailable' },
-      };
-    }
 
     try {
       const episodes = await memory.recall({ types: ['message'], limit: 200 });
@@ -238,7 +231,7 @@ export class ReflectionRunner {
         };
       }
 
-      const existing = (await memory.listPersonas?.()) ?? [];
+      const existing = await memory.listPersonas();
       let added = 0;
       for (const cand of parsed) {
         const content = cand.content.trim();
@@ -247,13 +240,11 @@ export class ReflectionRunner {
         // dedupe：同 content 已存在则 ++hitCount 而非新增
         const dup = existing.find((p) => p.content.trim() === content);
         if (dup) {
-          if (memory.updatePersona) {
-            await memory.updatePersona(
-              dup.id,
-              { hitCount: dup.hitCount + 1, confidence: Math.max(dup.confidence, cand.confidence) },
-              'reflection hit',
-            );
-          }
+          await memory.updatePersona(
+            dup.id,
+            { hitCount: dup.hitCount + 1, confidence: Math.max(dup.confidence, cand.confidence) },
+            'reflection hit',
+          );
           continue;
         }
 

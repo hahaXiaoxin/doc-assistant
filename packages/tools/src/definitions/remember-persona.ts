@@ -72,9 +72,6 @@ export function createRememberPersonaTool(
     async execute(args) {
       const content = (args.content ?? '').trim();
       if (!content) return { ok: false, error: 'content 不能为空' };
-      if (!deps.memory.addPersonaCandidate) {
-        return { ok: false, error: 'MemoryStore 不支持 Persona API' };
-      }
       try {
         const visitId = deps.getCurrentVisitId?.() ?? '';
         const confidence = Math.max(0, Math.min(1, args.confidence ?? 0.9));

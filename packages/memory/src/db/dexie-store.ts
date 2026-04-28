@@ -49,6 +49,13 @@ export interface DexieMemoryStoreOptions {
   db?: MemoryDatabase;
 }
 
+/** 读路径防腐：合法的 MemoryRecord.type 集合，读到外的记录会被 skip + warn */
+const VALID_RECORD_TYPES: ReadonlySet<MemoryRecord['type']> = new Set([
+  'message',
+  'persona',
+  'visit_summary',
+]);
+
 export class DexieMemoryStore implements MemoryStore {
   private readonly db: MemoryDatabase;
   private readonly sensitiveFilterEnabled: boolean;
@@ -111,11 +118,7 @@ export class DexieMemoryStore implements MemoryStore {
         });
         return;
       case 'message':
-      case 'summary':
-      case 'fact':
-      case 'reference':
       default:
-        // 其它类型统一写 episodes_msg（含 v0.1 兼容）
         await this.db.episodes_msg.put(row);
         return;
     }
@@ -129,6 +132,7 @@ export class DexieMemoryStore implements MemoryStore {
 
     // 聚合候选：对每个 type 取对应表，并应用过滤条件
     const candidates: MemoryRecord[] = [];
+    let droppedDirty = 0;
     for (const t of types) {
       const table = this.pickTable(t);
       if (!table) continue;
@@ -145,6 +149,11 @@ export class DexieMemoryStore implements MemoryStore {
 
       const list = await coll.toArray();
       for (const r of list) {
+        // schema 防腐：读到合法集合外的 type（例如遗留脏数据）直接跳过
+        if (!VALID_RECORD_TYPES.has(r.type)) {
+          droppedDirty += 1;
+          continue;
+        }
         // timeRange
         if (query.timeRange) {
           if (r.timestamp < query.timeRange[0] || r.timestamp > query.timeRange[1]) continue;
@@ -155,6 +164,10 @@ export class DexieMemoryStore implements MemoryStore {
         }
         candidates.push(r as MemoryRecord);
       }
+    }
+
+    if (droppedDirty > 0) {
+      logger.warn(`recall: 跳过 ${droppedDirty} 条非法 type 的脏记录（schema 防腐）`);
     }
 
     if (candidates.length === 0) return [];
@@ -191,10 +204,6 @@ export class DexieMemoryStore implements MemoryStore {
       case 'persona':
         return null; // Persona 不走通用 recall（有专属 listPersonas）
       case 'message':
-      case 'summary':
-      case 'fact':
-      case 'reference':
-        return this.db.episodes_msg;
       default:
         return this.db.episodes_msg;
     }

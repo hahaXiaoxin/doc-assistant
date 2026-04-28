@@ -9,7 +9,7 @@
  *
  * 容错：
  * - visitId 未传 → null
- * - MemoryStore 无 getSessionTopic → null
+ * - memory 为 null/undefined → null
  * - 没找到记录 → null
  */
 import type { MemoryStore } from '@doc-assistant/memory';
@@ -25,7 +25,7 @@ export function createSessionTopicSource(
     name: 'session-topic',
     priority: 55,
     async gather(ctx: AgentInvokeContext): Promise<ContextSegment | null> {
-      if (!memory?.getSessionTopic) return null;
+      if (!memory) return null;
       const visitId = ctx.visitId;
       if (!visitId) return null;
       try {

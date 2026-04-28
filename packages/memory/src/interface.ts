@@ -3,18 +3,17 @@
  * ---------------------------------------------
  * 职责：长期/工作/情景/个性 四层记忆的写入与召回。
  *
- * v0.1 MVP：接口定义 + NullMemoryStore 空实现；所有方法是 no-op。
  * v0.2 Phase2：DexieMemoryStore 落地（详见 docs/ROADMAP.md §2 与 test-prompt.md 定稿）
  *   - IndexedDB 持久化（Dexie）
  *   - 千问 embedding 向量化
  *   - recall() 支持语义查询（向量余弦） + 时间/域名/话题过滤
- *   - Persona / WorkingMemory / SessionTopic / ReflectionTask 专属 API（全部作为可选方法，
- *     NullMemoryStore 提供 no-op 兜底，保证 Agent 层对新方法的使用零 breaking）
+ *   - Persona / WorkingMemory / SessionTopic / ReflectionTask 专属 API（全部必填，
+ *     NullMemoryStore 提供 no-op 兜底）
  *
  * 契约稳定性承诺：
  * - `remember()` / `recall()` 签名不得修改（只能新增可选参数）
- * - 新增方法一律以 `?` 形式加入 MemoryStore
- * - MemoryRecord.type 联合可扩展；新类型与旧并存（v0.1 的 'message'/'fact' 等保留用于兼容）
+ * - MemoryStore 上的方法实现必须**幂等且可重复调用**：同一参数多次调用不引入副作用差异
+ *   （例如 setWorkingMemory 覆盖不累加、updatePersona 以 id 为主键幂等等）
  */
 
 /* ------------------------------------------------------------------ */
@@ -23,22 +22,17 @@
 
 /**
  * 记忆条目类型。
- * v0.1: 'message' | 'summary' | 'fact' | 'reference'
- * v0.2 新增：'persona' | 'visit_summary'（实际主要存储类型）
+ * - 'message'：对话消息原文（episodes_msg）
+ * - 'persona'：长期指令/身份（persona 表）
+ * - 'visit_summary'：PageVisit 摘要（episodes_visit_summary）
  */
-export type MemoryRecordType =
-  | 'message'
-  | 'summary'
-  | 'fact'
-  | 'reference'
-  | 'persona'
-  | 'visit_summary';
+export type MemoryRecordType = 'message' | 'persona' | 'visit_summary';
 
 export interface MemoryRecord {
   id: string;
   type: MemoryRecordType;
   content: string;
-  /** 向量（v0.2 visit_summary 写入，其它类型按需） */
+  /** 向量（visit_summary 写入，其它类型按需） */
   embedding?: Float32Array;
   /** 时间戳（毫秒） */
   timestamp: number;
@@ -48,10 +42,7 @@ export interface MemoryRecord {
   domain?: string;
   url?: string;
   topic?: string[];
-  /** v0.1 兼容字段，新代码请用 visitId */
-  sessionId?: string;
 
-  // v0.2 新增索引维度
   /** PageVisit ID，一次 tab 开→关为一次 visit */
   visitId?: string;
   /** visit 内单调递增序号，便于按 orderInVisit 区间查询邻居消息 */
@@ -90,9 +81,8 @@ export interface RecallQuery {
 export type PersonaStatus = 'pending' | 'confirmed' | 'rejected';
 
 export interface PersonaSource {
-  /** 哪次 visit / session 推出的 */
+  /** 哪次 visit 推出的 */
   visitId?: string;
-  sessionId?: string;
   /** 信号来源的消息 id 列表 */
   messageIds?: string[];
   /** 抽取方式：反思归纳 | 用户显式声明 */
@@ -246,45 +236,45 @@ export interface MemoryStore {
    */
   recall(query: RecallQuery): Promise<MemoryRecord[]>;
 
-  /* --- 以下全部为 v0.2 新增可选方法；NullMemoryStore 提供 no-op 兜底 --- */
+  /* --- v0.3.0 起以下方法全部必填；NullMemoryStore 提供 no-op 实现 --- */
 
   /** 读取指定 canonicalUrl 的 WorkingMemory */
-  getWorkingMemory?(canonicalUrl: string): Promise<WorkingMemoryRecord | null>;
+  getWorkingMemory(canonicalUrl: string): Promise<WorkingMemoryRecord | null>;
   /** 写入（覆盖）WorkingMemory */
-  setWorkingMemory?(record: WorkingMemoryRecord): Promise<void>;
+  setWorkingMemory(record: WorkingMemoryRecord): Promise<void>;
   /** 刷新 lastAccessedAt（PageVisit 打开时调用） */
-  touchWorkingMemory?(canonicalUrl: string, at?: number): Promise<void>;
+  touchWorkingMemory(canonicalUrl: string, at?: number): Promise<void>;
   /** LRU 清理：将 lastAccessedAt 超过 ttlMs 的归档 */
-  archiveStaleWorkingMemories?(ttlMs: number): Promise<number>;
+  archiveStaleWorkingMemories(ttlMs: number): Promise<number>;
 
   /** 列出 Persona 候选/已确认记录 */
-  listPersonas?(opts?: { status?: PersonaStatus }): Promise<PersonaRecord[]>;
+  listPersonas(opts?: { status?: PersonaStatus }): Promise<PersonaRecord[]>;
   /** 新增 Persona 候选 */
-  addPersonaCandidate?(candidate: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<PersonaRecord>;
+  addPersonaCandidate(candidate: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<PersonaRecord>;
   /** 更新 Persona（审核/编辑） */
-  updatePersona?(id: string, patch: Partial<PersonaRecord>, reason?: string): Promise<void>;
+  updatePersona(id: string, patch: Partial<PersonaRecord>, reason?: string): Promise<void>;
 
   /** 写入/覆盖 SessionTopic */
-  setSessionTopic?(record: SessionTopicRecord): Promise<void>;
+  setSessionTopic(record: SessionTopicRecord): Promise<void>;
   /** 读取当前 visit 的 SessionTopic */
-  getSessionTopic?(visitId: string): Promise<SessionTopicRecord | null>;
+  getSessionTopic(visitId: string): Promise<SessionTopicRecord | null>;
 
   /** 登记反思任务 */
-  enqueueReflection?(task: Omit<ReflectionTask, 'id' | 'createdAt' | 'attemptsCount' | 'status'> & {
+  enqueueReflection(task: Omit<ReflectionTask, 'id' | 'createdAt' | 'attemptsCount' | 'status'> & {
     id?: string;
     status?: ReflectionStatus;
   }): Promise<ReflectionTask>;
   /** 列出待执行任务（pending + attemptsCount < maxAttempts） */
-  listPendingReflections?(maxAttempts?: number): Promise<ReflectionTask[]>;
+  listPendingReflections(maxAttempts?: number): Promise<ReflectionTask[]>;
   /** 更新任务状态 */
-  updateReflection?(id: string, patch: Partial<Pick<ReflectionTask, 'status' | 'attemptsCount' | 'completedAt' | 'lastError'>>): Promise<void>;
+  updateReflection(id: string, patch: Partial<Pick<ReflectionTask, 'status' | 'attemptsCount' | 'completedAt' | 'lastError'>>): Promise<void>;
 
   /** 写入一次 PageVisit 记录（visit 结束时更新 endedAt） */
-  recordPageVisit?(visit: PageVisitRecord): Promise<void>;
+  recordPageVisit(visit: PageVisitRecord): Promise<void>;
 
   /**
    * 关闭底层资源（Dexie 等）。NullMemoryStore 为 no-op。
    * 主要用于测试隔离。
    */
-  close?(): Promise<void>;
+  close(): Promise<void>;
 }

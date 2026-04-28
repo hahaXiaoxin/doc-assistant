@@ -6,7 +6,7 @@
  * - 扩展启动早期未初始化 IDB 的兜底
  * - 用户禁用记忆层时的替代
  *
- * v0.2：新增的可选方法也全部提供 no-op，保证上层代码在 NullStore 与 DexieStore 间切换零 breaking。
+ * v0.3：MemoryStore 的可选方法全部改为必填；本类为所有方法提供幂等的 no-op 实现。
  */
 import type {
   MemoryRecord,

@@ -34,7 +34,7 @@ export function createClearTodosTool(
       if (!resolved.ok) return resolved;
       const { visit, now } = resolved;
       try {
-        const record = await deps.memory.getWorkingMemory!(visit.canonicalUrl);
+        const record = await deps.memory.getWorkingMemory(visit.canonicalUrl);
         if (!record) return { ok: true, clearedCount: 0 };
         const clearedCount = record.todos.length;
         const next: WorkingMemoryRecord = {
@@ -43,7 +43,7 @@ export function createClearTodosTool(
           updatedAt: now,
           lastAccessedAt: now,
         };
-        await deps.memory.setWorkingMemory!(next);
+        await deps.memory.setWorkingMemory(next);
         return { ok: true, clearedCount };
       } catch (err) {
         return { ok: false, error: `clear_todos 失败：${(err as Error).message}` };

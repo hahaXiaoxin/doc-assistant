@@ -2,10 +2,10 @@
  * LLM Tool 默认集合
  * ---------------------------------------------
  * - `buildDefaultMVPTools()`：v0.1 MVP 的 3 个 tool（读页面 / 页面身份 / 划词文本）。
- * - `buildPhase2Tools(deps)`：v0.2.1 新增。在 MVP 3 个基础上追加：
+ * - `buildPhase2Tools(deps)`：在 MVP 3 个基础上追加：
  *    - WorkingMemory 的 7 个细粒度 tool
+ *    - remember_persona
  *    - （可选）recall_memory：deps.recall 存在时加入
- *    - （可选）remember_persona：deps.memory.addPersonaCandidate 能用时加入
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
 import { readPageContentTool } from './read-page-content';
@@ -35,35 +35,30 @@ export interface Phase2ToolsDeps extends WorkingMemoryToolDeps {
    */
   recall?: RecallMemoryToolDeps['recall'];
   /**
-   * 可选：显式 remember_persona 依赖。默认使用 workingMemory 的 memory 与 getCurrentVisit。
-   * 若 memory.addPersonaCandidate 不存在，则自动不注册该 tool。
+   * 可选：显式 remember_persona 依赖覆盖项；默认复用 WorkingMemory 的 memory/getCurrentVisit。
    */
   persona?: Partial<RememberPersonaToolDeps>;
 }
 
 /**
- * v0.2.1 Phase2 tool 集合：
- *   MVP 3 + WorkingMemory 7 + (可选) recall_memory + (可选) remember_persona
+ * Phase2 tool 集合：
+ *   MVP 3 + WorkingMemory 7 + remember_persona + (可选) recall_memory
  */
 export function buildPhase2Tools(deps: Phase2ToolsDeps): ToolDefinition[] {
   const tools: ToolDefinition[] = [
     ...buildDefaultMVPTools(),
     ...buildWorkingMemoryTools(deps),
+    createRememberPersonaTool({
+      memory: deps.memory,
+      ...(deps.persona?.getCurrentVisitId !== undefined
+        ? { getCurrentVisitId: deps.persona.getCurrentVisitId }
+        : { getCurrentVisitId: () => deps.getCurrentVisit()?.visitId }),
+      ...(deps.persona?.getNow !== undefined ? { getNow: deps.persona.getNow } : {}),
+      ...(deps.persona?.genId !== undefined ? { genId: deps.persona.genId } : {}),
+    }),
   ];
   if (deps.recall) {
     tools.push(createRecallMemoryTool({ recall: deps.recall }));
-  }
-  if (deps.memory.addPersonaCandidate) {
-    tools.push(
-      createRememberPersonaTool({
-        memory: deps.memory,
-        ...(deps.persona?.getCurrentVisitId !== undefined
-          ? { getCurrentVisitId: deps.persona.getCurrentVisitId }
-          : { getCurrentVisitId: () => deps.getCurrentVisit()?.visitId }),
-        ...(deps.persona?.getNow !== undefined ? { getNow: deps.persona.getNow } : {}),
-        ...(deps.persona?.genId !== undefined ? { genId: deps.persona.genId } : {}),
-      }),
-    );
   }
   return tools;
 }

@@ -44,7 +44,7 @@ export function createSetActiveGoalTool(
       const { visit, now } = resolved;
       const goal = (args.goal ?? '').trim();
       try {
-        const existing = (await deps.memory.getWorkingMemory!(visit.canonicalUrl)) ?? null;
+        const existing = (await deps.memory.getWorkingMemory(visit.canonicalUrl)) ?? null;
         const base: WorkingMemoryRecord = existing ?? emptyWorkingMemory(visit, now);
         const next: WorkingMemoryRecord = {
           ...base,
@@ -56,7 +56,7 @@ export function createSetActiveGoalTool(
         if (!goal && base.activeGoal !== undefined) {
           delete (next as Partial<WorkingMemoryRecord>).activeGoal;
         }
-        await deps.memory.setWorkingMemory!(next);
+        await deps.memory.setWorkingMemory(next);
         return { ok: true, activeGoal: next.activeGoal ?? null };
       } catch (err) {
         return { ok: false, error: `set_active_goal 失败：${(err as Error).message}` };

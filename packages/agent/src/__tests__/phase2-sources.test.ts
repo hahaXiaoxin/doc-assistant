@@ -8,11 +8,12 @@ import {
   createWorkingMemorySource,
 } from '../context';
 import type { AgentInvokeContext } from '../context';
-import type {
-  MemoryStore,
-  PersonaRecord,
-  SessionTopicRecord,
-  WorkingMemoryRecord,
+import {
+  NullMemoryStore,
+  type MemoryStore,
+  type PersonaRecord,
+  type SessionTopicRecord,
+  type WorkingMemoryRecord,
 } from '@doc-assistant/memory';
 
 const DEFAULT_CTX: AgentInvokeContext = {
@@ -21,11 +22,8 @@ const DEFAULT_CTX: AgentInvokeContext = {
 };
 
 function makeMemory(overrides: Partial<MemoryStore> = {}): MemoryStore {
-  return {
-    remember: vi.fn(),
-    recall: vi.fn().mockResolvedValue([]),
-    ...overrides,
-  };
+  const base = new NullMemoryStore();
+  return Object.assign(base, overrides);
 }
 
 describe('PersonaSource · priority=60', () => {
@@ -37,16 +35,6 @@ describe('PersonaSource · priority=60', () => {
 
   it('memory 为 null 时返回 null', async () => {
     const s = createPersonaSource(null);
-    expect(await s.gather(DEFAULT_CTX)).toBeNull();
-  });
-
-  it('memory 无 listPersonas 时返回 null', async () => {
-    // 构造一个没有 listPersonas 的最小 MemoryStore
-    const mem: MemoryStore = {
-      remember: vi.fn(),
-      recall: vi.fn().mockResolvedValue([]),
-    };
-    const s = createPersonaSource(mem);
     expect(await s.gather(DEFAULT_CTX)).toBeNull();
   });
 

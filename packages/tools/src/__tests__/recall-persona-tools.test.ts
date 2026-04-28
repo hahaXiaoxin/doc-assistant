@@ -2,7 +2,11 @@
  * 单测：recall_memory + remember_persona tool
  */
 import { describe, it, expect, vi } from 'vitest';
-import type { MemoryStore, PersonaRecord } from '@doc-assistant/memory';
+import {
+  NullMemoryStore,
+  type MemoryStore,
+  type PersonaRecord,
+} from '@doc-assistant/memory';
 import {
   createRecallMemoryTool,
   createRememberPersonaTool,
@@ -149,13 +153,12 @@ describe('remember_persona tool', () => {
   function makeMemory(): MemoryStore & { added: PersonaRecord[] } {
     const added: PersonaRecord[] = [];
     let idSeq = 0;
-    return {
+    const base = new NullMemoryStore();
+    return Object.assign(base, {
       added,
-      async remember() {},
-      async recall() {
-        return [];
-      },
-      async addPersonaCandidate(c) {
+      async addPersonaCandidate(
+        c: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>,
+      ): Promise<PersonaRecord> {
         const rec: PersonaRecord = {
           id: `p_${++idSeq}`,
           createdAt: 1,
@@ -165,7 +168,7 @@ describe('remember_persona tool', () => {
         added.push(rec);
         return rec;
       },
-    };
+    });
   }
 
   it('成功写入 confirmed Persona', async () => {
@@ -204,19 +207,6 @@ describe('remember_persona tool', () => {
     const r = (await runTool(tool, { content: '  ' })) as { ok: boolean };
     expect(r.ok).toBe(false);
   });
-
-  it('memory 不支持 addPersonaCandidate → ok:false', async () => {
-    const memory: MemoryStore = {
-      async remember() {},
-      async recall() {
-        return [];
-      },
-    };
-    const tool = createRememberPersonaTool({ memory });
-    const r = (await runTool(tool, { content: 'x' })) as { ok: boolean; error?: string };
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/Persona/);
-  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -225,20 +215,16 @@ describe('remember_persona tool', () => {
 
 describe('buildPhase2Tools · 按 deps 动态注册', () => {
   function makeDeps(overrides: Partial<Phase2ToolsDeps> = {}): Phase2ToolsDeps {
-    return {
-      memory: {
-        async remember() {},
-        async recall() {
-          return [];
-        },
-        async getWorkingMemory() {
-          return null;
-        },
-        async setWorkingMemory() {},
-        async addPersonaCandidate(c) {
-          return { id: 'p1', createdAt: 1, updatedAt: 1, ...c } as PersonaRecord;
-        },
+    const base = new NullMemoryStore();
+    const memory: MemoryStore = Object.assign(base, {
+      async addPersonaCandidate(
+        c: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>,
+      ): Promise<PersonaRecord> {
+        return { id: 'p1', createdAt: 1, updatedAt: 1, ...c } as PersonaRecord;
       },
+    });
+    return {
+      memory,
       getCurrentVisit: (): PageVisitLike => ({
         visitId: 'v1',
         canonicalUrl: 'https://x',
@@ -248,7 +234,7 @@ describe('buildPhase2Tools · 按 deps 动态注册', () => {
     };
   }
 
-  it('有 recall 且 memory 支持 Persona → 12 个 tool', () => {
+  it('有 recall → 12 个 tool', () => {
     const tools = buildPhase2Tools({
       ...makeDeps(),
       recall: async () => ({ hit: false, text: '', count: 0 }),
@@ -259,24 +245,9 @@ describe('buildPhase2Tools · 按 deps 动态注册', () => {
     expect(tools.length).toBe(12); // MVP 3 + WM 7 + recall + persona
   });
 
-  it('没 recall → 少一个 tool', () => {
+  it('没 recall → 少 recall_memory', () => {
     const tools = buildPhase2Tools(makeDeps());
     expect(tools.map((t) => t.name)).not.toContain('recall_memory');
-  });
-
-  it('memory 不支持 Persona → 不注册 remember_persona', () => {
-    const deps = makeDeps();
-    const memoryWithoutPersona: MemoryStore = {
-      async remember() {},
-      async recall() {
-        return [];
-      },
-      async getWorkingMemory() {
-        return null;
-      },
-      async setWorkingMemory() {},
-    };
-    const tools = buildPhase2Tools({ ...deps, memory: memoryWithoutPersona });
-    expect(tools.map((t) => t.name)).not.toContain('remember_persona');
+    expect(tools.map((t) => t.name)).toContain('remember_persona');
   });
 });

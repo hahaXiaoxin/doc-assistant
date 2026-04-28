@@ -61,7 +61,7 @@ export function createAddTodoTool(
       if (!content) return { ok: false, error: 'content 不能为空' };
 
       try {
-        const existing = (await deps.memory.getWorkingMemory!(visit.canonicalUrl)) ?? null;
+        const existing = (await deps.memory.getWorkingMemory(visit.canonicalUrl)) ?? null;
         const base: WorkingMemoryRecord = existing ?? emptyWorkingMemory(visit, now);
         const genId = deps.genId ?? defaultGenId;
         const todo: TodoItem = {
@@ -79,7 +79,7 @@ export function createAddTodoTool(
           updatedAt: now,
           lastAccessedAt: now,
         };
-        await deps.memory.setWorkingMemory!(next);
+        await deps.memory.setWorkingMemory(next);
         return { ok: true, todo, totalCount: next.todos.length };
       } catch (err) {
         return { ok: false, error: `add_todo 失败：${(err as Error).message}` };

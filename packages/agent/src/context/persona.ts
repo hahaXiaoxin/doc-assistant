@@ -9,7 +9,7 @@
  * 读取 reviewedByUser=true + status=confirmed 的 Persona，按 confidence 降序取 Top-N
  * 作为 system prompt 常驻注入。未确认的 candidate 不进入 prompt（审核后才生效）。
  *
- * 容错：MemoryStore 无 listPersonas 方法（NullStore 或旧版）时返回 null，不贡献段落。
+ * 容错：memory 为 null/undefined 时返回 null，不贡献段落。
  */
 import type { MemoryStore, PersonaRecord } from '@doc-assistant/memory';
 import { createLogger } from '@doc-assistant/shared';
@@ -31,7 +31,7 @@ export function createPersonaSource(
     name: 'persona',
     priority: 60,
     async gather(_ctx: AgentInvokeContext): Promise<ContextSegment | null> {
-      if (!memory?.listPersonas) return null;
+      if (!memory) return null;
       let list: PersonaRecord[];
       try {
         list = await memory.listPersonas({ status: 'confirmed' });

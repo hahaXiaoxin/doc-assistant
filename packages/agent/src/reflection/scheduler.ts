@@ -75,10 +75,6 @@ export class ReflectionScheduler {
     }
     this.running = true;
     try {
-      if (!this.memory.listPendingReflections || !this.memory.updateReflection) {
-        logger.info('memory 不支持 reflection API，跳过');
-        return { total: 0, succeeded: 0, failed: 0, skipped: 0 };
-      }
       const pending = await this.memory.listPendingReflections(this.maxAttempts);
       const batch = pending.slice(0, this.maxTasksPerRun);
       if (batch.length === 0) {
@@ -165,7 +161,6 @@ export class ReflectionScheduler {
     visitId: string,
     taskTypes: ReflectionTaskType[] = DEFAULT_TASK_TYPES,
   ): Promise<ReflectionTask[]> {
-    if (!this.memory.enqueueReflection) return [];
     const results: ReflectionTask[] = [];
     for (const taskType of taskTypes) {
       try {

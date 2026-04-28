@@ -78,7 +78,7 @@ export function createSetTodosTool(
       if (!resolved.ok) return resolved;
       const { visit, now } = resolved;
       try {
-        const existing = (await deps.memory.getWorkingMemory!(visit.canonicalUrl)) ?? null;
+        const existing = (await deps.memory.getWorkingMemory(visit.canonicalUrl)) ?? null;
         const base: WorkingMemoryRecord = existing ?? emptyWorkingMemory(visit, now);
         const genId = deps.genId ?? defaultGenId;
         const todos: TodoItem[] = (args.todos ?? []).map((t) => {
@@ -103,7 +103,7 @@ export function createSetTodosTool(
           updatedAt: now,
           lastAccessedAt: now,
         };
-        await deps.memory.setWorkingMemory!(next);
+        await deps.memory.setWorkingMemory(next);
         return { ok: true, totalCount: todos.length, activeGoal: next.activeGoal ?? null };
       } catch (err) {
         return { ok: false, error: `set_todos 失败：${(err as Error).message}` };

@@ -4,7 +4,7 @@
  * 使用 fake-indexeddb 跑 Dexie。每个用例用独立 dbName 实现隔离。
  */
 import './setup-idb';
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { DexieMemoryStore } from '../db/dexie-store';
 import type {
   MemoryRecord,
@@ -556,6 +556,46 @@ describe('DexieMemoryStore · PageVisit', () => {
     const db = s._unsafeGetDb();
     const row = await db.page_visits.get('v1');
     expect(row?.endedAt).toBe(2000);
+    await s.close();
+  });
+});
+
+describe('DexieMemoryStore · 读路径 schema 防腐', () => {
+  it('recall 跳过非法 type（例如遗留的 fact）并 warn', async () => {
+    const s = makeStore();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const db = s._unsafeGetDb();
+    // 直接往底层表塞脏数据（模拟遗留 v0.1 记录）
+    await db.episodes_msg.put({
+      id: 'dirty',
+      // @ts-expect-error - 故意塞入已被收窄移除的 type
+      type: 'fact',
+      content: '旧版本数据',
+      timestamp: 1,
+    });
+    await db.episodes_msg.put({
+      id: 'clean',
+      type: 'message',
+      content: '新版本数据',
+      timestamp: 2,
+    });
+
+    const out = await s.recall({ types: ['message'] });
+    expect(out.map((r) => r.id)).toEqual(['clean']);
+    // warn 至少被调用了一次（我们使用的 logger 底层走 console）
+    const warnCalls = warnSpy.mock.calls.concat(errorSpy.mock.calls);
+    const matched = warnCalls.some((call) =>
+      call.some(
+        (a) =>
+          typeof a === 'string' && /脏记录|schema 防腐|非法 type|1 条/.test(a),
+      ),
+    );
+    expect(matched).toBe(true);
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
     await s.close();
   });
 });

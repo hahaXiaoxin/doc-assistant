@@ -46,7 +46,7 @@ export function createCompleteTodoTool(
       if (!resolved.ok) return resolved;
       const { visit, now } = resolved;
       try {
-        const record = await deps.memory.getWorkingMemory!(visit.canonicalUrl);
+        const record = await deps.memory.getWorkingMemory(visit.canonicalUrl);
         if (!record) return { ok: false, error: '当前页面没有 WorkingMemory' };
         const idx = record.todos.findIndex((t) => t.id === args.id);
         if (idx < 0) return { ok: false, error: `未找到 id=${args.id} 的 TODO` };
@@ -67,7 +67,7 @@ export function createCompleteTodoTool(
           updatedAt: now,
           lastAccessedAt: now,
         };
-        await deps.memory.setWorkingMemory!(next);
+        await deps.memory.setWorkingMemory(next);
         const remainingPending = next.todos.filter(
           (t) => t.status === 'pending' || t.status === 'in_progress',
         ).length;

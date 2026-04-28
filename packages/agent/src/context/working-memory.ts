@@ -13,7 +13,7 @@
  *
  * 容错：
  * - canonicalUrl 未传 → null
- * - MemoryStore 无 getWorkingMemory → null
+ * - memory 为 null/undefined → null
  * - 无记录或无未完成 TODO 且无 activeGoal → null
  */
 import type { MemoryStore, TodoItem } from '@doc-assistant/memory';
@@ -29,7 +29,7 @@ export function createWorkingMemorySource(
     name: 'working-memory',
     priority: 50,
     async gather(ctx: AgentInvokeContext): Promise<ContextSegment | null> {
-      if (!memory?.getWorkingMemory) return null;
+      if (!memory) return null;
       const canonicalUrl = ctx.page?.canonicalUrl;
       if (!canonicalUrl) return null;
       try {

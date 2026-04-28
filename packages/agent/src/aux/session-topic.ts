@@ -90,9 +90,6 @@ export async function identifySessionTopic(
     getNow = Date.now,
   } = input;
 
-  if (!memory.setSessionTopic) {
-    return { status: 'skipped', reason: 'memory.setSessionTopic unavailable' };
-  }
   if (!recentMessages.length) {
     return { status: 'skipped', reason: 'no recent messages' };
   }
@@ -129,7 +126,7 @@ export async function identifySessionTopic(
     }
 
     // 读已有记录以保留 history 审计
-    const existing = memory.getSessionTopic ? await memory.getSessionTopic(visitId) : null;
+    const existing = await memory.getSessionTopic(visitId);
     const now = getNow();
     const record: SessionTopicRecord = {
       visitId,
