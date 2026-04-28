@@ -1,8 +1,7 @@
 /**
  * /recall 命令
  * ---------------------------------------------
- * v0.2.1 · 用法：
- *   /recall <自然语言关键词>
+ * 用法：`/recall <自然语言关键词>`
  *
  * 行为：
  * - 走 `ctx.triggerRecall(query)` —— 由宿主实现，通常执行 recallMemory({ mode:'explicit' })
@@ -19,11 +18,6 @@ export const recallCommand: SlashCommand = {
     const query = (rawArgs ?? '').trim();
     if (!query) {
       ctx.notify?.('用法：/recall 关键词；例如：/recall agent loop 的兜底');
-      ctx.closeMenu();
-      return;
-    }
-    if (!ctx.triggerRecall) {
-      ctx.notify?.('当前环境不支持召回（缺少 memory 或 aux）');
       ctx.closeMenu();
       return;
     }

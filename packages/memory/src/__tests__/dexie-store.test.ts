@@ -567,12 +567,12 @@ describe('DexieMemoryStore · 读路径 schema 防腐', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const db = s._unsafeGetDb();
-    // 直接往底层表塞脏数据（模拟遗留 v0.1 记录）
+    // 直接往底层表塞脏数据（模拟遗留记录）
     await db.episodes_msg.put({
       id: 'dirty',
       // @ts-expect-error - 故意塞入已被收窄移除的 type
       type: 'fact',
-      content: '旧版本数据',
+      content: '遗留版本数据',
       timestamp: 1,
     });
     await db.episodes_msg.put({

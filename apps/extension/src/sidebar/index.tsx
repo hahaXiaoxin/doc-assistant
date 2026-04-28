@@ -198,7 +198,7 @@ function SidebarApp(props: MountOptions) {
 
   const pageSummaryMemo = useMemo(
     () => () => buildPageSummary(bootstrap?.pageVisitManager.getCurrent()?.visitId),
-    // 依赖 visible 让面板显隐切换时重算（延续 v0.1.1 §5 修复）
+    // 依赖 visible 让面板显隐切换时重算（详见 docs/TROUBLESHOOTING.md §5）
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [visible, bootstrap],
   );

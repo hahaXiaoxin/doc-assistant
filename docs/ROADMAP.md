@@ -62,7 +62,7 @@
 
 ### 三套 Provider 配置
 
-- `main`：主对话（必填，v0.1 → v0.2 自动迁移旧 QWEN_CONFIG）
+- `main`：主对话（必填）
 - `auxiliary`：话题识别 / 反思 / Intent 精判（默认复用主，可单独配 qwen-turbo 省钱）
 - `embedding`：visit_summary 向量化 + query 向量化（默认复用主的 baseURL+apiKey，model 单独填 v2/v3）
 - 所有 Provider 统一 `baseUrl + model + apiKey` 规范，可接入本地或云端
@@ -280,15 +280,13 @@
     - 千问 usage 字段在 AI SDK stream 的 `finish` part 里，`normalizer.ts` 已归一化为 `ChatChunk.usage`，可直接消费
 
 #### 代码清理
-- [ ] **移除 v0.1 向后兼容代码**（用户反馈，适合在稳定一版后做）
-  - 项目尚未正式发布，旧版本（v0.1）的兼容代码属于无用包袱，集中清理避免混乱
-  - 清理清单（初步）：
-    - `packages/shared/src/config.ts` · `STORAGE_KEYS.QWEN_CONFIG` 与 `QwenProviderConfig` 旧字段（v0.2 已迁移到 MAIN_PROVIDER_CONFIG）
-    - `apps/extension/src/sidebar/bootstrap.ts` · 旧 `QWEN_CONFIG` 自动迁移逻辑
-    - `packages/memory/src/interface.ts` · `MemoryRecord.sessionId`（v0.1 兼容字段，已被 `visitId` 取代）
-    - `packages/memory/src/interface.ts` · `MemoryRecordType` 里的 `'summary' | 'fact' | 'reference'`（v0.1 占位，v0.2 后未被任何代码写入）
-    - ChatSettings.systemPrompt 的"用户可改"逻辑如仍存在旧存储 key，一并清
-  - 风险：清理前先扫全仓确认无读写引用；IndexedDB 老数据（若有）需要明确是否允许丢弃
+- [x] **移除 v0.1 向后兼容代码**（已于 [v0.3.0](./CHANGELOG.md#v030--移除-v01-兼容--breaking-change) 完成）
+  - `STORAGE_KEYS.QWEN_CONFIG` / `QwenConfig` / `DEFAULT_QWEN_CONFIG` / `migrateQwenConfigToMain`
+  - `bootstrap.ts` / `OptionsForm.tsx` 的 v0.1 迁移链路
+  - `MemoryRecord.sessionId` / `PersonaSource.sessionId`
+  - `MemoryRecordType` 收窄为 `'message' | 'persona' | 'visit_summary'`
+  - `UIMessage.visitId` / `SlashCommandContext` 5 项新增能力 / `MemoryStore` 14 项原可选方法
+    全部收紧为必填
 
 ### 架构红线（ESLint 强约束）
 
@@ -296,7 +294,7 @@
 - **v0.2 起**：Memory 层**解除** dexie 约束（Phase2 已落地）
 - Tools 层仍禁止 `tesseract.js`（Phase3-a 才解禁）
 - ESLint `no-eval` 持续通过
-- `MemoryStore.remember / recall` 签名不得修改；新增方法一律**可选**；NullMemoryStore 提供 no-op 兜底
+- `MemoryStore.remember / recall` 签名不得修改；其它方法 v0.3 起全部必填，NullMemoryStore 提供 no-op 兜底
 - ContextSource priority 按上表约定，新 Source 不得占用已有数字
 
 ### 禁止事项（红线）

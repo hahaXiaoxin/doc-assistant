@@ -1,7 +1,7 @@
 /**
  * LLM Tool 默认集合
  * ---------------------------------------------
- * - `buildDefaultMVPTools()`：v0.1 MVP 的 3 个 tool（读页面 / 页面身份 / 划词文本）。
+ * - `buildDefaultMVPTools()`：MVP 的 3 个 tool（读页面 / 页面身份 / 划词文本）。
  * - `buildPhase2Tools(deps)`：在 MVP 3 个基础上追加：
  *    - WorkingMemory 的 7 个细粒度 tool
  *    - remember_persona

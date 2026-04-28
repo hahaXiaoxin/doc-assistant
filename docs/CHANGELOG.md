@@ -11,6 +11,90 @@
 
 ---
 
+## [v0.3.0] · 移除 v0.1 兼容 · Breaking Change
+
+> 项目尚未正式发布，v0.1 MVP 的兼容代码（`QWEN_CONFIG` 迁移、`MemoryRecord.sessionId`、
+> `MemoryRecordType` 里的 `'summary' | 'fact' | 'reference'` 占位等）已成为长期无用包袱，
+> 散落在 `shared` / `memory` / `ui` / `extension` 四个包里。本次集中清理，干净切到
+> v0.2+ 的单一模型，消除长期维护成本。
+
+### Removed
+
+- **存储层**：
+  - `STORAGE_KEYS.QWEN_CONFIG`（对应 `doc-assistant.qwen-config` key）
+  - `QwenConfig` / `DEFAULT_QWEN_CONFIG` / `migrateQwenConfigToMain()`
+  - `StorageSchema` 的 `[STORAGE_KEYS.QWEN_CONFIG]` 条目
+- **Memory 接口**：
+  - `MemoryRecord.sessionId?`、`PersonaSource.sessionId?` 字段
+  - `MemoryRecordType` 里的 `'summary' | 'fact' | 'reference'`（收窄为
+    `'message' | 'persona' | 'visit_summary'`）
+- **Bootstrap / OptionsForm 迁移链路**：
+  - `bootstrap.ts` 的 `qwenLegacy` 读取分支与 `storage.remove(QWEN_CONFIG)` 写回
+  - `OptionsForm` 的 `migrated` state、"已从 v0.1 迁移"Alert、保存后 `storage.remove`
+
+### Breaking（跨包契约）
+
+- **`UIMessage.visitId` 必填**（原 `visitId?: string`）。
+  - `groupMessagesByVisit` 删除 `?? null` 兜底；读取层对缺 `visitId` 的老数据
+    **过滤 + warn 计数**，不做回填归档。
+
+- **`SlashCommandContext` 5 项新增能力必填**（原 `?`）：
+  `startNewVisit` / `triggerRecall` / `triggerTopicIdentify` / `setSessionTopic` /
+  `appendAssistantNote`。`notify` 保持可选。所有命令实现删除"能力未注入时的 fallback 文案"。
+
+- **`MemoryStore` 14 项原可选方法必填**：
+  `getWorkingMemory` / `setWorkingMemory` / `touchWorkingMemory` /
+  `archiveStaleWorkingMemories` / `listPersonas` / `addPersonaCandidate` /
+  `updatePersona` / `setSessionTopic` / `getSessionTopic` / `enqueueReflection` /
+  `listPendingReflections` / `updateReflection` / `recordPageVisit` / `close`。
+  - `remember` / `recall` 签名不变（历史"永恒接口"承诺维持）。
+  - `NullMemoryStore` 已提供全部 no-op 实现；`DexieMemoryStore` 原本即全部实现。
+  - interface JSDoc 明确"实现必须幂等且可重复调用"。
+
+- **对直接从 v0.1 升级（跳过 v0.2.x）的用户**：`doc-assistant.qwen-config` 中的
+  API Key 不再自动读取；Options 页首次打开会显示空，**需重新填写 API Key**。
+  此为 Q1 决策：不保留一次性迁移脚本，残留 key 直接忽略。
+
+### Upgrade Guide
+
+对包的上游消费者（若自研 MemoryStore / 自定义命令宿主），按以下模式升级：
+
+```ts
+// 1) UIMessage
+const msg: UIMessage = {
+  id, role: 'user', content,
+  visitId: currentVisit.visitId, // 必填
+};
+
+// 2) SlashCommandContext
+const ctx: SlashCommandContext = {
+  clearConversation, closeMenu, notify,
+  startNewVisit, triggerRecall, triggerTopicIdentify,
+  setSessionTopic, appendAssistantNote,
+};
+
+// 3) MemoryStore：自研 store 需补齐 14 个原可选方法（可参考 NullMemoryStore 的 no-op）
+```
+
+### Changed
+
+- **DexieMemoryStore · recall 读路径 schema 防腐**：读出记录若 `type` 不在新合法集合内，
+  跳过并 `console.warn` 计数（防腐，不是兼容）。这是为 IDB 里可能存在的遗留
+  `type='fact'` 等脏数据兜底。
+- **Dexie schema 版本号不变**：仅 TS 联合类型收窄，不改表结构。
+
+### Not Migrated（按意图不做）
+
+- 不做一次性数据迁移脚本（`doc-assistant.qwen-config` 直接丢弃）。
+- 不做 Options 页 UI 提示（"空 API Key 即信号"作为产品语义接受）。
+
+### Version
+
+- 仓库根与所有 workspace 子包 `version` 统一 `0.3.0`（从 `0.1.0` 跳过 `0.2.x`，
+  中间无发布版本）。
+
+---
+
 ## [v0.2.5] · 刷新预热机制回退 · "意图驱动"的召回架构修正
 
 > v0.2.3 引入的"三段式 rehydrate"在真机使用后发现一个设计偏差：
