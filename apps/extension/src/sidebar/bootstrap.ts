@@ -2,11 +2,11 @@
  * Sidebar 启动装配（v0.2 重构）
  * ---------------------------------------------
  * 职责：
- * - 读取新 STORAGE_KEYS（主/辅/embedding 三套 + MemorySettings），同时兼容 v0.1 QWEN_CONFIG 迁移
+ * - 读取 STORAGE_KEYS（主/辅/embedding 三套 + MemorySettings）
  * - 装配三套 Provider（辅助/embedding 按 useMain 回退到主 Provider 配置）
  * - 初始化 DexieMemoryStore（敏感过滤开关来自 MemorySettings）
  * - 初始化 PageVisitManager（注入 memory 以登记 page_visits 表）
- * - 构造 ChatAgent（phase2=true 接入新 ContextSource；若 memory 初始化失败则降级 NullStore + MVP 模式）
+ * - 构造 ChatAgent（phase2=true 接入新 ContextSource；若 memory 初始化失败则降级 NullStore）
  * - 返回给 SidebarApp 使用
  *
  * 注意：v0.2.0 阶段 memory 数据可能为空，ContextSource 会返回 null，不贡献段落，无 breaking。
@@ -18,13 +18,11 @@ import {
   DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   DEFAULT_MAIN_PROVIDER_CONFIG,
   DEFAULT_MEMORY_SETTINGS,
-  DEFAULT_QWEN_CONFIG,
   STORAGE_KEYS,
   clampMaxTurns,
   createLogger,
   createTypedStorage,
   isUseMain,
-  migrateQwenConfigToMain,
   type ChatSettings,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
@@ -78,33 +76,18 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     embStored,
     chatStored,
     memStored,
-    qwenLegacy,
   ] = await Promise.all([
     storage.get(STORAGE_KEYS.MAIN_PROVIDER_CONFIG),
     storage.get(STORAGE_KEYS.AUX_PROVIDER_CONFIG),
     storage.get(STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG),
     storage.get(STORAGE_KEYS.CHAT_SETTINGS),
     storage.get(STORAGE_KEYS.MEMORY_SETTINGS),
-    storage.get(STORAGE_KEYS.QWEN_CONFIG),
   ]);
 
-  // 主 Provider：MAIN 优先；否则 v0.1 迁移；否则默认
-  let mainProvider: LLMProviderConfig;
-  if (mainStored) {
-    mainProvider = { ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored };
-  } else if (qwenLegacy) {
-    mainProvider = migrateQwenConfigToMain({ ...DEFAULT_QWEN_CONFIG, ...qwenLegacy });
-    // bootstrap 主动迁移：保存一次（下次启动就不会再走迁移路径）
-    try {
-      await storage.set(STORAGE_KEYS.MAIN_PROVIDER_CONFIG, mainProvider);
-      await storage.remove(STORAGE_KEYS.QWEN_CONFIG);
-      logger.info('v0.1 → v0.2 主 Provider 配置迁移完成');
-    } catch (err) {
-      logger.warn('v0.1 → v0.2 迁移写入失败（不阻塞启动）', (err as Error).message);
-    }
-  } else {
-    mainProvider = DEFAULT_MAIN_PROVIDER_CONFIG;
-  }
+  // 主 Provider：MAIN 已配置则用；否则用默认（空 apiKey），由 OptionsForm 引导用户填写
+  let mainProvider: LLMProviderConfig = mainStored
+    ? { ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored }
+    : DEFAULT_MAIN_PROVIDER_CONFIG;
 
   const auxConfig: ProviderConfigOrRef<LLMProviderConfig> =
     auxStored ?? DEFAULT_AUX_PROVIDER_CONFIG;

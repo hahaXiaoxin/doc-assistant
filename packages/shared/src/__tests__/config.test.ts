@@ -7,17 +7,14 @@ import {
   DEFAULT_EMBEDDING_PROVIDER_CONFIG,
   DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   DEFAULT_MEMORY_SETTINGS,
-  DEFAULT_QWEN_CONFIG,
   MAX_TURNS_MIN,
   MAX_TURNS_MAX,
   clampMaxTurns,
   isUseMain,
-  migrateQwenConfigToMain,
 } from '../config';
 
 describe('STORAGE_KEYS', () => {
-  it('新旧 key 全部存在且格式统一', () => {
-    expect(STORAGE_KEYS.QWEN_CONFIG).toBe('doc-assistant.qwen-config');
+  it('所有 key 全部存在且格式统一', () => {
     expect(STORAGE_KEYS.MAIN_PROVIDER_CONFIG).toBe('doc-assistant.main-provider-config');
     expect(STORAGE_KEYS.AUX_PROVIDER_CONFIG).toBe('doc-assistant.aux-provider-config');
     expect(STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG).toBe('doc-assistant.embedding-provider-config');
@@ -118,30 +115,5 @@ describe('clampMaxTurns', () => {
 
   it('小数向下取整', () => {
     expect(clampMaxTurns(8.9)).toBe(8);
-  });
-});
-
-describe('migrateQwenConfigToMain', () => {
-  it('v0.1 QwenConfig 无损迁移为 v0.2 LLMProviderConfig', () => {
-    const old = {
-      apiKey: 'sk-old-key',
-      baseURL: 'https://custom.example.com/v1',
-      model: 'qwen-max',
-      enableThinking: false,
-    };
-    const migrated = migrateQwenConfigToMain(old);
-    expect(migrated).toEqual({
-      kind: 'qwen',
-      apiKey: 'sk-old-key',
-      baseURL: 'https://custom.example.com/v1',
-      model: 'qwen-max',
-      enableThinking: false,
-    });
-  });
-
-  it('DEFAULT_QWEN_CONFIG 迁移后 kind=qwen', () => {
-    const migrated = migrateQwenConfigToMain(DEFAULT_QWEN_CONFIG);
-    expect(migrated.kind).toBe('qwen');
-    expect(migrated.model).toBe(DEFAULT_QWEN_CONFIG.model);
   });
 });
