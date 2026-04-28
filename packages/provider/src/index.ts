@@ -25,3 +25,10 @@ export {
   qwenEmbeddingConfigSchema,
   type QwenEmbeddingProviderConfig,
 } from './qwen/embedding';
+export {
+  listQwenModels,
+  classifyQwenModel,
+  type QwenModelListItem,
+  type QwenModelKind,
+  type ListQwenModelsParams,
+} from './qwen/list-models';
