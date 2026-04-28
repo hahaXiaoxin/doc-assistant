@@ -1,7 +1,7 @@
 ---
 name: producter
 description: 产品经理。应主动用于以下场景:提出/澄清需求、拆解用户故事、讨论功能优先级、规划迭代路线、梳理待办事项(backlog)、评估工作范围、以及在开发前需要把"要做什么、为什么做、做到什么程度"讲清楚时。
-model: sonnet
+model: opus
 tools: Read, Grep, Glob, Write, Edit
 ---
 
