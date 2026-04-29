@@ -31,6 +31,8 @@ export {
   recallMemory,
   detectRecallTrigger,
   buildRecentHistoryHint,
+  detectTimeScopedMetaQuery,
+  resolveTimeRange,
   pageContextSource,
   referenceTagSource,
   type AgentInvokeContext,
@@ -48,6 +50,8 @@ export {
   type RecallDeps,
   type RecallMode,
   type RecallTriggerResult,
+  type TimeRangeKey,
+  type ResolveTimeRangeOptions,
 } from './context';
 
 // v0.2: PageVisit 生命周期

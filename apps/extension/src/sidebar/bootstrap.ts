@@ -45,6 +45,7 @@ import {
   ReflectionScheduler,
   recallMemory,
   renderRecallMatches,
+  resolveTimeRange,
   type Agent,
 } from '@doc-assistant/agent';
 
@@ -184,18 +185,32 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
   // PageVisitManager（注入 memory 以登记 page_visits）
   const pageVisitManager = new PageVisitManager({ memory });
 
-  // v0.2.1：装配 Phase2 tool 集合（MVP 3 + WorkingMemory 7 + recall_memory + remember_persona）
+  // v0.2.1 → v0.4.0：装配 Phase2 tool 集合
+  // MVP 3 + WorkingMemory 7 + remember_persona + recall_memory（语义召回）+ list_recent_visits（时间维）
   const tools = buildPhase2Tools({
     memory,
     getCurrentVisit: () => pageVisitManager.getCurrent(),
-    // recall_memory tool 的执行器：走与 RelevantMemorySource 相同的底层链路
-    recall: async ({ query, mode, limit }) => {
+    // recall_memory tool 的执行器：走与 RelevantMemorySource 相同的底层链路（explicit 模式，绕过粗判/精判）
+    recallSemantic: async ({
+      query,
+      timeRange,
+      startTs,
+      endTs,
+      domain,
+      articleId,
+      limit,
+    }) => {
       const outcome = await recallMemory(
         { memory, aux: auxLLM },
         {
           query,
-          mode: mode ?? 'explicit',
+          mode: 'explicit',
           ...(limit !== undefined ? { limit } : {}),
+          ...(timeRange !== undefined ? { timeRange } : {}),
+          ...(startTs !== undefined ? { startTs } : {}),
+          ...(endTs !== undefined ? { endTs } : {}),
+          ...(domain !== undefined ? { domain } : {}),
+          ...(articleId !== undefined ? { articleId } : {}),
         },
       );
       return {
@@ -203,6 +218,33 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
         count: outcome.matches.length,
         text: outcome.hit ? renderRecallMatches(outcome.matches) : '',
       };
+    },
+    // list_recent_visits tool 的执行器：走 memory.recall 取 visit_summary 清单，不走向量
+    // （title 的 URL 兜底在 tool 定义层做，此处保持透传语义）
+    listRecentVisits: async ({ timeRange, startTs, endTs, domain, limit }) => {
+      const { startTs: s, endTs: e } = resolveTimeRange(timeRange, {
+        ...(startTs !== undefined ? { startTs } : {}),
+        ...(endTs !== undefined ? { endTs } : {}),
+      });
+      const visits = await memory.recall({
+        types: ['visit_summary'],
+        timeRange: [s, e],
+        ...(domain !== undefined ? { domain } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      });
+      // memory.recall 无 semantic 时已按 timestamp 倒序
+      const items = visits.map((v) => ({
+        visitId: v.visitId ?? v.id,
+        url: v.url ?? v.canonicalUrl ?? '',
+        ...(v.meta && typeof (v.meta as { title?: unknown }).title === 'string'
+          ? { title: (v.meta as { title?: string }).title! }
+          : {}),
+        ...(v.domain !== undefined ? { domain: v.domain } : {}),
+        summary: v.content ?? '',
+        tags: v.topic ?? [],
+        timestamp: v.timestamp,
+      }));
+      return { count: items.length, visits: items };
     },
   });
 

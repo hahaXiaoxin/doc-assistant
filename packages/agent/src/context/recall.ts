@@ -32,6 +32,7 @@ import type { ChatMessage } from '@doc-assistant/shared';
 import { createLogger } from '@doc-assistant/shared';
 import { callAuxIntent } from '../aux/intent';
 import { buildRecentHistoryHint, detectRecallTrigger } from './recall-triggers';
+import { resolveTimeRange, type TimeRangeKey } from './time-query';
 
 const logger = createLogger('agent:recall');
 
@@ -49,6 +50,18 @@ export interface RecallInput {
   history?: ReadonlyArray<ChatMessage>;
   /** 外部 AbortSignal */
   signal?: AbortSignal;
+  /** v0.4.0：可选时间窗过滤（传给 memory.recall 做二次过滤） */
+  timeRange?: TimeRangeKey;
+  /** v0.4.0：custom 模式起点（毫秒） */
+  startTs?: number;
+  /** v0.4.0：custom 模式终点（毫秒） */
+  endTs?: number;
+  /** v0.4.0：可选域名过滤 */
+  domain?: string;
+  /** v0.4.0：可选 articleId 过滤 */
+  articleId?: string;
+  /** 时间源注入（单测用） */
+  getNow?: () => number;
 }
 
 export interface RecallNeighbor {
@@ -88,6 +101,12 @@ export async function recallMemory(
     neighborWindow = 2,
     history,
     signal,
+    timeRange,
+    startTs,
+    endTs,
+    domain,
+    articleId,
+    getNow,
   } = input;
   const trimmed = (query ?? '').trim();
   if (!trimmed) {
@@ -115,12 +134,37 @@ export async function recallMemory(
   }
 
   // 3) 向量召回（走 MemoryStore.recall；其实现内部按 embedQuery 走向量，否则关键词兜底）
+  //    v0.4.0：可叠加 timeRange / domain / articleId 做窗内过滤
+  let resolvedWindow: { startTs: number; endTs: number } | null = null;
+  if (timeRange) {
+    try {
+      resolvedWindow = resolveTimeRange(timeRange, {
+        ...(startTs !== undefined ? { startTs } : {}),
+        ...(endTs !== undefined ? { endTs } : {}),
+        ...(getNow ? { now: getNow() } : {}),
+      });
+    } catch (err) {
+      logger.warn('resolveTimeRange 失败', (err as Error).message);
+      return {
+        hit: false,
+        stage: 'error',
+        matches: [],
+        error: (err as Error).message,
+      };
+    }
+  }
+
   let candidates: MemoryRecord[] = [];
   try {
     candidates = await deps.memory.recall({
       semantic: trimmed,
       types: ['visit_summary'],
       limit,
+      ...(resolvedWindow
+        ? { timeRange: [resolvedWindow.startTs, resolvedWindow.endTs] }
+        : {}),
+      ...(domain !== undefined ? { domain } : {}),
+      ...(articleId !== undefined ? { articleId } : {}),
     });
   } catch (err) {
     logger.warn('memory.recall 失败', (err as Error).message);
