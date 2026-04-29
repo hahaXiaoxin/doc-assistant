@@ -14,6 +14,7 @@ import type {
   RecallQuery,
   PersonaRecord,
   PersonaStatus,
+  PersonaSubject,
   SessionTopicRecord,
   WorkingMemoryRecord,
   ReflectionTask,
@@ -28,6 +29,29 @@ export class NullMemoryStore implements MemoryStore {
 
   async recall(_query: RecallQuery): Promise<MemoryRecord[]> {
     return [];
+  }
+
+  async deleteRecord(_id: string): Promise<void> {
+    // no-op
+  }
+
+  async listVisitSummaries(_opts?: {
+    timeRange?: [number, number];
+    limit?: number;
+  }): Promise<MemoryRecord[]> {
+    return [];
+  }
+
+  async listSessionTopics(_opts?: { limit?: number }): Promise<SessionTopicRecord[]> {
+    return [];
+  }
+
+  async listWorkingMemories(_opts?: { limit?: number }): Promise<WorkingMemoryRecord[]> {
+    return [];
+  }
+
+  async deleteWorkingMemory(_canonicalUrl: string): Promise<void> {
+    // no-op
   }
 
   async getWorkingMemory(_canonicalUrl: string): Promise<WorkingMemoryRecord | null> {
@@ -46,7 +70,10 @@ export class NullMemoryStore implements MemoryStore {
     return 0;
   }
 
-  async listPersonas(_opts?: { status?: PersonaStatus }): Promise<PersonaRecord[]> {
+  async listPersonas(_opts?: {
+    status?: PersonaStatus;
+    subject?: PersonaSubject;
+  }): Promise<PersonaRecord[]> {
     return [];
   }
 
@@ -110,6 +137,10 @@ export class NullMemoryStore implements MemoryStore {
 
   async recordPageVisit(_visit: PageVisitRecord): Promise<void> {
     // no-op
+  }
+
+  async getPageVisit(_visitId: string): Promise<PageVisitRecord | null> {
+    return null;
   }
 
   async close(): Promise<void> {

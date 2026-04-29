@@ -389,6 +389,7 @@ describe('DexieMemoryStore · Persona', () => {
 
   it('addPersonaCandidate + listPersonas', async () => {
     const p = await store.addPersonaCandidate({
+      subject: 'user',
       content: '用户偏好 TypeScript',
       status: 'pending',
       confidence: 0.8,
@@ -400,10 +401,12 @@ describe('DexieMemoryStore · Persona', () => {
     const pending = await store.listPersonas({ status: 'pending' });
     expect(pending.length).toBe(1);
     expect(pending[0]?.content).toContain('TypeScript');
+    expect(pending[0]?.subject).toBe('user');
   });
 
   it('updatePersona 记录 history', async () => {
     const p = await store.addPersonaCandidate({
+      subject: 'agent',
       content: '初始内容',
       status: 'pending',
       confidence: 0.5,
@@ -421,6 +424,7 @@ describe('DexieMemoryStore · Persona', () => {
 
   it('按 status 过滤', async () => {
     await store.addPersonaCandidate({
+      subject: 'user',
       content: 'a',
       status: 'pending',
       confidence: 0.5,
@@ -429,6 +433,7 @@ describe('DexieMemoryStore · Persona', () => {
       source: { extractedBy: 'reflection' },
     });
     await store.addPersonaCandidate({
+      subject: 'agent',
       content: 'b',
       status: 'confirmed',
       confidence: 1,
@@ -442,19 +447,74 @@ describe('DexieMemoryStore · Persona', () => {
     expect(confirmed.length).toBe(1);
   });
 
-  it('remember(type=persona) 写入为 confirmed Persona', async () => {
+  it('按 subject 过滤', async () => {
+    await store.addPersonaCandidate({
+      subject: 'agent',
+      content: '你叫小瑾',
+      status: 'confirmed',
+      confidence: 0.9,
+      hitCount: 1,
+      reviewedByUser: true,
+      source: { extractedBy: 'user_explicit' },
+    });
+    await store.addPersonaCandidate({
+      subject: 'user',
+      content: '用户是前端工程师',
+      status: 'confirmed',
+      confidence: 0.9,
+      hitCount: 1,
+      reviewedByUser: true,
+      source: { extractedBy: 'user_explicit' },
+    });
+    await store.addPersonaCandidate({
+      subject: 'user',
+      content: '用户偏好 Vue',
+      status: 'pending',
+      confidence: 0.6,
+      hitCount: 1,
+      reviewedByUser: false,
+      source: { extractedBy: 'reflection' },
+    });
+    const agents = await store.listPersonas({ subject: 'agent' });
+    const users = await store.listPersonas({ subject: 'user' });
+    expect(agents.length).toBe(1);
+    expect(agents[0]?.content).toBe('你叫小瑾');
+    expect(users.length).toBe(2);
+    // 组合过滤：status + subject
+    const confirmedUsers = await store.listPersonas({
+      status: 'confirmed',
+      subject: 'user',
+    });
+    expect(confirmedUsers.length).toBe(1);
+    expect(confirmedUsers[0]?.content).toBe('用户是前端工程师');
+  });
+
+  it('remember(type=persona) 写入为 confirmed Persona（meta.subject 必填）', async () => {
     await store.remember({
       id: 'p1',
       type: 'persona',
       content: '用户喜欢函数式编程',
       timestamp: 1000,
-      meta: { confidence: 0.9, tags: ['programming-style'] },
+      meta: { subject: 'user', confidence: 0.9, tags: ['programming-style'] },
     });
     const all = await store.listPersonas();
     expect(all.length).toBe(1);
     expect(all[0]?.status).toBe('confirmed');
     expect(all[0]?.reviewedByUser).toBe(true);
+    expect(all[0]?.subject).toBe('user');
     expect(all[0]?.tags).toEqual(['programming-style']);
+  });
+
+  it('remember(type=persona) 缺 meta.subject 抛错', async () => {
+    await expect(
+      store.remember({
+        id: 'p2',
+        type: 'persona',
+        content: '缺 subject',
+        timestamp: 1000,
+        meta: { confidence: 0.9 },
+      }),
+    ).rejects.toThrow(/subject/);
   });
 });
 
@@ -558,6 +618,23 @@ describe('DexieMemoryStore · PageVisit', () => {
     expect(row?.endedAt).toBe(2000);
     await s.close();
   });
+
+  it('getPageVisit 命中返回记录；未命中返回 null', async () => {
+    const s = makeStore();
+    await s.recordPageVisit({
+      visitId: 'v1',
+      startedAt: 1000,
+      url: 'https://a.com/x',
+      canonicalUrl: 'https://a.com/x',
+      domain: 'a.com',
+      title: 'Hello',
+    });
+    const hit = await s.getPageVisit('v1');
+    expect(hit?.title).toBe('Hello');
+    const miss = await s.getPageVisit('nope');
+    expect(miss).toBeNull();
+    await s.close();
+  });
 });
 
 describe('DexieMemoryStore · 读路径 schema 防腐', () => {
@@ -597,5 +674,139 @@ describe('DexieMemoryStore · 读路径 schema 防腐', () => {
     warnSpy.mockRestore();
     errorSpy.mockRestore();
     await s.close();
+  });
+});
+
+describe('DexieMemoryStore · v0.4.0 记忆浏览器只读视角', () => {
+  let store: DexieMemoryStore;
+  beforeEach(() => {
+    store = makeStore();
+  });
+  afterEach(async () => {
+    await store.close();
+  });
+
+  it('listVisitSummaries 默认按 timestamp 倒序', async () => {
+    await store.remember({ id: 'a', type: 'visit_summary', content: 'a', timestamp: 100 });
+    await store.remember({ id: 'b', type: 'visit_summary', content: 'b', timestamp: 300 });
+    await store.remember({ id: 'c', type: 'visit_summary', content: 'c', timestamp: 200 });
+    const list = await store.listVisitSummaries();
+    expect(list.map((r) => r.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('listVisitSummaries 支持 limit 与 timeRange 过滤', async () => {
+    await store.remember({ id: 'a', type: 'visit_summary', content: 'a', timestamp: 100 });
+    await store.remember({ id: 'b', type: 'visit_summary', content: 'b', timestamp: 500 });
+    await store.remember({ id: 'c', type: 'visit_summary', content: 'c', timestamp: 1000 });
+    const filtered = await store.listVisitSummaries({ timeRange: [200, 800] });
+    expect(filtered.map((r) => r.id)).toEqual(['b']);
+    const limited = await store.listVisitSummaries({ limit: 2 });
+    expect(limited.length).toBe(2);
+    expect(limited[0]?.id).toBe('c');
+  });
+
+  it('listSessionTopics 按 updatedAt 倒序 + limit 生效', async () => {
+    await store.setSessionTopic({
+      visitId: 'v1',
+      currentTopic: 'Topic 1',
+      tags: [],
+      updatedAt: 100,
+      history: [],
+    });
+    await store.setSessionTopic({
+      visitId: 'v2',
+      currentTopic: 'Topic 2',
+      tags: [],
+      updatedAt: 300,
+      history: [],
+    });
+    await store.setSessionTopic({
+      visitId: 'v3',
+      currentTopic: 'Topic 3',
+      tags: [],
+      updatedAt: 200,
+      history: [],
+    });
+    const all = await store.listSessionTopics();
+    expect(all.map((r) => r.visitId)).toEqual(['v2', 'v3', 'v1']);
+    const limited = await store.listSessionTopics({ limit: 2 });
+    expect(limited.length).toBe(2);
+    expect(limited[0]?.visitId).toBe('v2');
+  });
+
+  it('listWorkingMemories 按 lastAccessedAt 倒序', async () => {
+    await store.setWorkingMemory({
+      canonicalUrl: 'u1',
+      todos: [],
+      createdAt: 1,
+      updatedAt: 1,
+      lastAccessedAt: 100,
+    });
+    await store.setWorkingMemory({
+      canonicalUrl: 'u2',
+      todos: [],
+      createdAt: 1,
+      updatedAt: 1,
+      lastAccessedAt: 300,
+    });
+    const all = await store.listWorkingMemories();
+    expect(all.map((r) => r.canonicalUrl)).toEqual(['u2', 'u1']);
+  });
+
+  it('deleteRecord 幂等：存在则删，不存在不抛', async () => {
+    await store.remember({
+      id: 'vs1',
+      type: 'visit_summary',
+      content: '删我',
+      timestamp: 1,
+    });
+    expect((await store.listVisitSummaries()).length).toBe(1);
+    await store.deleteRecord('vs1');
+    expect((await store.listVisitSummaries()).length).toBe(0);
+    // 重复删不抛
+    await expect(store.deleteRecord('vs1')).resolves.toBeUndefined();
+    // 删不存在的 id 也不抛
+    await expect(store.deleteRecord('never-existed')).resolves.toBeUndefined();
+  });
+
+  it('deleteRecord 跨表：能删 message / persona / visit_summary', async () => {
+    await store.remember({ id: 'm1', type: 'message', content: 'msg', timestamp: 1 });
+    await store.remember({
+      id: 'vs1',
+      type: 'visit_summary',
+      content: 'vs',
+      timestamp: 2,
+    });
+    await store.addPersonaCandidate({
+      subject: 'user',
+      content: 'p',
+      status: 'pending',
+      confidence: 0.5,
+      hitCount: 1,
+      reviewedByUser: false,
+      source: { extractedBy: 'reflection' },
+    });
+    const beforeP = await store.listPersonas();
+    expect(beforeP.length).toBe(1);
+    await store.deleteRecord('m1');
+    await store.deleteRecord('vs1');
+    await store.deleteRecord(beforeP[0]!.id);
+    expect((await store.recall({ types: ['message'] })).length).toBe(0);
+    expect((await store.listVisitSummaries()).length).toBe(0);
+    expect((await store.listPersonas()).length).toBe(0);
+  });
+
+  it('deleteWorkingMemory 幂等', async () => {
+    await store.setWorkingMemory({
+      canonicalUrl: 'u1',
+      todos: [],
+      createdAt: 1,
+      updatedAt: 1,
+      lastAccessedAt: 1,
+    });
+    await store.deleteWorkingMemory('u1');
+    expect(await store.getWorkingMemory('u1')).toBeNull();
+    await expect(store.deleteWorkingMemory('u1')).resolves.toBeUndefined();
+    await expect(store.deleteWorkingMemory('never')).resolves.toBeUndefined();
   });
 });

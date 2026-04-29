@@ -80,6 +80,18 @@ export interface RecallQuery {
 /** Persona 的审核状态 */
 export type PersonaStatus = 'pending' | 'confirmed' | 'rejected';
 
+/**
+ * Persona 主体视角（v0.4.0 新增必填）。
+ * - 'agent'：**对 agent 的定义**——身份、角色、性格、能力边界、行为方式。
+ *   例如"你叫小瑾，是文档阅读助手"、"你回答要简洁"、"你的语气偏技术向"。
+ * - 'user'：**对 user 的定义**——身份、背景、偏好。
+ *   例如"用户是前端工程师"、"用户偏好 TypeScript"、"用户母语是中文"。
+ *
+ * 两类定义协同工作：agent 知道用户是前端，就用前端术语举例；
+ * 知道用户偏好简洁，就少讲废话。user 侧的定义直接影响 agent 如何表达。
+ */
+export type PersonaSubject = 'agent' | 'user';
+
 export interface PersonaSource {
   /** 哪次 visit 推出的 */
   visitId?: string;
@@ -92,9 +104,23 @@ export interface PersonaSource {
 export interface PersonaRecord {
   id: string;
   /**
-   * 简短的陈述/祈使句（写给 Agent 看的长期指令）。
-   * v0.2.2 语义转向：内容从"关于用户的事实"改为"Agent 应如何长期服务用户的规则"。
-   * 例如："称呼用户为小瑾"、"回答时使用结构化要点"、"默认把 TS 理解为 TypeScript 不要反问"。
+   * 主体视角（v0.4.0 新增必填）。
+   * 每条 Persona 都在回答"**这是在定义谁**"：
+   * - 'agent'：对 agent 的定义（身份、角色、性格、能力边界、行为方式）
+   * - 'user'：对 user 的定义（身份、背景、偏好）
+   */
+  subject: PersonaSubject;
+  /**
+   * Persona 的具体定义内容——一条写给 LLM 看的陈述/祈使句。
+   *
+   * v0.4.0 起由 `subject` 字段标注这条定义指向谁（agent 自己 / 用户本人），
+   * 内容保持原貌，不再像 v0.2.2 那样强制把用户的背景转译为 agent 指令。
+   *
+   * 示例：
+   * - subject='agent' · "你叫小瑾，是我的文档阅读助手"（定义 agent 身份）
+   * - subject='agent' · "你回答要简洁，少讲废话"（定义 agent 行为方式）
+   * - subject='user'  · "用户是前端工程师"（定义用户身份）
+   * - subject='user'  · "用户偏好 TypeScript"（定义用户偏好）
    */
   content: string;
   status: PersonaStatus;
@@ -236,6 +262,39 @@ export interface MemoryStore {
    */
   recall(query: RecallQuery): Promise<MemoryRecord[]>;
 
+  /**
+   * 按 id 删除一条 MemoryRecord（含 visit_summary / message / persona），
+   * 主要供记忆浏览器 UI 的单条删除使用。
+   *
+   * 语义：幂等——不存在该 id 不抛错，实现方应遍历相关表删除。
+   */
+  deleteRecord(id: string): Promise<void>;
+
+  /**
+   * 列出 visit_summary 摘要清单（按 timestamp 倒序），用于记忆浏览器 Tab。
+   * 只读，不做向量召回；可选时间窗 / limit 过滤。
+   */
+  listVisitSummaries(opts?: {
+    timeRange?: [number, number];
+    limit?: number;
+  }): Promise<MemoryRecord[]>;
+
+  /**
+   * 列出 SessionTopic 清单（按 updatedAt 倒序），用于记忆浏览器 Tab。
+   */
+  listSessionTopics(opts?: { limit?: number }): Promise<SessionTopicRecord[]>;
+
+  /**
+   * 列出所有 WorkingMemory 记录（含已归档），主要供记忆浏览器展示。
+   * 按 lastAccessedAt 倒序。
+   */
+  listWorkingMemories(opts?: { limit?: number }): Promise<WorkingMemoryRecord[]>;
+
+  /**
+   * 按 canonicalUrl 删除一条 WorkingMemory（幂等）。
+   */
+  deleteWorkingMemory(canonicalUrl: string): Promise<void>;
+
   /* --- v0.3.0 起以下方法全部必填；NullMemoryStore 提供 no-op 实现 --- */
 
   /** 读取指定 canonicalUrl 的 WorkingMemory */
@@ -247,8 +306,8 @@ export interface MemoryStore {
   /** LRU 清理：将 lastAccessedAt 超过 ttlMs 的归档 */
   archiveStaleWorkingMemories(ttlMs: number): Promise<number>;
 
-  /** 列出 Persona 候选/已确认记录 */
-  listPersonas(opts?: { status?: PersonaStatus }): Promise<PersonaRecord[]>;
+  /** 列出 Persona 候选/已确认记录（可按 status / subject 过滤） */
+  listPersonas(opts?: { status?: PersonaStatus; subject?: PersonaSubject }): Promise<PersonaRecord[]>;
   /** 新增 Persona 候选 */
   addPersonaCandidate(candidate: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>): Promise<PersonaRecord>;
   /** 更新 Persona（审核/编辑） */
@@ -271,6 +330,11 @@ export interface MemoryStore {
 
   /** 写入一次 PageVisit 记录（visit 结束时更新 endedAt） */
   recordPageVisit(visit: PageVisitRecord): Promise<void>;
+  /**
+   * 按 visitId 读取 PageVisit 元数据（主要给反思 Job 补 title 用）。
+   * 不存在返回 null；NullMemoryStore / 无 IDB 环境下始终返回 null。
+   */
+  getPageVisit(visitId: string): Promise<PageVisitRecord | null>;
 
   /**
    * 关闭底层资源（Dexie 等）。NullMemoryStore 为 no-op。

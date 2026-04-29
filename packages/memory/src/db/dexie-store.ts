@@ -20,6 +20,7 @@ import type {
   RecallQuery,
   PersonaRecord,
   PersonaStatus,
+  PersonaSubject,
   SessionTopicRecord,
   WorkingMemoryRecord,
   ReflectionTask,
@@ -97,11 +98,19 @@ export class DexieMemoryStore implements MemoryStore {
       case 'visit_summary':
         await this.db.episodes_visit_summary.put(row);
         return;
-      case 'persona':
+      case 'persona': {
         // remember(type='persona') 视为"用户显式 remember_persona tool 写入"，
-        // 直接建为 confirmed Persona（含溯源需通过 addPersonaCandidate 更标准）
+        // 直接建为 confirmed Persona（含溯源需通过 addPersonaCandidate 更标准）。
+        // v0.4.0 起 subject 必填：必须通过 row.meta.subject 传入 'agent' | 'user'。
+        const subject = row.meta?.subject;
+        if (subject !== 'agent' && subject !== 'user') {
+          throw new Error(
+            "remember(type='persona') 缺少 meta.subject（v0.4.0 起必填 'agent' | 'user'）",
+          );
+        }
         await this.db.persona.put({
           id: row.id,
+          subject,
           content: row.content,
           status: 'confirmed',
           confidence: Number((row.meta?.confidence as number) ?? 1),
@@ -117,6 +126,7 @@ export class DexieMemoryStore implements MemoryStore {
           ...(Array.isArray(row.meta?.tags) ? { tags: row.meta!.tags as string[] } : {}),
         });
         return;
+      }
       case 'message':
       default:
         await this.db.episodes_msg.put(row);
@@ -209,6 +219,62 @@ export class DexieMemoryStore implements MemoryStore {
     }
   }
 
+  /* ---------------- v0.4.0 · 记忆浏览器只读视角 ---------------- */
+
+  async listVisitSummaries(opts?: {
+    timeRange?: [number, number];
+    limit?: number;
+  }): Promise<MemoryRecord[]> {
+    const limit = opts?.limit;
+    const rows = await this.db.episodes_visit_summary
+      .orderBy('timestamp')
+      .reverse()
+      .toArray();
+    const filtered = rows.filter((r) => {
+      if (!VALID_RECORD_TYPES.has(r.type)) return false;
+      if (opts?.timeRange) {
+        if (r.timestamp < opts.timeRange[0] || r.timestamp > opts.timeRange[1]) {
+          return false;
+        }
+      }
+      return true;
+    });
+    return limit !== undefined ? filtered.slice(0, limit) : filtered;
+  }
+
+  async listSessionTopics(opts?: { limit?: number }): Promise<SessionTopicRecord[]> {
+    const rows = await this.db.session_topics.orderBy('updatedAt').reverse().toArray();
+    return opts?.limit !== undefined ? rows.slice(0, opts.limit) : rows;
+  }
+
+  async listWorkingMemories(opts?: { limit?: number }): Promise<WorkingMemoryRecord[]> {
+    const rows = await this.db.working_memories
+      .orderBy('lastAccessedAt')
+      .reverse()
+      .toArray();
+    return opts?.limit !== undefined ? rows.slice(0, opts.limit) : rows;
+  }
+
+  /**
+   * 按 id 删除一条 MemoryRecord（跨表幂等）。
+   * - 先尝试 episodes_visit_summary
+   * - 再尝试 episodes_msg
+   * - 最后尝试 persona
+   * 任一表命中即 delete，不存在也不抛错。
+   */
+  async deleteRecord(id: string): Promise<void> {
+    // Dexie.Table.delete 对不存在的主键是 no-op，不抛错
+    await Promise.all([
+      this.db.episodes_visit_summary.delete(id),
+      this.db.episodes_msg.delete(id),
+      this.db.persona.delete(id),
+    ]);
+  }
+
+  async deleteWorkingMemory(canonicalUrl: string): Promise<void> {
+    await this.db.working_memories.delete(canonicalUrl);
+  }
+
   /* ---------------- WorkingMemory ---------------- */
 
   async getWorkingMemory(canonicalUrl: string): Promise<WorkingMemoryRecord | null> {
@@ -267,11 +333,20 @@ export class DexieMemoryStore implements MemoryStore {
 
   /* ---------------- Persona ---------------- */
 
-  async listPersonas(opts?: { status?: PersonaStatus }): Promise<PersonaRecord[]> {
+  async listPersonas(opts?: {
+    status?: PersonaStatus;
+    subject?: PersonaSubject;
+  }): Promise<PersonaRecord[]> {
+    let rows: PersonaRecord[];
     if (opts?.status) {
-      return this.db.persona.where('status').equals(opts.status).toArray();
+      rows = await this.db.persona.where('status').equals(opts.status).toArray();
+    } else {
+      rows = await this.db.persona.toArray();
     }
-    return this.db.persona.toArray();
+    if (opts?.subject) {
+      return rows.filter((p) => p.subject === opts.subject);
+    }
+    return rows;
   }
 
   async addPersonaCandidate(
@@ -365,6 +440,11 @@ export class DexieMemoryStore implements MemoryStore {
 
   async recordPageVisit(visit: PageVisitRecord): Promise<void> {
     await this.db.page_visits.put(visit);
+  }
+
+  async getPageVisit(visitId: string): Promise<PageVisitRecord | null> {
+    const row = await this.db.page_visits.get(visitId);
+    return row ?? null;
   }
 
   /* ---------------- lifecycle ---------------- */

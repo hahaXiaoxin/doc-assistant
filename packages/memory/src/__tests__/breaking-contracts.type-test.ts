@@ -11,10 +11,15 @@ type _AssertRequired<T> = {
   [K in keyof T]-?: Exclude<T[K], undefined> extends T[K] ? T[K] : never;
 };
 
-// 这 14 项必须全部必填；任一变回可选，对应位置会成为 `never`，
+// 这 20 项必须全部必填；任一变回可选，对应位置会成为 `never`，
 // 使下面的 `_MemoryRequiredCheck` 不再可以承接一个真实 MemoryStore 值。
 type _RequiredMemoryMethods = Pick<
   MemoryStore,
+  | 'deleteRecord'
+  | 'listVisitSummaries'
+  | 'listSessionTopics'
+  | 'listWorkingMemories'
+  | 'deleteWorkingMemory'
   | 'getWorkingMemory'
   | 'setWorkingMemory'
   | 'touchWorkingMemory'
@@ -28,6 +33,7 @@ type _RequiredMemoryMethods = Pick<
   | 'listPendingReflections'
   | 'updateReflection'
   | 'recordPageVisit'
+  | 'getPageVisit'
   | 'close'
 >;
 

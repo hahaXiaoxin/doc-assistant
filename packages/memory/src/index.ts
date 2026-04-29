@@ -16,6 +16,7 @@ export type {
   RecallQuery,
   PersonaRecord,
   PersonaStatus,
+  PersonaSubject,
   PersonaSource,
   WorkingMemoryRecord,
   TodoItem,
