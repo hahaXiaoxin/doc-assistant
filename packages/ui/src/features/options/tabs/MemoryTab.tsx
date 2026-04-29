@@ -7,9 +7,11 @@
  * - 敏感信息过滤开关
  * - 反思 Job 开关
  * - WorkingMemory TTL 天数
- * - Persona 审核列表入口（v0.2.0 先占位，v0.2.1 实装）
+ *
+ * v0.4.0：原"长期指令审核"占位 Card 已删除——审核入口统一走 sidebar 的
+ * PersonaReviewBanner；浏览/编辑/清理入口走新的"记忆浏览器" Tab。
  */
-import { Alert, Card, Form, InputNumber, Switch, Typography } from 'antd';
+import { Alert, Card, Form, InputNumber, Switch } from 'antd';
 import {
   DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   type EmbeddingProviderConfig,
@@ -134,14 +136,6 @@ export function MemoryTab(props: MemoryTabProps) {
             />
           </Form.Item>
         </Form>
-      </Card>
-
-      <Card title="长期指令审核">
-        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          Agent 的长期指令（由反思 Job 归纳或对话中 <code>remember_persona</code> 工具写入）的
-          批量审核列表将在后续版本接入。届时此处会展示待确认的指令（采纳 / 忽略 / 编辑），
-          以及已确认的常驻项。当前版本可在 sidebar 顶部折叠条中对最近的候选进行一键操作。
-        </Typography.Paragraph>
       </Card>
     </>
   );

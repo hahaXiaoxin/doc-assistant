@@ -29,8 +29,10 @@ import {
 import { z } from 'zod';
 import { BasicTab } from './tabs/BasicTab';
 import { MemoryTab } from './tabs/MemoryTab';
+import { MemoryBrowserTab } from './tabs/MemoryBrowserTab';
 import { AdvancedTab } from './tabs/AdvancedTab';
 import { DebugTab } from './tabs/DebugTab';
+import type { MemoryStore } from '@doc-assistant/memory';
 
 const logger = createLogger('ui:options');
 
@@ -79,9 +81,11 @@ const memorySettingsSchema = z.object({
 
 export interface OptionsFormProps {
   storage: TypedStorage<StorageSchema>;
+  /** v0.4.0：记忆浏览器 Tab 的数据源；为 null 时该 Tab 显示占位文案 */
+  memory?: MemoryStore | null;
 }
 
-export function OptionsForm({ storage }: OptionsFormProps) {
+export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
   const [main, setMain] = useState<LLMProviderConfig>(DEFAULT_MAIN_PROVIDER_CONFIG);
   const [aux, setAux] =
     useState<ProviderConfigOrRef<LLMProviderConfig>>(DEFAULT_AUX_PROVIDER_CONFIG);
@@ -232,6 +236,11 @@ export function OptionsForm({ storage }: OptionsFormProps) {
                 onSettingsChange={setMemorySettings}
               />
             ),
+          },
+          {
+            key: 'memory-browser',
+            label: '记忆浏览器',
+            children: <MemoryBrowserTab memory={memory} />,
           },
           {
             key: 'advanced',

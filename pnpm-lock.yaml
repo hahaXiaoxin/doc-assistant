@@ -177,6 +177,9 @@ importers:
       '@doc-assistant/agent':
         specifier: workspace:*
         version: link:../agent
+      '@doc-assistant/memory':
+        specifier: workspace:*
+        version: link:../memory
       '@doc-assistant/provider':
         specifier: workspace:*
         version: link:../provider
