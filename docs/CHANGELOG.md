@@ -7,7 +7,20 @@
 
 ## [Unreleased]
 
-- （留作下一个版本草稿区）
+### Changed
+
+- **`host_permissions` 放开为 `<all_urls>`**（需求 5 前置落地，v0.4.0 正式随 tag 发布）
+  - `apps/extension/manifest.json` 移除 `https://dashscope.aliyuncs.com/*` 与 `https://dashscope-intl.aliyuncs.com/*` 白名单，改为 `["<all_urls>"]`
+  - 动机：v0.3.0 的 Provider 抽象允许用户自配 baseURL（OpenAI / Anthropic / 自托管等），白名单外的域被 CORS 默默拦截且无错误提示
+  - 决策：**统一放开，不做 per-provider 白名单 / 不做 `optional_host_permissions` 动态申请**（详见 `docs/requirements/v0.4.0-visible-memory.md` §1 · 需求 5）
+  - 用户可感：升级时 Chrome 会弹出"扩展请求新权限"的提示，需点"接受"；拒绝则插件禁用（Chrome 默认行为）
+
+### Added
+
+- `docs/PRIVACY.md`：完整隐私政策。三条核心——API Key 仅存本机 / 对话 & 摘要仅发到用户配置的 baseURL / IDB 记忆完全本地；并显式声明 `<all_urls>` 的必要性（LLM 端点由用户决定，无法预声明）
+- `docs/CWS-REVIEW-NOTES.md`：Chrome Web Store 审核 justification 模板（英文）。逐项权限 + `<all_urls>` 广域权限 + 数据使用披露清单。**本期不提交 CWS**，待 v0.4.0 打 tag 后再用
+- README 文档索引补充隐私 / CWS 入口链接
+- BasicTab 的 Base URL 字段补一行 secondary text 说明"已放开所有域，可填任意 OpenAI 兼容 baseURL"
 
 ---
 

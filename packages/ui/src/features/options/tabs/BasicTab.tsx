@@ -236,7 +236,18 @@ export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabPro
             />
           </Form.Item>
 
-          <Form.Item label="Base URL" extra="千问的 OpenAI 兼容端点；如无特殊需求保持默认。">
+          <Form.Item
+            label="Base URL"
+            extra={
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                千问的 OpenAI 兼容端点；如无特殊需求保持默认。
+                <br />
+                v0.4.0 起扩展已放开 <code>host_permissions: &lt;all_urls&gt;</code>
+                ，可填任意 OpenAI 兼容 baseURL（自托管 / Anthropic / OpenAI
+                等）。除你配置的 baseURL 外，插件不向其它域发请求；详见仓库 <code>docs/PRIVACY.md</code>。
+              </Typography.Text>
+            }
+          >
             <Input
               value={main.baseURL}
               onChange={(e) => onMainChange({ ...main, baseURL: e.target.value })}
