@@ -50,6 +50,7 @@ describe('PersonaSource · priority=60', () => {
       listPersonas: vi.fn().mockResolvedValue([
         {
           id: '1',
+          subject: 'user',
           content: '偏好 TS',
           status: 'confirmed',
           confidence: 0.9,
@@ -65,12 +66,63 @@ describe('PersonaSource · priority=60', () => {
     expect(await s.gather(DEFAULT_CTX)).toBeNull();
   });
 
-  it('已审核 persona 按 confidence 降序注入，返回 system message', async () => {
+  it('只有 agent 组时仅注入 # 关于你 段', async () => {
     const mem = makeMemory({
       listPersonas: vi.fn().mockResolvedValue([
         {
-          id: '1',
-          content: '默认使用 TypeScript 举例',
+          id: 'a1',
+          subject: 'agent',
+          content: '你叫小瑾,是文档阅读助手',
+          status: 'confirmed',
+          confidence: 0.9,
+          hitCount: 1,
+          reviewedByUser: true,
+          source: { extractedBy: 'user_explicit' },
+          createdAt: 1,
+          updatedAt: 1,
+        } as PersonaRecord,
+      ]),
+    });
+    const s = createPersonaSource(mem);
+    const seg = await s.gather(DEFAULT_CTX);
+    const content = String(seg?.message.content ?? '');
+    expect(content).toContain('# 关于你');
+    expect(content).not.toContain('# 关于用户');
+    expect(content).toContain('你叫小瑾');
+  });
+
+  it('只有 user 组时仅注入 # 关于用户 段', async () => {
+    const mem = makeMemory({
+      listPersonas: vi.fn().mockResolvedValue([
+        {
+          id: 'u1',
+          subject: 'user',
+          content: '用户是前端工程师',
+          status: 'confirmed',
+          confidence: 0.9,
+          hitCount: 1,
+          reviewedByUser: true,
+          source: { extractedBy: 'reflection' },
+          createdAt: 1,
+          updatedAt: 1,
+        } as PersonaRecord,
+      ]),
+    });
+    const s = createPersonaSource(mem);
+    const seg = await s.gather(DEFAULT_CTX);
+    const content = String(seg?.message.content ?? '');
+    expect(content).not.toContain('# 关于你');
+    expect(content).toContain('# 关于用户');
+    expect(content).toContain('用户是前端工程师');
+  });
+
+  it('两组都有时分两段注入(agent 段在前 / user 段在后)', async () => {
+    const mem = makeMemory({
+      listPersonas: vi.fn().mockResolvedValue([
+        {
+          id: 'u1',
+          subject: 'user',
+          content: '用户偏好 TypeScript',
           status: 'confirmed',
           confidence: 0.6,
           hitCount: 1,
@@ -80,7 +132,8 @@ describe('PersonaSource · priority=60', () => {
           updatedAt: 1,
         },
         {
-          id: '2',
+          id: 'a1',
+          subject: 'agent',
           content: '回答优先使用函数式风格',
           status: 'confirmed',
           confidence: 0.9,
@@ -90,26 +143,42 @@ describe('PersonaSource · priority=60', () => {
           createdAt: 1,
           updatedAt: 2,
         },
-      ]),
+      ] as PersonaRecord[]),
     });
     const s = createPersonaSource(mem);
     const seg = await s.gather(DEFAULT_CTX);
     expect(seg).not.toBeNull();
     expect(seg?.message.role).toBe('system');
     const content = String(seg?.message.content ?? '');
-    // v0.2.2：system 段标题语义转向"长期指令"
-    expect(content).toContain('长期指令');
-    expect(content).toContain('回答优先使用函数式风格'); // confidence 高的排前
-    // 检查顺序：函数式先出现，TS 后出现
-    expect(content.indexOf('回答优先使用函数式风格')).toBeLessThan(
-      content.indexOf('默认使用 TypeScript 举例'),
+    // 两段都出现
+    expect(content).toContain('# 关于你');
+    expect(content).toContain('# 关于用户');
+    // agent 段排在 user 段之前
+    expect(content.indexOf('# 关于你')).toBeLessThan(
+      content.indexOf('# 关于用户'),
     );
+    // 内容命中
+    expect(content).toContain('回答优先使用函数式风格');
+    expect(content).toContain('用户偏好 TypeScript');
   });
 
-  it('topK 限制生效', async () => {
-    const personas = Array.from({ length: 20 }, (_, i) => ({
-      id: String(i),
-      content: `persona-${i}`,
+  it('agentTopK / userTopK 分别限制', async () => {
+    const agentPersonas = Array.from({ length: 15 }, (_, i) => ({
+      id: `a${i}`,
+      subject: 'agent' as const,
+      content: `agent-persona-${i}`,
+      status: 'confirmed' as const,
+      confidence: 1 - i * 0.01,
+      hitCount: 1,
+      reviewedByUser: true,
+      source: { extractedBy: 'reflection' as const },
+      createdAt: 1,
+      updatedAt: 1,
+    }));
+    const userPersonas = Array.from({ length: 12 }, (_, i) => ({
+      id: `u${i}`,
+      subject: 'user' as const,
+      content: `user-persona-${i}`,
       status: 'confirmed' as const,
       confidence: 1 - i * 0.01,
       hitCount: 1,
@@ -119,16 +188,20 @@ describe('PersonaSource · priority=60', () => {
       updatedAt: 1,
     }));
     const mem = makeMemory({
-      listPersonas: vi.fn().mockResolvedValue(personas),
+      listPersonas: vi
+        .fn()
+        .mockResolvedValue([...agentPersonas, ...userPersonas]),
     });
-    const s = createPersonaSource(mem, { topK: 3 });
+    const s = createPersonaSource(mem, { agentTopK: 2, userTopK: 3 });
     const seg = await s.gather(DEFAULT_CTX);
     const content = String(seg?.message.content ?? '');
-    // 只有前 3 条
-    expect(content).toContain('persona-0');
-    expect(content).toContain('persona-1');
-    expect(content).toContain('persona-2');
-    expect(content).not.toContain('persona-3');
+    expect(content).toContain('agent-persona-0');
+    expect(content).toContain('agent-persona-1');
+    expect(content).not.toContain('agent-persona-2');
+    expect(content).toContain('user-persona-0');
+    expect(content).toContain('user-persona-1');
+    expect(content).toContain('user-persona-2');
+    expect(content).not.toContain('user-persona-3');
   });
 
   it('listPersonas 抛错时返回 null（不中断 Agent）', async () => {

@@ -392,6 +392,7 @@ function SidebarApp(props: MountOptions) {
         const list = await bootstrap.memory.listPersonas({ status: 'pending' });
         return list.map((p) => ({
           id: p.id,
+          subject: p.subject,
           content: p.content,
           confidence: p.confidence,
           createdAt: p.createdAt,

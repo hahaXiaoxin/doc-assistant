@@ -22,6 +22,7 @@ import type {
   MemoryRecord,
   MemoryStore,
   PersonaRecord,
+  PersonaSubject,
   ReflectionTask,
   ReflectionTaskType,
 } from '@doc-assistant/memory';
@@ -143,6 +144,19 @@ export class ReflectionRunner {
 
       const first = visitEpisodes[0]!;
       const now = getNow();
+
+      // 取 page_visits.title 写入 meta.title，供 list_recent_visits 时间维清单显示。
+      // 查询失败或无记录都静默降级（meta.title 不写，消费方走 URL 兜底）。
+      let pageVisitTitle: string | undefined;
+      try {
+        const pv = await memory.getPageVisit(task.visitId);
+        if (pv && typeof pv.title === 'string' && pv.title.trim().length > 0) {
+          pageVisitTitle = pv.title;
+        }
+      } catch (err) {
+        logger.warn('getPageVisit 失败（title 留空，消费方走 URL 兜底）', (err as Error).message);
+      }
+
       const record: MemoryRecord = {
         id: genId(),
         type: 'visit_summary',
@@ -157,6 +171,7 @@ export class ReflectionRunner {
         meta: {
           source: 'reflection',
           messageCount: visitEpisodes.length,
+          ...(pageVisitTitle !== undefined ? { title: pageVisitTitle } : {}),
         },
       };
       await memory.remember(record);
@@ -199,21 +214,28 @@ export class ReflectionRunner {
       const messages: ChatMessage[] = [
         {
           role: 'system',
-          content: `你在为一个名为 Doc Assistant 的阅读助手归纳它"**应当长期遵守的指令 / 行为规则**"。
-阅读下面一次 PageVisit 里用户发过的消息，识别其中**能沉淀为 Agent 长期规则**的信号。
+          content: `你在为一个名为 Doc Assistant 的阅读助手整理**Persona 定义**——每条 Persona 都在回答"**这是在定义谁**"（subject）：
+- subject="agent"：在定义 **agent 是谁**（身份、角色、性格、能力边界、行为方式、表达风格与术语约定）。
+  * 用户说"你叫小瑾" → {"subject":"agent","content":"你叫小瑾，是用户的文档阅读助手"}
+  * 用户说"你回答要简洁" → {"subject":"agent","content":"回答时保持简洁，不加多余的客套与前缀"}
+  * 用户说"遇到代码先讲结论" → {"subject":"agent","content":"遇到代码示例时，先用一句话讲结论，再贴代码"}
+- subject="user"：在定义 **user 是谁**（身份、背景、偏好）。**保持对用户的原貌陈述**，不要转译成 agent 指令。
+  * 用户说"我是前端工程师" → {"subject":"user","content":"用户是前端工程师"}
+  * 用户说"我偏好 Vue" → {"subject":"user","content":"用户偏好 Vue 生态"}
+  * 用户说"我母语是中文" → {"subject":"user","content":"用户母语是中文"}
 
 产出约束（非常重要）：
-- 每条 candidate.content 必须是**写给 Agent 看的陈述/祈使句**，不要出现"用户说..."、"用户是..."这种第三人称叙述。
-- 如果用户透露了稳定背景/偏好，请**转译为 Agent 应如何服务他的规则**：
-  * 用户说"我是前端工程师" → "回答时默认使用前端语境举例，不必解释基础 Web 概念"
-  * 用户说"叫我小瑾" → "称呼用户为小瑾"
-  * 用户说"我喜欢结构化回答" → "回答时使用结构化要点，而不是长段落叙述"
-  * 用户说"以后 TS 就是 TypeScript" → "遇到 TS 默认理解为 TypeScript，不要反问"
+- 同一批对话可以同时产出 agent / user 两类 candidate，请分别列出。
+  例：用户说"我是前端" → 可同时产出两条：
+    1. {"subject":"user","content":"用户是前端工程师"}
+    2. {"subject":"agent","content":"回答时默认用前端语境举例，不必解释基础 Web 概念"}
+  是否两条都出由你判断，但 subject 字段必须是 'agent' 或 'user'，判断标准只看"**这条信息在定义谁**"。
+- 消歧义：第二人称"你"一律指 agent。用户说"你叫 xxx" → subject="agent"，**不是**用户自称叫 xxx。
 - 忽略一次性的提问、情绪化表达、只在本次页面有效的事务（那是 working memory 的事）。
 - 每条候选独立可执行、10-60 字、不要堆砌。
 
 严格按 JSON 输出（candidates 可为空数组）：
-{"candidates": [{"content": "...", "confidence": 0-1, "tags": ["..."]}]}`,
+{"candidates": [{"subject": "agent" | "user", "content": "...", "confidence": 0-1, "tags": ["..."]}]}`,
         },
         { role: 'user', content: `用户消息：\n${userMsgs.map((m) => `- ${m.slice(0, 300)}`).join('\n')}` },
       ];
@@ -237,8 +259,10 @@ export class ReflectionRunner {
         const content = cand.content.trim();
         if (!content) continue;
 
-        // dedupe：同 content 已存在则 ++hitCount 而非新增
-        const dup = existing.find((p) => p.content.trim() === content);
+        // dedupe：按 (content, subject) 组合键——同 content 但不同 subject 视为不同条
+        const dup = existing.find(
+          (p) => p.content.trim() === content && p.subject === cand.subject,
+        );
         if (dup) {
           await memory.updatePersona(
             dup.id,
@@ -249,6 +273,7 @@ export class ReflectionRunner {
         }
 
         const candidatePayload: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'> = {
+          subject: cand.subject,
           content,
           status: 'pending',
           confidence: Math.max(0, Math.min(1, cand.confidence)),
@@ -332,6 +357,7 @@ export function parseSummaryOutput(raw: string): ParsedSummary | null {
 }
 
 export interface ParsedPersonaCandidate {
+  subject: PersonaSubject;
   content: string;
   confidence: number;
   tags?: string[];
@@ -343,24 +369,33 @@ export function parsePersonaOutput(raw: string): ParsedPersonaCandidate[] {
   if (braceStart < 0 || braceEnd < braceStart) return [];
   try {
     const obj = JSON.parse(raw.slice(braceStart, braceEnd + 1)) as {
-      candidates?: Array<{ content?: unknown; confidence?: unknown; tags?: unknown }>;
+      candidates?: Array<{
+        subject?: unknown;
+        content?: unknown;
+        confidence?: unknown;
+        tags?: unknown;
+      }>;
     };
     const list = obj.candidates ?? [];
     return list
-      .map((c) => {
+      .map((c): ParsedPersonaCandidate | null => {
         const content = typeof c.content === 'string' ? c.content : '';
+        const subject =
+          c.subject === 'agent' || c.subject === 'user' ? c.subject : null;
+        if (!subject) return null;
         const confRaw = typeof c.confidence === 'number' ? c.confidence : 0.5;
         const tags = Array.isArray(c.tags)
           ? c.tags.filter((t): t is string => typeof t === 'string')
           : undefined;
         const base: ParsedPersonaCandidate = {
+          subject,
           content,
           confidence: Math.max(0, Math.min(1, confRaw)),
         };
         if (tags) base.tags = tags;
         return base;
       })
-      .filter((c) => c.content.trim().length > 0);
+      .filter((c): c is ParsedPersonaCandidate => c !== null && c.content.trim().length > 0);
   } catch {
     return [];
   }

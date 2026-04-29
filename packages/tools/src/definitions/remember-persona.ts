@@ -1,25 +1,29 @@
 /**
- * remember_persona · 主 LLM 显式记录"自己应长期遵守的指令"
+ * remember_persona · 主 LLM 显式记录"一条 Persona 定义"
  * ---------------------------------------------
- * v0.2.2 语义转向（重要）：
- *   过去版本把 Persona 当作"关于用户的稳定事实"（例如"用户是前端工程师"）。
- *   实践中我们发现：
- *   - 模型自发调用本 tool 时，内容往往是"我是 XX 助手"这类**自我设定**
- *   - 用户说"叫我小瑾"时，真正有价值的不是"用户叫小瑾"，而是 Agent 应当
- *     "称呼用户为小瑾"这条**可执行指令**
- *   因此从 v0.2.2 起 Persona 被重新定义为 **Agent 的长期操作指令 / 行为规则**，
- *   存的永远是一段让 Agent 知道"**我**应该怎么做"的陈述。
+ * v0.4.0 语义（Persona 双主体）：
+ *   每条 Persona 都在回答"**这是在定义谁**"：
+ *   - subject='agent' · 在定义 **agent 是谁**：身份、角色、性格、能力边界、行为方式、术语/风格约定
+ *   - subject='user'  · 在定义 **user 是谁**：身份、背景、偏好（保持原貌，不要再转译成 agent 指令）
+ *
+ *   两类协同工作：agent 侧的定义让 agent 知道"我是谁、我怎么说话"；user 侧
+ *   的定义让 agent 据此调整表达（术语层级、语气、举例风格）。同一句用户发言
+ *   可以同时产出两条 candidate（见下面 description 的示例）。
  *
  * 与反思 Job 的 persona_extraction 区别：
- * - 反思路径：辅 LLM 事后从对话中归纳 Agent 应如何服务用户，产出 status='pending' 候选。
- * - 本 tool：主 LLM 在对话中明确感知到"接下来起作用的规则"时调用，
+ * - 反思路径：辅 LLM 事后归纳 agent/user 两类定义，产出 status='pending' 候选。
+ * - 本 tool：主 LLM 在对话中明确感知到"这是一条值得固化的定义"时调用，
  *   产出 status='confirmed'（reviewedByUser=true, source.extractedBy='user_explicit'），
  *   立即生效并注入后续的 PersonaSource。
  *
  * 依赖：MemoryStore.addPersonaCandidate。
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
-import type { MemoryStore, PersonaRecord } from '@doc-assistant/memory';
+import type {
+  MemoryStore,
+  PersonaRecord,
+  PersonaSubject,
+} from '@doc-assistant/memory';
 
 export interface RememberPersonaToolDeps {
   memory: MemoryStore;
@@ -30,6 +34,7 @@ export interface RememberPersonaToolDeps {
 
 interface RememberPersonaArgs {
   content: string;
+  subject: PersonaSubject;
   confidence?: number;
   tags?: string[];
 }
@@ -44,15 +49,21 @@ export function createRememberPersonaTool(
   return {
     name: 'remember_persona',
     description:
-      '记录一条你（Agent）**应当长期遵守的指令或行为规则**——这是跨会话、跨页面都生效的长期记忆。\n\n**与 WorkingMemory 的区别（非常重要，不要混）**：\n- WorkingMemory（set_active_goal / add_todo）= 当前这个页面 / 这轮任务的状态；换页面或任务结束就不再相关。\n- remember_persona = 影响你**以后所有对话**的规则。用户换到任何新页面都应继续遵守。\n\n**主动触发的时机**：\n- 用户表达了**稳定的偏好/背景**：例如"叫我小瑾"、"我是前端工程师"、"我喜欢结构化回答"、"以后 TS 就是 TypeScript"。\n- 用户**纠正了你的风格/用词**：例如"不要每次都加"建议"前缀"、"回答长一点没关系，但别跳步骤"。\n- 会话中自然形成的**身份/合作模式**：例如用户明确赋予你一个身份（"你是我的文档助手"），或确认了某个工作方式。\n\n**不要调用**：\n- 一次性的问题或请求（"这篇文章的作者是谁"）——那是本次对话的内容，不是长期规则。\n- 情绪化表达（"这段写得不错"）、对页面内容的评论。\n- 只在本次页面有效的约定（那属于 WorkingMemory）。\n\n**内容格式要求（关键）**：content 必须是**写给你自己看的祈使/陈述句**，直接表达"你应该怎么做"。如果用户讲的是**他自己的背景**，请先把它**转译为 Agent 的行为规则**再写入：\n- 用户说"我是前端" → 写"回答时默认使用前端语境举例，不必解释基础 Web 概念"（不要写"用户是前端工程师"）\n- 用户说"叫我小瑾" → 写"称呼用户为小瑾"\n- 用户说"我喜欢结构化回答" → 写"回答时使用结构化要点，而不是长段落叙述"\n- 用户说"以后 TS 就是 TypeScript" → 写"遇到 TS 默认理解为 TypeScript，不要反问"\n- 用户说"你是小瑾的文档助手" → 写"你的身份是小瑾的文档助手，专注陪伴阅读技术文档"',
+      '记录一条长期记忆条目——一条 **Persona 定义**，跨会话、跨页面都生效。每条 Persona 都在回答"**这是在定义谁**"（subject）：\n\n- `subject="agent"` → 在定义 **agent 是谁**：身份、角色、名字、性格、能力边界、行为方式、表达风格与术语约定。例：\n  * "你叫小瑾，是我的文档阅读助手" → agent（定义身份）\n  * "你回答要简洁，少讲废话" → agent（定义行为方式）\n  * "遇到代码先讲结论再贴示例" → agent（定义表达风格）\n- `subject="user"` → 在定义 **user 是谁**：身份、背景、偏好（保持原貌，**不要**转译成 agent 指令）。例：\n  * "我是前端工程师" → user（定义用户身份）\n  * "我偏好 Vue 生态" → user（定义用户偏好）\n  * "我的母语是中文" → user（定义用户背景）\n\n**两类可同时产出**：用户说"我是前端" → 可以写两条 candidate：\n  1. subject="user"  · "用户是前端工程师"\n  2. subject="agent" · "回答时默认用前端语境举例，不必解释基础 Web 概念"\n请自行判断两条是否都值得写。\n\n**关键消歧义**（第二人称"你"一律指 agent）：\n  用户说"你的名字叫小瑾" → **一条** candidate：\n    subject="agent" · "你叫小瑾，当用户直接用小瑾称呼时，要明白是在叫自己"——这是在定义 agent 的身份，不是用户自称叫小瑾。\n\n**与 WorkingMemory 的区别（非常重要，不要混）**：\n- WorkingMemory（set_active_goal / add_todo）= 当前这个页面 / 这轮任务的状态；换页面或任务结束就不再相关。\n- remember_persona = 跨会话、跨页面的**定义**。用户换到任何新页面都继续生效。\n\n**不要调用**：\n- 一次性的问题或请求（"这篇文章的作者是谁"）——那是本次对话的内容，不是长期定义。\n- 情绪化表达（"这段写得不错"）、对页面内容的评论。\n- 只在本次页面有效的事务（那属于 WorkingMemory）。',
     parametersJsonSchema: {
       type: 'object',
       properties: {
         content: {
           type: 'string',
           description:
-            '一条写给 Agent 自己的长期指令（10-60 字，陈述/祈使句，不要用"用户说 ..."这种冗余叙述）',
+            '这条 Persona 的具体定义内容（10-60 字，陈述/祈使句）。subject="agent" 时写给 agent 自己看（例："你叫小瑾"）；subject="user" 时保持对用户的原貌陈述（例："用户是前端工程师"）。',
           minLength: 2,
+        },
+        subject: {
+          type: 'string',
+          enum: ['agent', 'user'],
+          description:
+            '这条信息在**定义谁**：\n- "agent"：在定义 agent 是谁（身份、角色、性格、能力边界、行为方式）\n- "user"：在定义 user 是谁（身份、背景、偏好）\n判断标准只看"这条信息在定义谁"，不要被第二人称/第一人称句式误导。',
         },
         confidence: {
           type: 'number',
@@ -66,16 +77,23 @@ export function createRememberPersonaTool(
           description: '可选关键词标签（例如 identity / style / term-alias）',
         },
       },
-      required: ['content'],
+      required: ['content', 'subject'],
       additionalProperties: false,
     },
     async execute(args) {
       const content = (args.content ?? '').trim();
       if (!content) return { ok: false, error: 'content 不能为空' };
+      if (args.subject !== 'agent' && args.subject !== 'user') {
+        return {
+          ok: false,
+          error: "subject 必须为 'agent' 或 'user'",
+        };
+      }
       try {
         const visitId = deps.getCurrentVisitId?.() ?? '';
         const confidence = Math.max(0, Math.min(1, args.confidence ?? 0.9));
         const payload: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'> = {
+          subject: args.subject,
           content,
           status: 'confirmed', // 用户显式声明视为已确认
           confidence,

@@ -31,8 +31,10 @@ export interface CreateChatAgentOptions {
    * 默认 false（保持 MVP 行为）。
    */
   phase2?: boolean;
-  /** Persona Top-K（phase2 生效） */
-  personaTopK?: number;
+  /** Persona · 对 agent 的定义 Top-K（phase2 生效，默认 10） */
+  agentPersonaTopK?: number;
+  /** Persona · 对 user 的定义 Top-K（phase2 生效，默认 8） */
+  userPersonaTopK?: number;
   /**
    * v0.2.1：辅助 LLM。传入后 Phase2-1 组合会启用 aux-intent 精判；
    * 不传则 RelevantMemorySource 会跳过 aux 精判只走粗判+向量。
@@ -54,7 +56,8 @@ export function createChatAgent(opts: CreateChatAgentOptions): Agent {
       systemPrompt: opts.systemPrompt,
       maxHistoryChars: opts.maxHistoryChars,
       memory: opts.memory,
-      ...(opts.personaTopK !== undefined ? { personaTopK: opts.personaTopK } : {}),
+      ...(opts.agentPersonaTopK !== undefined ? { agentPersonaTopK: opts.agentPersonaTopK } : {}),
+      ...(opts.userPersonaTopK !== undefined ? { userPersonaTopK: opts.userPersonaTopK } : {}),
       ...(opts.auxLLM !== undefined ? { auxLLM: opts.auxLLM } : {}),
       ...(opts.relevantMemory !== undefined ? { relevantMemory: opts.relevantMemory } : {}),
     });

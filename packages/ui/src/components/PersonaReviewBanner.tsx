@@ -1,13 +1,14 @@
 /**
- * PersonaReviewBanner · sidebar 顶部"待审核长期指令"折叠条
+ * PersonaReviewBanner · sidebar 顶部"待审核 Persona 定义"折叠条
  * ---------------------------------------------
  * v0.2.1 · 反思 Job（persona_extraction）产出的 pending PersonaRecord 在此浮现。
- * v0.2.2 · 语义转向：每条 Persona 现在是"Agent 应长期遵守的指令"
- *   （而非"关于用户的事实"）。文案同步从"个性记忆"改为"长期指令"。
+ * v0.4.0 · Persona 双主体：每条候选带 `subject: 'agent' | 'user'` 标注
+ *   （在定义 agent / 在定义 user）。banner 用 `[关于你]` / `[关于用户]` 徽章
+ *   与注入段落标题保持一致。
  *
  * 视觉：
- * - 折叠态（默认）：一行：📌 `N 条新的长期指令待确认` · 箭头
- * - 展开态：逐条显示 content / tags / [✓ 采纳] [✗ 忽略] 三个按钮。
+ * - 折叠态（默认）：一行：📌 `N 条 Persona 定义待审核（关于你 / 关于用户）` · 箭头
+ * - 展开态：逐条显示 subject 徽章 / content / tags / [✓ 采纳] [✗ 忽略] 三个按钮。
  *   "去配置页批量管理"不在此直接处理，引导用户去 options 页（传 onOpenOptions）。
  *
  * UX：
@@ -20,8 +21,11 @@ import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { tokens } from '../theme/tokens';
 
+export type PersonaSubjectView = 'agent' | 'user';
+
 export interface PersonaView {
   id: string;
+  subject: PersonaSubjectView;
   content: string;
   confidence: number;
   tags?: string[];
@@ -134,6 +138,27 @@ const Tag = styled.span`
   line-height: 16px;
 `;
 
+const SubjectBadge = styled.span<{ $subject: PersonaSubjectView }>`
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: ${tokens.radius.pill};
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  color: ${(p) =>
+    p.$subject === 'agent' ? tokens.color.primary : tokens.color.textSecondary};
+  background: ${(p) =>
+    p.$subject === 'agent'
+      ? 'rgba(22, 119, 255, 0.1)'
+      : tokens.color.bgSoft};
+  border: 1px solid
+    ${(p) =>
+      p.$subject === 'agent'
+        ? 'rgba(22, 119, 255, 0.25)'
+        : tokens.color.border};
+`;
+
 const Actions = styled.div`
   display: flex;
   gap: 4px;
@@ -199,6 +224,9 @@ export function PersonaReviewBanner({
 
   if (list.length === 0) return null;
 
+  const agentCount = list.filter((p) => p.subject === 'agent').length;
+  const userCount = list.filter((p) => p.subject === 'user').length;
+
   const handle = async (id: string, action: 'confirm' | 'reject') => {
     setBusy((b) => ({ ...b, [id]: true }));
     try {
@@ -215,10 +243,19 @@ export function PersonaReviewBanner({
   };
 
   return (
-    <Wrap aria-label="长期指令审核条">
+    <Wrap aria-label="Persona 定义审核条">
       <Header onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <span style={{ fontSize: 14 }}>📌</span>
-        <Title>{list.length} 条新的长期指令待确认</Title>
+        <Title>
+          {list.length} 条 Persona 定义待审核
+          {(agentCount > 0 || userCount > 0) && (
+            <span style={{ color: tokens.color.textTertiary, fontWeight: 400 }}>
+              （{agentCount > 0 ? `关于你 ${agentCount}` : ''}
+              {agentCount > 0 && userCount > 0 ? ' · ' : ''}
+              {userCount > 0 ? `关于用户 ${userCount}` : ''}）
+            </span>
+          )}
+        </Title>
         <Chevron $open={open}>›</Chevron>
       </Header>
       {open && (
@@ -226,7 +263,12 @@ export function PersonaReviewBanner({
           {list.map((p) => (
             <PersonaRow key={p.id}>
               <PersonaBody>
-                <PersonaContent>{p.content}</PersonaContent>
+                <PersonaContent>
+                  <SubjectBadge $subject={p.subject}>
+                    {p.subject === 'agent' ? '[关于你]' : '[关于用户]'}
+                  </SubjectBadge>
+                  {p.content}
+                </PersonaContent>
                 <PersonaMeta>
                   <span>置信度 {(p.confidence * 100).toFixed(0)}%</span>
                   {p.tags?.map((t) => <Tag key={t}>{t}</Tag>)}
