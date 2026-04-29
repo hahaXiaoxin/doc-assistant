@@ -340,7 +340,18 @@ function SidebarApp(props: MountOptions) {
   const onRoundFinished = useCallback(
     (info: { userMessageCount: number; recentMessages: ChatMessage[] }) => {
       if (!bootstrap) return;
-      if (!shouldIdentify(info.userMessageCount)) return;
+      // v0.4.0 · 关键词漂移触发：把最后一条 user 消息传给 shouldIdentify，
+      // 命中"换个话题/说点别的/switch topic"等显式漂移词则即使未到周期也立即触发。
+      const lastUserMsg = [...info.recentMessages]
+        .reverse()
+        .find((m) => m.role === 'user')?.content;
+      if (
+        !shouldIdentify(info.userMessageCount, {
+          ...(typeof lastUserMsg === 'string' ? { latestUserInput: lastUserMsg } : {}),
+        })
+      ) {
+        return;
+      }
       const visit = bootstrap.pageVisitManager.getCurrent();
       if (!visit) return;
       void identifySessionTopic({

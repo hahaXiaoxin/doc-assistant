@@ -251,8 +251,44 @@ describe('shouldIdentify', () => {
     expect(shouldIdentify(0)).toBe(false);
   });
   it('自定义 interval', () => {
-    expect(shouldIdentify(3, 3)).toBe(true);
-    expect(shouldIdentify(2, 3)).toBe(false);
+    expect(shouldIdentify(3, { interval: 3 })).toBe(true);
+    expect(shouldIdentify(2, { interval: 3 })).toBe(false);
+  });
+
+  // v0.4.0 · 关键词漂移触发
+  describe('关键词漂移触发（v0.4.0）', () => {
+    it('中文漂移词命中 → 即使 userMsgCount=2（未到周期）也立即触发', () => {
+      expect(shouldIdentify(2, { latestUserInput: '换个话题聊聊 React' })).toBe(true);
+      expect(shouldIdentify(3, { latestUserInput: '不聊这个了，说点别的' })).toBe(true);
+      expect(shouldIdentify(5, { latestUserInput: '我们转个方向，看看数据库' })).toBe(true);
+      expect(shouldIdentify(2, { latestUserInput: '不如说点别的吧' })).toBe(true);
+    });
+    it('英文漂移词命中（case-insensitive）', () => {
+      expect(shouldIdentify(2, { latestUserInput: "Let's switch topic" })).toBe(true);
+      expect(shouldIdentify(2, { latestUserInput: 'LETS CHANGE THE TOPIC' })).toBe(true);
+      expect(shouldIdentify(3, { latestUserInput: "let's talk about dinner" })).toBe(true);
+      expect(shouldIdentify(3, { latestUserInput: 'How about a different topic?' })).toBe(true);
+    });
+    it('不含关键词走原有周期判定', () => {
+      expect(shouldIdentify(2, { latestUserInput: '这段代码什么意思' })).toBe(false);
+      expect(shouldIdentify(3, { latestUserInput: 'continue explaining' })).toBe(false);
+      expect(shouldIdentify(4, { latestUserInput: '继续讲讲这个' })).toBe(true); // 周期命中
+    });
+    it('边界：空字符串 / undefined / null 不命中漂移', () => {
+      expect(shouldIdentify(2, { latestUserInput: '' })).toBe(false);
+      expect(shouldIdentify(2, { latestUserInput: undefined })).toBe(false);
+      expect(shouldIdentify(2, {})).toBe(false);
+    });
+    it('边界：多关键词叠加仍单次触发 true（幂等）', () => {
+      expect(
+        shouldIdentify(2, {
+          latestUserInput: '换个话题，我们聊点别的吧，let\'s switch topic',
+        }),
+      ).toBe(true);
+    });
+    it('边界：userMsgCount=0 即使命中关键词也不触发（无对话）', () => {
+      expect(shouldIdentify(0, { latestUserInput: '换个话题' })).toBe(false);
+    });
   });
 });
 
