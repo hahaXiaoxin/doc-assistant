@@ -385,7 +385,13 @@ all: initial;          /* 避免继承宿主页面样式 */
 
 ---
 
-## §8 · v0.2.1 · Service Worker 与 sidebar 的 IndexedDB 同源隔离风险
+## §8 · (v0.5.0 已解除) v0.2.1 · Service Worker 与 sidebar 的 IndexedDB 同源隔离风险
+
+> 📘 **v0.5.0 状态**：此绕路方案已被 Offscreen Document 架构取代,现在 DB 在扩展 origin 的 offscreen 里,SW 只作 alarm 转发。保留本条目供历史回溯。
+
+### 当时的背景与决策
+
+以下为 v0.2.1 ~ v0.4.0 期间的原始条目（症状 / 根因 / 修复 / 验证点 / 代码锚点）。v0.5.0 通过 Offscreen Document 架构统一了所有 IDB 归属（见 `docs/requirements/v0.5.0-unified-memory.md`），`MessageType.REFLECTION_SCAN_TICK` 及其广播/监听链路已彻底删除；反思 Job 现在由 SW 转发 `REFLECTION_TICK` → offscreen 执行，不再依赖 sidebar 在线。
 
 ### 症状（预防性条目；本期通过架构规避未触发）
 

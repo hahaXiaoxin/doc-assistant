@@ -1,6 +1,6 @@
 {
   "name": "@doc-assistant/memory",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Doc Assistant · 记忆层（v0.2 Dexie 落地：四层记忆 + 向量召回）",
   "type": "module",

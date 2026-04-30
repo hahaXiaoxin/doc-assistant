@@ -2,9 +2,11 @@
 
 面向在线学习场景的 Chrome / Edge 浏览器扩展。在任意文档/文章页面右侧提供可折叠的对话面板，结合页面内容与千问大模型进行上下文感知对话，无需切换窗口或平台。
 
-> **当前版本：v0.2.5（刷新预热机制回退 · 意图驱动的召回架构修正）** · 设计原则与完整规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)
+> **当前版本：v0.5.0（统一记忆 · Offscreen Document 架构）** · 设计原则与完整规划见 [`docs/ROADMAP.md`](./docs/ROADMAP.md)
 >
 > **v0.2 大版本回顾**：从 MVP 对话到类人脑记忆系统的完整设计史与原理沉淀见 [`docs/v0.2-DESIGN-HISTORY.md`](./docs/v0.2-DESIGN-HISTORY.md)
+>
+> **运行环境要求 Chrome 109+**（`chrome.offscreen` API 要求，2023-01 起可用）。v0.5.0 起，所有浏览页面共享同一套记忆数据库（Offscreen Document，位于扩展 origin），不再按宿主域名隔离。
 
 ## 核心特性
 
