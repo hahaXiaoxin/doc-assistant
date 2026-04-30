@@ -340,5 +340,10 @@ describe('WorkingMemorySource · priority=50', () => {
     expect(content).toContain('写个 demo');
     expect(content).toContain('[high]'); // 优先级标记
     expect(content).not.toContain('完成的'); // done 不在 prompt
+    // v0.4.0 修复：每条 TODO 都显式暴露 id，方便 LLM 调 complete_todo({ id })
+    expect(content).toContain('{id=t1}');
+    expect(content).toContain('{id=t2}');
+    // 强指令：complete_todo 推进规则必须出现
+    expect(content).toContain('complete_todo');
   });
 });
