@@ -5,8 +5,10 @@
  * - 监听 action.onClicked：向当前 tab 的 content script 发送 TOGGLE_SIDEBAR
  * - 右键菜单：打开配置页
  * - 路由从 options / content 发来的运行时消息
- * - v0.2 新增：注册 `reflection-scan` chrome.alarms，每 60 分钟扫描待处理的反思任务
- *   v0.2.0 仅登记 alarm；v0.2.1 在 reflection-worker.ts 中实现真正的扫描/执行逻辑。
+ * - v0.2.1：注册 `reflection-scan` chrome.alarms
+ * - v0.5.0 PR-2：alarm 触发时 `ensureOffscreenAlive()` + 转发 `REFLECTION_TICK`
+ *   给 offscreen；sidebar 不再参与反思 Job 的执行。§8 的反思 tick 广播绕路
+ *   （SW 唤醒 sidebar 跑 runPending）已删除。
  */
 import { createLogger, MessageType, type ExtensionMessage } from '@doc-assistant/shared';
 import { ensureOffscreenAlive, installMemoryRpcHook } from './memory-handler';
@@ -88,31 +90,35 @@ chrome.runtime.onMessage.addListener(
 );
 
 /* ------------------------------------------------------------------ */
-/* v0.2.1: chrome.alarms 反思扫描                                      */
-/* ---                                                                 */
-/* 架构决策（v0.2.1）：                                                 */
-/* - IndexedDB 在 SW 与 sidebar 之间的同源隔离仍是风险点，因此本期       */
-/*   选择"SW 只做唤醒、真正跑在 sidebar"的稳妥方案：                    */
-/*   - alarm 触发 → chrome.runtime.sendMessage 广播 REFLECTION_SCAN_TICK */
-/*   - 在线的 sidebar 收到后调用 ReflectionScheduler.runPending()       */
-/*   - 没有 sidebar 在线时消息丢弃；下次打开 sidebar 会自动补跑         */
-/* - 如果未来确认 SW 与 sidebar 同 origin 且 Dexie 可跨上下文共享，     */
-/*   可以把执行器搬到 SW（见 docs/ROADMAP.md §2 附录）                  */
+/* v0.5.0 · PR-2: chrome.alarms → offscreen REFLECTION_TICK 转发         */
+/* ---                                                                   */
+/* 架构决策（v0.5.0）：                                                  */
+/* - Offscreen Document 是 DOM 上下文，MV3 不允许其监听 chrome.alarms.    */
+/*   onAlarm（见 docs/requirements/v0.5.0-unified-memory.md §4 R4）      */
+/* - 因此 SW 保留 alarm 监听，触发时：                                    */
+/*     1. `ensureOffscreenAlive()` 确保 offscreen 活着                    */
+/*     2. `chrome.runtime.sendMessage({ type: REFLECTION_TICK, at })`    */
+/*     3. offscreen 端的 listener 调 `scheduler.runPending()`             */
+/* - 与 §8 的老方案形似（都是"SW 广播"），但接收方从 sidebar 变成          */
+/*   offscreen，offscreen 常驻、一定在线，不再有"sidebar 未开 → 消息      */
+/*   丢失"的问题。                                                       */
 /* ------------------------------------------------------------------ */
 
 export const REFLECTION_ALARM_NAME = 'doc-assistant.reflection-scan';
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== REFLECTION_ALARM_NAME) return;
-  logger.info(`收到 alarm ${REFLECTION_ALARM_NAME} · 广播 REFLECTION_SCAN_TICK`);
-  // fire-and-forget；无监听方时 chrome.runtime.sendMessage 会抛 "Could not establish connection"
-  chrome.runtime
-    .sendMessage({
-      type: MessageType.REFLECTION_SCAN_TICK,
-      at: Date.now(),
-    })
-    .catch((err: Error) => {
-      // 绝大多数情况下是"sidebar 未在线"，属于预期；只打 debug 级日志
-      logger.debug('REFLECTION_SCAN_TICK 无人接收（sidebar 未在线）', err.message);
-    });
+  logger.info(`收到 alarm ${REFLECTION_ALARM_NAME} · 转发 REFLECTION_TICK → offscreen`);
+  void (async () => {
+    try {
+      await ensureOffscreenAlive();
+      await chrome.runtime.sendMessage({
+        type: MessageType.REFLECTION_TICK,
+        at: Date.now(),
+      });
+    } catch (err) {
+      // offscreen 未就绪 / listener 还没挂，偶发预期，debug 级日志
+      logger.debug('REFLECTION_TICK 转发失败', (err as Error).message);
+    }
+  })();
 });

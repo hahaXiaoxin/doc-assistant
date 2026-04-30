@@ -22,16 +22,6 @@ export const MessageType = {
   /** 通用 ACK */
   ACK: 'doc-assistant/ack',
   /**
-   * v0.2.1：SW alarm 触发时广播给 sidebar，让在线的 sidebar 调用
-   * `ReflectionScheduler.runPending()`。
-   * 若没有 sidebar 在线，此消息被浏览器丢弃；下次 sidebar 打开时 bootstrap
-   * 会主动补跑一次。
-   *
-   * v0.5.0：此绕路即将在 PR-2 中删除（反思 Job 迁移到 offscreen 直接跑）。
-   * PR-1 保留枚举项不动，避免编译报错。
-   */
-  REFLECTION_SCAN_TICK: 'doc-assistant/reflection-scan-tick',
-  /**
    * v0.5.0：MemoryStore 远程 RPC 请求（sidebar/options → offscreen）。
    * envelope 见 {@link MemoryRpcRequest}。
    */
@@ -41,6 +31,30 @@ export const MessageType = {
    * envelope 见 {@link MemoryRpcResponse}。
    */
   MEMORY_RPC_RESPONSE: 'doc-assistant/memory-rpc-response',
+  /**
+   * v0.5.0 · PR-2：SW alarm 触发时转发给 offscreen，让 offscreen 内部的
+   * `ReflectionScheduler.runPending()` 执行一次。
+   *
+   * 背景：Offscreen Document 作为 DOM 上下文**不能**监听 `chrome.alarms.onAlarm`
+   *（MV3 限制，见 docs/requirements/v0.5.0-unified-memory.md §4 R4）；
+   * 因此走"SW 监听 alarm → sendMessage → offscreen 接收"的转发模式。
+   *
+   * 该消息**只发给 offscreen**（非广播给 sidebar），取代 v0.2.1 的
+   * "SW→sidebar 反思 tick 广播"方案（已删除）。
+   */
+  REFLECTION_TICK: 'doc-assistant/reflection-tick',
+  /**
+   * v0.5.0 · PR-2：PageVisit 结束即时信号（sidebar → offscreen）。
+   *
+   * 反思 Job 触发有两条路径：
+   * 1. 定时 alarm（见 `REFLECTION_TICK`）
+   * 2. 即时触发：PageVisit 结束后立即登记 3 条反思任务并尝试跑一次
+   *
+   * 原本（v0.2.1）两条都走 sidebar 内的 `ReflectionScheduler.registerOnPageVisitEnd`；
+   * v0.5.0 反思 Job 迁到 offscreen，sidebar 只剩信号源，把 visitId 通过此消息
+   * 转发到 offscreen，后者内部调 `scheduler.enqueueForVisit(visitId)` + `runPending()`。
+   */
+  PAGE_VISIT_ENDED: 'doc-assistant/page-visit-ended',
 } as const;
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType];
@@ -80,10 +94,19 @@ export interface AckMessage {
   error?: string;
 }
 
-/** v0.2.1：反思任务扫描 tick（SW alarm → sidebar） */
-export interface ReflectionScanTickMessage {
-  type: typeof MessageType.REFLECTION_SCAN_TICK;
+/** v0.5.0 · PR-2：SW alarm 触发时转发给 offscreen，让 scheduler 跑 runPending */
+export interface ReflectionTickMessage {
+  type: typeof MessageType.REFLECTION_TICK;
   /** alarm 触发时刻（毫秒） */
+  at: number;
+}
+
+/** v0.5.0 · PR-2：sidebar 通知 offscreen "某个 PageVisit 结束了，请登记反思任务" */
+export interface PageVisitEndedMessage {
+  type: typeof MessageType.PAGE_VISIT_ENDED;
+  /** 刚结束的 visit id（offscreen 侧 scheduler.enqueueForVisit 要用） */
+  visitId: string;
+  /** 结束时刻（毫秒） */
   at: number;
 }
 
@@ -154,7 +177,8 @@ export type ExtensionMessage =
   | OpenSidebarMessage
   | OpenOptionsMessage
   | AckMessage
-  | ReflectionScanTickMessage
+  | ReflectionTickMessage
+  | PageVisitEndedMessage
   | MemoryRpcRequest
   | MemoryRpcResponse;
 

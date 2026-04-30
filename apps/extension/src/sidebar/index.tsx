@@ -95,21 +95,28 @@ function SidebarApp(props: MountOptions) {
       });
   }, []);
 
-  // v0.2.1：监听 SW 的 REFLECTION_SCAN_TICK（chrome.alarms 每 60 分钟触发一次）
+  // v0.5.0 PR-2：反思 Job 已迁到 offscreen（sidebar 不再监听反思 tick 广播消息）。
+  // alarm 触发时 SW 直接转发 REFLECTION_TICK 给 offscreen，offscreen 自己调 runPending。
+  // 这里只负责把 PageVisit 结束事件通过 PAGE_VISIT_ENDED 消息转发给 offscreen。
   useEffect(() => {
-    if (!bootstrap?.reflectionScheduler) return;
-    const scheduler = bootstrap.reflectionScheduler;
-    const handler = (message: { type?: string } | undefined) => {
-      if (message?.type !== MessageType.REFLECTION_SCAN_TICK) return;
-      logger.info('收到 REFLECTION_SCAN_TICK，触发 runPending');
-      void scheduler.runPending().catch((err: Error) => {
-        logger.warn('runPending 失败', err.message);
-      });
-    };
-    chrome.runtime.onMessage.addListener(handler);
-    return () => {
-      chrome.runtime.onMessage.removeListener(handler);
-    };
+    if (!bootstrap) return;
+    const pvm = bootstrap.pageVisitManager;
+    const unsubscribe = pvm.subscribe((event) => {
+      if (event.type !== 'end') return;
+      const visitId = event.visit.visitId;
+      logger.info(`PAGE_VISIT_ENDED → offscreen (visitId=${visitId})`);
+      chrome.runtime
+        .sendMessage({
+          type: MessageType.PAGE_VISIT_ENDED,
+          visitId,
+          at: Date.now(),
+        })
+        .catch((err: Error) => {
+          // offscreen 未就绪或被 Chrome 暂时回收：下次 alarm tick 会补跑 pending 任务
+          logger.debug('PAGE_VISIT_ENDED 发送失败（将由下次 alarm 补跑）', err.message);
+        });
+    });
+    return unsubscribe;
   }, [bootstrap]);
 
   // v0.2：PageVisit 生命周期管理
