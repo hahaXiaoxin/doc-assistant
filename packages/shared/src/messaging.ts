@@ -26,8 +26,21 @@ export const MessageType = {
    * `ReflectionScheduler.runPending()`。
    * 若没有 sidebar 在线，此消息被浏览器丢弃；下次 sidebar 打开时 bootstrap
    * 会主动补跑一次。
+   *
+   * v0.5.0：此绕路即将在 PR-2 中删除（反思 Job 迁移到 offscreen 直接跑）。
+   * PR-1 保留枚举项不动，避免编译报错。
    */
   REFLECTION_SCAN_TICK: 'doc-assistant/reflection-scan-tick',
+  /**
+   * v0.5.0：MemoryStore 远程 RPC 请求（sidebar/options → offscreen）。
+   * envelope 见 {@link MemoryRpcRequest}。
+   */
+  MEMORY_RPC_REQUEST: 'doc-assistant/memory-rpc-request',
+  /**
+   * v0.5.0：MemoryStore 远程 RPC 响应（offscreen → sidebar/options）。
+   * envelope 见 {@link MemoryRpcResponse}。
+   */
+  MEMORY_RPC_RESPONSE: 'doc-assistant/memory-rpc-response',
 } as const;
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType];
@@ -74,13 +87,76 @@ export interface ReflectionScanTickMessage {
   at: number;
 }
 
+/* ------------------------------------------------------------------ */
+/* v0.5.0 · MemoryStore 远程 RPC envelope                               */
+/* ---                                                                  */
+/* sidebar/options 用 RemoteMemoryStore 通过 chrome.runtime.sendMessage  */
+/* 把 MemoryStore 方法调用转发到 offscreen document 统一处理。           */
+/* 协议要点：                                                            */
+/* - rpcId 调用侧生成 uuid，用于 response 匹配                           */
+/* - method / args 与 MemoryStore 方法签名 1:1                           */
+/* - 错误统一序列化为 { message, stack } 字符串对                        */
+/* - Float32Array 不跨 RPC（embedding 由 offscreen 内部重算；见文档§1.4）*/
+/* ------------------------------------------------------------------ */
+
+/** RemoteMemoryStore 支持的 method 枚举（与 MemoryStore 接口 22 条契约 1:1） */
+export type MemoryRpcMethod =
+  | 'remember'
+  | 'recall'
+  | 'deleteRecord'
+  | 'listVisitSummaries'
+  | 'listSessionTopics'
+  | 'listWorkingMemories'
+  | 'deleteWorkingMemory'
+  | 'getWorkingMemory'
+  | 'setWorkingMemory'
+  | 'touchWorkingMemory'
+  | 'archiveStaleWorkingMemories'
+  | 'listPersonas'
+  | 'addPersonaCandidate'
+  | 'updatePersona'
+  | 'setSessionTopic'
+  | 'getSessionTopic'
+  | 'enqueueReflection'
+  | 'listPendingReflections'
+  | 'updateReflection'
+  | 'recordPageVisit'
+  | 'getPageVisit'
+  | 'close';
+
+export interface MemoryRpcRequest {
+  type: typeof MessageType.MEMORY_RPC_REQUEST;
+  /** 调用侧生成的 uuid，用于匹配响应 */
+  rpcId: string;
+  method: MemoryRpcMethod;
+  /** 位置参数，与 MemoryStore 方法签名一致 */
+  args: unknown[];
+}
+
+export interface MemoryRpcErrorPayload {
+  message: string;
+  stack?: string;
+}
+
+export interface MemoryRpcResponse {
+  type: typeof MessageType.MEMORY_RPC_RESPONSE;
+  rpcId: string;
+  ok: boolean;
+  /** ok=true 时返回的方法结果（已序列化后的 JSON 友好值） */
+  result?: unknown;
+  /** ok=false 时的错误载荷 */
+  error?: MemoryRpcErrorPayload;
+}
+
 export type ExtensionMessage =
   | InsertReferenceMessage
   | ToggleSidebarMessage
   | OpenSidebarMessage
   | OpenOptionsMessage
   | AckMessage
-  | ReflectionScanTickMessage;
+  | ReflectionScanTickMessage
+  | MemoryRpcRequest
+  | MemoryRpcResponse;
 
 /**
  * 同 tab 内 content ↔ sidebar 的 CustomEvent 名

@@ -1,15 +1,19 @@
 /**
- * Sidebar 启动装配（v0.2 重构）
+ * Sidebar 启动装配（v0.5.0 · 统一记忆）
  * ---------------------------------------------
  * 职责：
  * - 读取 STORAGE_KEYS（主/辅/embedding 三套 + MemorySettings）
  * - 装配三套 Provider（辅助/embedding 按 useMain 回退到主 Provider 配置）
- * - 初始化 DexieMemoryStore（敏感过滤开关来自 MemorySettings）
- * - 初始化 PageVisitManager（注入 memory 以登记 page_visits 表）
- * - 构造 ChatAgent（phase2=true 接入新 ContextSource；若 memory 初始化失败则降级 NullStore）
+ * - v0.5.0：**记忆层改为 `RemoteMemoryStore`**——sidebar 跑在 content-script
+ *   origin，本身不再持 IndexedDB，所有 `memory.xxx()` 通过 RPC 转发到
+ *   Offscreen Document 去执行（详见 docs/requirements/v0.5.0-unified-memory.md §1）。
+ *   原本的 DexieMemoryStore 构造 + embedQuery 闭包已迁移至 offscreen。
+ * - 初始化 PageVisitManager（注入 memory 以登记 page_visits 表，所有 API 走 RPC）
+ * - 构造 ChatAgent（phase2=true 接入新 ContextSource）
  * - 返回给 SidebarApp 使用
  *
- * 注意：v0.2.0 阶段 memory 数据可能为空，ContextSource 会返回 null，不贡献段落，无 breaking。
+ * 注意：PR-1 阶段 ReflectionRunner / ReflectionScheduler 依然在 sidebar 运行
+ *       （走 RemoteStore 读写 DB），PR-2 会整体迁移到 offscreen。
  */
 import {
   DEFAULT_AUX_PROVIDER_CONFIG,
@@ -33,8 +37,7 @@ import {
 import { QwenProvider, QwenEmbeddingProvider } from '@doc-assistant/provider';
 import type { EmbeddingProvider, LLMProvider } from '@doc-assistant/provider';
 import {
-  DexieMemoryStore,
-  NullMemoryStore,
+  RemoteMemoryStore,
   type MemoryStore,
 } from '@doc-assistant/memory';
 import { buildPhase2Tools } from '@doc-assistant/tools';
@@ -160,27 +163,9 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     );
   }
 
-  // 初始化 Memory
-  let memory: MemoryStore;
-  try {
-    memory = new DexieMemoryStore({
-      sensitiveFilterEnabled: memorySettings.sensitiveFilterEnabled,
-      ...(embeddingProvider
-        ? {
-            embedQuery: async (text: string): Promise<Float32Array> => {
-              const vectors = await embeddingProvider!.embed([text]);
-              return vectors[0] ?? new Float32Array();
-            },
-          }
-        : {}),
-    });
-  } catch (err) {
-    logger.error(
-      'DexieMemoryStore 初始化失败，降级到 NullMemoryStore',
-      (err as Error).message,
-    );
-    memory = new NullMemoryStore();
-  }
+  // v0.5.0：记忆层改为 RemoteMemoryStore（通过 chrome.runtime.sendMessage 转发到 offscreen）。
+  // 不再构造 DexieMemoryStore，也不再传 embedQuery——embedding 由 offscreen 内部持有。
+  const memory: MemoryStore = new RemoteMemoryStore();
 
   // PageVisitManager（注入 memory 以登记 page_visits）
   const pageVisitManager = new PageVisitManager({ memory });
@@ -293,7 +278,7 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     embUseMain: isUseMain(embConfig),
     hasEmbedding: !!embeddingProvider,
     reflectionEnabled: !!reflectionScheduler,
-    memoryKind: memory instanceof NullMemoryStore ? 'null' : 'dexie',
+    memoryKind: 'remote',
     tools: tools.map((t) => t.name),
     maxTurns: chatSettings.maxTurns,
     missingConfig,

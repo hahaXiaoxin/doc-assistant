@@ -9,10 +9,18 @@
  *   v0.2.0 仅登记 alarm；v0.2.1 在 reflection-worker.ts 中实现真正的扫描/执行逻辑。
  */
 import { createLogger, MessageType, type ExtensionMessage } from '@doc-assistant/shared';
+import { ensureOffscreenAlive, installMemoryRpcHook } from './memory-handler';
 
 const logger = createLogger('extension:background');
 
 logger.info('service worker 启动');
+
+// v0.5.0：SW 冷启动时立即拉起 offscreen（不 await，缩短首条 RPC 延迟）
+void ensureOffscreenAlive().catch((err: Error) => {
+  logger.warn('top-level ensureOffscreenAlive 失败', err.message);
+});
+// v0.5.0：每次收到 MEMORY_RPC_REQUEST 前确保 offscreen 活着
+installMemoryRpcHook();
 
 /* ------------------------------------------------------------------ */
 /* Toolbar / 右键 / 消息路由（MVP 行为保留）                            */
@@ -45,6 +53,19 @@ chrome.runtime.onInstalled.addListener(() => {
   } catch (err) {
     logger.warn('chrome.alarms.create 失败（可能环境不支持）', (err as Error).message);
   }
+
+  // v0.5.0：安装/更新时确保 offscreen 活着
+  void ensureOffscreenAlive().catch((err: Error) => {
+    logger.warn('onInstalled ensureOffscreenAlive 失败', err.message);
+  });
+});
+
+// v0.5.0：浏览器启动时也拉起 offscreen，减少首次 RPC 冷启动延迟
+chrome.runtime.onStartup.addListener(() => {
+  logger.info('runtime.onStartup：确保 offscreen 活着');
+  void ensureOffscreenAlive().catch((err: Error) => {
+    logger.warn('onStartup ensureOffscreenAlive 失败', err.message);
+  });
 });
 
 chrome.contextMenus.onClicked.addListener((info) => {

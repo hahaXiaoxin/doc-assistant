@@ -35,3 +35,19 @@ export { NullMemoryStore } from './null-store';
 export { DexieMemoryStore, type DexieMemoryStoreOptions } from './db/dexie-store';
 export { MemoryDatabase, DEFAULT_DB_NAME, DB_VERSION, resetMemoryDatabase } from './db/schema';
 export { cosineSim, norm, topK, type ScoredItem } from './db/vector';
+
+// v0.5.0 新增：远程代理（通过 chrome.runtime.sendMessage 转发到 offscreen）
+export {
+  RemoteMemoryStore,
+  MemoryRpcTimeoutError,
+  DEFAULT_MEMORY_RPC_TIMEOUT_MS,
+  defaultChromeRuntimeTransport,
+  type RpcTransport,
+  type RemoteMemoryStoreOptions,
+} from './remote/remote-store';
+export {
+  dispatchMemoryRpc,
+  isMemoryRpcRequest,
+  MEMORY_RPC_METHODS,
+  type DispatchObserver,
+} from './remote/remote-dispatch';

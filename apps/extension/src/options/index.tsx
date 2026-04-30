@@ -4,26 +4,19 @@
  * - 独立 HTML 页面，通过 chrome-extension://<id>/src/options/options.html 访问
  * - 使用 @doc-assistant/ui 的 OptionsForm
  * - 注入 chrome.storage.local 的类型化 TypedStorage
- * - v0.4.0：构造 DexieMemoryStore 供"记忆浏览器" Tab 使用（只读 + 删/编）
- *   - 共享同一个 IDB DB（DEFAULT_DB_NAME），与 sidebar/background 看到同一份数据
- *   - 不注入 embedQuery：记忆浏览器只做 list /删除/编辑，不做向量召回
- *   - 敏感过滤默认开启（从 MemorySettings 读）
+ * - v0.5.0：记忆浏览器 Tab 使用 `RemoteMemoryStore`，通过 RPC 转发到 offscreen
+ *   document 执行；与 sidebar / SW 共享同一份扩展 origin 下的 IDB，彻底解决
+ *   v0.4.0 "记忆浏览器空表"的问题。
  */
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import {
-  DEFAULT_MEMORY_SETTINGS,
-  STORAGE_KEYS,
   createLogger,
   createTypedStorage,
   type StorageSchema,
 } from '@doc-assistant/shared';
-import {
-  DexieMemoryStore,
-  NullMemoryStore,
-  type MemoryStore,
-} from '@doc-assistant/memory';
+import { RemoteMemoryStore, type MemoryStore } from '@doc-assistant/memory';
 import { OptionsForm } from '@doc-assistant/ui';
 
 const logger = createLogger('extension:options');
@@ -36,18 +29,8 @@ if (!container) {
 const storage = createTypedStorage<StorageSchema>();
 
 void (async () => {
-  const memStored = await storage.get(STORAGE_KEYS.MEMORY_SETTINGS);
-  const memorySettings = { ...DEFAULT_MEMORY_SETTINGS, ...(memStored ?? {}) };
-
-  let memory: MemoryStore;
-  try {
-    memory = new DexieMemoryStore({
-      sensitiveFilterEnabled: memorySettings.sensitiveFilterEnabled,
-    });
-  } catch (err) {
-    logger.warn('DexieMemoryStore 初始化失败，降级到 NullMemoryStore', (err as Error).message);
-    memory = new NullMemoryStore();
-  }
+  const memory: MemoryStore = new RemoteMemoryStore();
+  logger.info('options 已装配 RemoteMemoryStore（记忆浏览器走 offscreen 代理）');
 
   createRoot(container).render(
     <ConfigProvider
