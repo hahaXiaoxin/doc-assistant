@@ -16,6 +16,7 @@ import {
 import {
   RemoteMemoryStore,
   MemoryRpcTimeoutError,
+  defaultChromeRuntimeTransport,
   type RpcTransport,
 } from '../remote-store';
 import type {
@@ -422,6 +423,160 @@ describe('RemoteMemoryStore · 超时', () => {
       await assertion;
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* defaultChromeRuntimeTransport · offscreen 冷启动退避                */
+/* ------------------------------------------------------------------ */
+
+describe('defaultChromeRuntimeTransport · offscreen 冷启动退避', () => {
+  /** 用 globalThis.chrome mock + 注入的 sleep=no-op 来让测试不依赖真实定时器。 */
+  function withChromeMock<T>(
+    sendMessage: (msg: unknown) => Promise<unknown>,
+    fn: (ctx: { calls: number }) => Promise<T>,
+  ): Promise<T> {
+    const ctx = { calls: 0 };
+    const wrapped = async (msg: unknown) => {
+      ctx.calls += 1;
+      return sendMessage(msg);
+    };
+    const prev = (globalThis as unknown as { chrome?: unknown }).chrome;
+    (globalThis as unknown as { chrome: unknown }).chrome = {
+      runtime: { sendMessage: wrapped },
+    };
+    return fn(ctx).finally(() => {
+      (globalThis as unknown as { chrome?: unknown }).chrome = prev;
+    });
+  }
+
+  it('首次 sendMessage resolve undefined（offscreen 未就绪），重试后拿到合法 response', async () => {
+    await withChromeMock(
+      async () => {
+        // 前 2 次返回 undefined 模拟 offscreen 未挂 listener
+        // 第 3 次返回合法 envelope
+        return undefined;
+      },
+      async (ctx) => {
+        // 自定义 sendMessage：前 2 次 undefined，第 3 次合法
+        (globalThis as unknown as {
+          chrome: { runtime: { sendMessage: (m: unknown) => Promise<unknown> } };
+        }).chrome.runtime.sendMessage = async (msg: unknown) => {
+          ctx.calls += 1;
+          if (ctx.calls < 3) return undefined;
+          const req = msg as MemoryRpcRequest;
+          return {
+            type: MessageType.MEMORY_RPC_RESPONSE,
+            rpcId: req.rpcId,
+            ok: true,
+            result: undefined,
+          } satisfies MemoryRpcResponse;
+        };
+
+        const transport = defaultChromeRuntimeTransport({
+          maxRetries: 3,
+          sleep: async () => undefined, // 测试不等真时间
+        });
+        const store = new RemoteMemoryStore({ transport, timeoutMs: 1_000 });
+        await expect(store.deleteRecord('x')).resolves.toBeUndefined();
+        expect(ctx.calls).toBe(3);
+      },
+    );
+  });
+
+  it('首次 sendMessage 抛 "receiving end does not exist"，重试后成功', async () => {
+    await withChromeMock(
+      async () => undefined, // 占位，下面覆盖
+      async (ctx) => {
+        (globalThis as unknown as {
+          chrome: { runtime: { sendMessage: (m: unknown) => Promise<unknown> } };
+        }).chrome.runtime.sendMessage = async (msg: unknown) => {
+          ctx.calls += 1;
+          if (ctx.calls === 1) {
+            throw new Error('Could not establish connection. Receiving end does not exist.');
+          }
+          const req = msg as MemoryRpcRequest;
+          return {
+            type: MessageType.MEMORY_RPC_RESPONSE,
+            rpcId: req.rpcId,
+            ok: true,
+            result: undefined,
+          } satisfies MemoryRpcResponse;
+        };
+
+        const transport = defaultChromeRuntimeTransport({
+          maxRetries: 3,
+          sleep: async () => undefined,
+        });
+        const store = new RemoteMemoryStore({ transport, timeoutMs: 1_000 });
+        await expect(store.deleteRecord('x')).resolves.toBeUndefined();
+        expect(ctx.calls).toBe(2);
+      },
+    );
+  });
+
+  it('重试耗尽后仍 undefined 时抛 "unexpected RPC response shape"（含 rpcId+method）', async () => {
+    await withChromeMock(
+      async () => undefined,
+      async (ctx) => {
+        (globalThis as unknown as {
+          chrome: { runtime: { sendMessage: (m: unknown) => Promise<unknown> } };
+        }).chrome.runtime.sendMessage = async () => {
+          ctx.calls += 1;
+          return undefined; // 永远 undefined
+        };
+
+        const transport = defaultChromeRuntimeTransport({
+          maxRetries: 2,
+          sleep: async () => undefined,
+        });
+        const store = new RemoteMemoryStore({ transport, timeoutMs: 1_000 });
+        await expect(store.deleteRecord('x')).rejects.toThrowError(
+          /unexpected RPC response shape.*method=deleteRecord/,
+        );
+        // 初次 + 2 次重试 = 3 次调用
+        expect(ctx.calls).toBe(3);
+      },
+    );
+  });
+
+  it('默认 transport：happy path 不触发重试，单次即成功', async () => {
+    await withChromeMock(
+      async () => undefined,
+      async (ctx) => {
+        (globalThis as unknown as {
+          chrome: { runtime: { sendMessage: (m: unknown) => Promise<unknown> } };
+        }).chrome.runtime.sendMessage = async (msg: unknown) => {
+          ctx.calls += 1;
+          const req = msg as MemoryRpcRequest;
+          return {
+            type: MessageType.MEMORY_RPC_RESPONSE,
+            rpcId: req.rpcId,
+            ok: true,
+            result: undefined,
+          } satisfies MemoryRpcResponse;
+        };
+
+        const transport = defaultChromeRuntimeTransport({ sleep: async () => undefined });
+        const store = new RemoteMemoryStore({ transport, timeoutMs: 1_000 });
+        await store.deleteRecord('x');
+        expect(ctx.calls).toBe(1);
+      },
+    );
+  });
+
+  it('chrome.runtime.sendMessage 不可用时直接抛（不进入重试循环）', async () => {
+    const prev = (globalThis as unknown as { chrome?: unknown }).chrome;
+    (globalThis as unknown as { chrome?: unknown }).chrome = { runtime: {} };
+    try {
+      const transport = defaultChromeRuntimeTransport({ sleep: async () => undefined });
+      const store = new RemoteMemoryStore({ transport, timeoutMs: 1_000 });
+      await expect(store.deleteRecord('x')).rejects.toThrowError(
+        /chrome\.runtime\.sendMessage is not available/,
+      );
+    } finally {
+      (globalThis as unknown as { chrome?: unknown }).chrome = prev;
     }
   });
 });

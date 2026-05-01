@@ -61,9 +61,17 @@ export async function ensureOffscreenAlive(): Promise<void> {
  * 在 SW 的 onMessage 路由里挂一个"触发器"：
  * 收到第一条 MEMORY_RPC_REQUEST 时确保 offscreen 活着。
  *
- * 注意：不消费消息（return false），让 offscreen 的 listener 继续接管并响应。
- * 如果 SW 冷启动后 offscreen 还没就绪，第一条 RPC 可能会丢失——`RemoteMemoryStore`
- * 的 15s 超时能兜住，调用方 retry 即可。
+ * **契约红线（不要改）**：
+ * - listener 必须 **同步** 返回 `false`——绝不能 `return true`、也绝不能调
+ *   `sendResponse(...)`。Chrome MV3 规则：一旦某个 listener 声明了"我会异步响应"
+ *   或同步调用了 `sendResponse`，其他 listener 的 `sendResponse` 会被丢弃；
+ *   这里我们让 offscreen 的 listener 独占响应通道。
+ * - 不要 `await ensureOffscreenAlive()` 再返回——listener 必须同步决策，否则
+ *   Chrome 会按"未声明异步"处理（旧版 Chrome 的兼容行为不稳定）。
+ * - 冷启动时 offscreen 可能还没挂 listener，第一波 RPC 会在 chrome 侧拿到
+ *   undefined response；这种情况由 `RemoteMemoryStore` 的默认 chrome transport
+ *   内部做有限退避重试兜底（见 packages/memory/src/remote/remote-store.ts 的
+ *   `DEFAULT_RPC_RETRY_MAX` 注释），调用方不用感知。
  */
 export function installMemoryRpcHook(): void {
   chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
@@ -72,11 +80,12 @@ export function installMemoryRpcHook(): void {
       typeof message === 'object' &&
       (message as { type?: unknown }).type === MessageType.MEMORY_RPC_REQUEST
     ) {
-      // fire-and-forget：保证 offscreen 活着；不拦截消息
+      // fire-and-forget：保证 offscreen 活着；**绝不**调 sendResponse / 返回 true
       void ensureOffscreenAlive().catch((err: Error) => {
         logger.warn('ensureOffscreenAlive 失败（RPC 可能超时）', err.message);
       });
     }
+    // 不声明异步、不消费消息，让 offscreen 的 listener 独占 sendResponse 通道
     return false;
   });
 }

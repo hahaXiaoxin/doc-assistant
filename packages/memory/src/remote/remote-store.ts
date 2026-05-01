@@ -41,6 +41,25 @@ import type {
 /** 默认 RPC 超时（15s，足以覆盖 embedding 生成 + IDB 写入） */
 export const DEFAULT_MEMORY_RPC_TIMEOUT_MS = 15_000;
 
+/**
+ * offscreen 冷启动窗口退避（默认 transport 专用）
+ * ---------------------------------------------
+ * 真机观察：SW 顶层 `void ensureOffscreenAlive()` 不 await，`chrome.offscreen.createDocument`
+ * 本身需要 100~500ms；offscreen 脚本 import/DexieMemoryStore bootstrap 又要数百 ms 才挂
+ * `chrome.runtime.onMessage` listener。此期间 sidebar 打出的 RPC 不会抛"Could not
+ * establish connection"（SW 的 `installMemoryRpcHook` 本身是一个 listener），而是所有
+ * listener 同步 return false → `sendMessage` resolve 为 **undefined** → transport 层
+ * 校验 envelope 时抛 "unexpected RPC response shape"。
+ *
+ * 修复路径（不改 SW 契约 / 不改 dispatcher / 不改对外接口）：
+ * - 仅在 **默认 chrome transport** 内加有限退避：收到 undefined / type 不匹配时等一小段
+ *   再重试，最多 `DEFAULT_RPC_RETRY_MAX` 次；仍拿不到合法 response 才抛。
+ * - 总等待 ~450ms，远小于 15s 超时，对 happy path 零影响；单测用的 `FakeTransport`
+ *   不经过此重试逻辑，行为保持不变。
+ */
+export const DEFAULT_RPC_RETRY_MAX = 3;
+export const DEFAULT_RPC_RETRY_BASE_MS = 150;
+
 /** RPC 超时错误 */
 export class MemoryRpcTimeoutError extends Error {
   constructor(method: string, timeoutMs: number) {
@@ -57,8 +76,16 @@ export interface RpcTransport {
   send(req: MemoryRpcRequest): Promise<MemoryRpcResponse>;
 }
 
-/** 默认 transport：封装 chrome.runtime.sendMessage → Promise<MemoryRpcResponse> */
-export function defaultChromeRuntimeTransport(): RpcTransport {
+/** 默认 transport：封装 chrome.runtime.sendMessage → Promise<MemoryRpcResponse>
+ *
+ * - 带 offscreen 冷启动退避重试（见 DEFAULT_RPC_RETRY_MAX 上方注释）
+ * - 可注入 `sleep` / `maxRetries` / `baseDelayMs` 便于单测驱动（非生产 API）
+ */
+export function defaultChromeRuntimeTransport(opts?: {
+  maxRetries?: number;
+  baseDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+}): RpcTransport {
   // 避免让 @doc-assistant/memory 依赖 @types/chrome——此处用结构化类型访问
   interface RuntimeLike {
     sendMessage?: (msg: unknown) => Promise<unknown>;
@@ -68,21 +95,54 @@ export function defaultChromeRuntimeTransport(): RpcTransport {
   }
   const chromeGlobal = (globalThis as unknown as { chrome?: ChromeLike }).chrome;
 
+  const maxRetries = opts?.maxRetries ?? DEFAULT_RPC_RETRY_MAX;
+  const baseDelayMs = opts?.baseDelayMs ?? DEFAULT_RPC_RETRY_BASE_MS;
+  const sleep =
+    opts?.sleep ??
+    ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  function isValidResponse(resp: unknown): resp is MemoryRpcResponse {
+    return (
+      !!resp &&
+      typeof resp === 'object' &&
+      (resp as { type?: unknown }).type === MessageType.MEMORY_RPC_RESPONSE
+    );
+  }
+
   return {
     async send(req: MemoryRpcRequest): Promise<MemoryRpcResponse> {
       const sendMessage = chromeGlobal?.runtime?.sendMessage;
       if (!sendMessage) {
         throw new Error('chrome.runtime.sendMessage is not available');
       }
-      const resp = (await sendMessage.call(chromeGlobal?.runtime, req)) as
-        | MemoryRpcResponse
-        | undefined;
-      if (!resp || resp.type !== MessageType.MEMORY_RPC_RESPONSE) {
-        throw new Error(
-          `RemoteMemoryStore: unexpected RPC response shape (rpcId=${req.rpcId}, method=${req.method})`,
-        );
+
+      let lastResp: unknown;
+      let lastErr: unknown;
+      // attempt 0..maxRetries（共 maxRetries+1 次尝试）
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          lastResp = await sendMessage.call(chromeGlobal?.runtime, req);
+          if (isValidResponse(lastResp)) return lastResp;
+          // 收到不合法 envelope（常见：undefined，表示 offscreen 尚未挂 listener）
+        } catch (err) {
+          // sendMessage 本身抛错（例如"receiving end does not exist"）——
+          // offscreen 根本没起来时 Chrome 会抛；同样走重试
+          lastErr = err;
+        }
+        if (attempt < maxRetries) {
+          // 线性退避：150ms / 300ms / 450ms，总计 ~900ms，足以覆盖 offscreen 冷启动
+          await sleep(baseDelayMs * (attempt + 1));
+        }
       }
-      return resp;
+
+      if (lastErr) {
+        throw lastErr instanceof Error
+          ? lastErr
+          : new Error(`chrome.runtime.sendMessage failed: ${String(lastErr)}`);
+      }
+      throw new Error(
+        `RemoteMemoryStore: unexpected RPC response shape (rpcId=${req.rpcId}, method=${req.method})`,
+      );
     },
   };
 }
