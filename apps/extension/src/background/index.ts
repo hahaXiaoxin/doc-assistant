@@ -11,16 +11,20 @@
  *   （SW 唤醒 sidebar 跑 runPending）已删除。
  */
 import { createLogger, MessageType, type ExtensionMessage } from '@doc-assistant/shared';
-import { ensureOffscreenAlive, installMemoryRpcHook } from './memory-handler';
+import {
+  ensureOffscreenAlive,
+  installMemoryRpcHook,
+  verifyOffscreenAlive,
+} from './memory-handler';
 
 const logger = createLogger('extension:background');
 
 logger.info('service worker 启动');
 
 // v0.5.0：SW 冷启动时立即拉起 offscreen（不 await，缩短首条 RPC 延迟）
-void ensureOffscreenAlive().catch((err: Error) => {
-  logger.warn('top-level ensureOffscreenAlive 失败', err.message);
-});
+// 额外做一次启动自检日志（失败不阻塞 SW；RPC 路径仍会在收到 MEMORY_RPC_REQUEST
+// 时重试 ensureOffscreenAlive），让用户在 SW Console 一眼能看到 offscreen 是否起来。
+void verifyOffscreenAlive('sw-boot');
 // v0.5.0：每次收到 MEMORY_RPC_REQUEST 前确保 offscreen 活着
 installMemoryRpcHook();
 

@@ -156,4 +156,53 @@ describe('memory-handler · installMemoryRpcHook 契约', () => {
     expect(mock.offscreen.hasDocument).toHaveBeenCalledTimes(2);
     expect(mock.offscreen.createDocument).not.toHaveBeenCalled();
   });
+
+  /**
+   * 红线（v0.5.0 真机修复 · "offscreen 从未启动"）：
+   * createDocument 的 reasons 里任何非法 enum 值都会让 Chrome 直接抛错 →
+   * offscreen 永远起不来 → sidebar RPC 报 "unexpected RPC response shape"。
+   * 合法值见 chrome.offscreen.Reason（TESTING / AUDIO_PLAYBACK / IFRAME_SCRIPTING /
+   * DOM_SCRAPING / BLOBS / DOM_PARSER / USER_MEDIA / DISPLAY_MEDIA / WEB_RTC /
+   * CLIPBOARD / LOCAL_STORAGE / WORKERS / BATTERY_STATUS / MATCH_MEDIA / GEOLOCATION）。
+   * 我们用 LOCAL_STORAGE（IDB 与 localStorage 同属 storage partition）。
+   */
+  it('createDocument 使用合法 reason（LOCAL_STORAGE，非 IDB_PERSISTENCE）', async () => {
+    const mock = setupChromeMock();
+    mock.offscreen.hasDocument.mockResolvedValue(false);
+
+    const mod = await importFresh();
+    await mod.ensureOffscreenAlive();
+
+    expect(mock.offscreen.createDocument).toHaveBeenCalledTimes(1);
+    const params = mock.offscreen.createDocument.mock.calls[0]![0] as {
+      url: string;
+      reasons: string[];
+      justification: string;
+    };
+    expect(params.url).toBe('src/offscreen/offscreen.html');
+    expect(params.reasons).toEqual(['LOCAL_STORAGE']);
+    expect(params.reasons).not.toContain('IDB_PERSISTENCE');
+    expect(params.justification.length).toBeGreaterThan(0);
+  });
+
+  it('verifyOffscreenAlive 返回 true 当 hasDocument=true（启动自检日志路径）', async () => {
+    const mock = setupChromeMock();
+    mock.offscreen.hasDocument.mockResolvedValue(true);
+
+    const mod = await importFresh();
+    const ok = await mod.verifyOffscreenAlive('test');
+
+    expect(ok).toBe(true);
+  });
+
+  it('verifyOffscreenAlive 在 createDocument 失败时返回 false（不抛）', async () => {
+    const mock = setupChromeMock();
+    mock.offscreen.hasDocument.mockResolvedValue(false);
+    mock.offscreen.createDocument.mockRejectedValue(new Error('Invalid reason'));
+
+    const mod = await importFresh();
+    const ok = await mod.verifyOffscreenAlive('test');
+
+    expect(ok).toBe(false);
+  });
 });

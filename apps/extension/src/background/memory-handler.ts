@@ -20,6 +20,27 @@ const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen/offscreen.html';
 const OFFSCREEN_JUSTIFICATION =
   'Persist and query unified memory database across all host origins; run reflection jobs that outlive any single tab.';
 
+/**
+ * offscreen document 的 createDocument reason。
+ *
+ * 历史踩坑（v0.5.0 真机）：
+ * - 初版写的是 `'IDB_PERSISTENCE'`，**不是合法的 enum 值**（Chrome 官方 Reason
+ *   白名单：TESTING / AUDIO_PLAYBACK / IFRAME_SCRIPTING / DOM_SCRAPING / BLOBS /
+ *   DOM_PARSER / USER_MEDIA / DISPLAY_MEDIA / WEB_RTC / CLIPBOARD / LOCAL_STORAGE /
+ *   WORKERS / BATTERY_STATUS / MATCH_MEDIA / GEOLOCATION）。Chrome 会拒绝创建，
+ *   `createDocument` 抛错，而 SW 顶层的 `void ensureOffscreenAlive().catch(...)` 只
+ *   打 warn 后吞掉 → `chrome://extensions` 里根本看不到 offscreen 视图 → sidebar
+ *   所有 RPC 都没人响应 → "unexpected RPC response shape"。
+ * - 修复：改用合法值 `LOCAL_STORAGE`（与 IDB 同为 storage partition 语义；Chrome 官方
+ *   对 IndexedDB 没有专用 reason，社区通行做法即 LOCAL_STORAGE）。
+ *
+ * 注意：不要再用 `as chrome.offscreen.Reason` 做硬 cast，一旦绕过 TS 类型检查就
+ * 失去了对非法 enum 的保护。这里直接用字符串字面量即可（Reason 就是 string enum）。
+ */
+const OFFSCREEN_REASONS: chrome.offscreen.Reason[] = [
+  'LOCAL_STORAGE' as chrome.offscreen.Reason,
+];
+
 /** 幂等：检查 offscreen 是否存在，否则创建 */
 export async function ensureOffscreenAlive(): Promise<void> {
   // Chrome 109+ 才有 chrome.offscreen；更低版本已被 manifest.minimum_chrome_version 挡掉
@@ -38,10 +59,7 @@ export async function ensureOffscreenAlive(): Promise<void> {
 
     await chrome.offscreen.createDocument({
       url: OFFSCREEN_DOCUMENT_PATH,
-      // 文档§1.5：reason=IDB_PERSISTENCE（持久化 IDB 读写）。
-      // 由于当前版本的 @types/chrome 未收录该 enum 值，这里做一次字符串 cast；
-      // 运行时 Chrome 109+ 支持（见 https://developer.chrome.com/docs/extensions/reference/api/offscreen）。
-      reasons: ['IDB_PERSISTENCE' as chrome.offscreen.Reason],
+      reasons: OFFSCREEN_REASONS,
       justification: OFFSCREEN_JUSTIFICATION,
     });
     logger.info('offscreen document 已创建');
@@ -54,6 +72,33 @@ export async function ensureOffscreenAlive(): Promise<void> {
     }
     logger.error('ensureOffscreenAlive 失败', msg);
     throw err;
+  }
+}
+
+/**
+ * 启动自检：ensureOffscreenAlive 后立即 `hasDocument()` 二次确认并 log 一行。
+ *
+ * 这样 load extension 后、去 SW Console 立刻就能看到 "ok" 或 "failed"，无需再靠
+ * `chrome://extensions` 里是否出现 "检查视图: offscreen.html" 这种间接观测。
+ */
+export async function verifyOffscreenAlive(tag: string): Promise<boolean> {
+  try {
+    await ensureOffscreenAlive();
+    const alive =
+      typeof chrome.offscreen?.hasDocument === 'function'
+        ? await chrome.offscreen.hasDocument()
+        : false;
+    if (alive) {
+      logger.info(`[self-check:${tag}] offscreen document 可用性: ok`);
+    } else {
+      logger.warn(`[self-check:${tag}] offscreen document 可用性: failed（hasDocument=false）`);
+    }
+    return alive;
+  } catch (err) {
+    logger.warn(
+      `[self-check:${tag}] offscreen document 可用性: failed（${(err as Error).message}）`,
+    );
+    return false;
   }
 }
 
