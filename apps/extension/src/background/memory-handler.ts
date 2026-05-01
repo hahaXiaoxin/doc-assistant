@@ -7,10 +7,19 @@
  *   会同时广播给 SW 和 offscreen 两个 listener；让 offscreen 直接响应
  *   可以少一跳消息（见文档 §1.4 / §R2 的"直连优化"指引，PR-1 即采用）
  * - SW 只保证 offscreen 活着；不触碰 DexieMemoryStore / embedding / 反思逻辑
+ * - **hotfix**：SW 代理 offscreen 的 chrome.storage 读取（offscreen 只能用
+ *   chrome.runtime，不能用 chrome.storage；见 `installOffscreenStorageBridge`）
  *
  * PR-2 会补：alarm onAlarm → sendMessage REFLECTION_TICK 的转发。
  */
-import { MessageType, createLogger } from '@doc-assistant/shared';
+import {
+  MessageType,
+  createLogger,
+  createTypedStorage,
+  type OffscreenStorageReadRequest,
+  type OffscreenStorageReadResponse,
+  type StorageSchema,
+} from '@doc-assistant/shared';
 
 const logger = createLogger('extension:background:memory');
 
@@ -132,5 +141,63 @@ export function installMemoryRpcHook(): void {
     }
     // 不声明异步、不消费消息，让 offscreen 的 listener 独占 sendResponse 通道
     return false;
+  });
+}
+
+/**
+ * SW 代理 offscreen 的 chrome.storage.local 读取（v0.5.0 hotfix）。
+ *
+ * 背景：Chrome 官方文档明确 "The runtime API is the only extensions API supported
+ * by offscreen documents"——offscreen 下 `chrome.storage` 是 `undefined`。
+ * PR-1 的 offscreen/bootstrapRuntime 直接 `createTypedStorage()` → 顶层 guard 抛
+ * "chrome.storage.local is not available in the current environment."
+ * → runtime 构造失败 → 所有 MEMORY_RPC_REQUEST 都返 ok=false 带此错误
+ * → sidebar 侧 recordPageVisit / remember 等一律报错。
+ *
+ * 修复：offscreen 在 bootstrap 时 `chrome.runtime.sendMessage` 一条
+ * OFFSCREEN_STORAGE_READ_REQUEST 给 SW，SW 用 TypedStorage 读出 key 列表
+ * 后回响应。本 hook 负责 SW 侧的接收/响应。
+ *
+ * 契约：
+ * - listener 返回 true 声明异步 sendResponse（此消息只有 SW 一个 listener，
+ *   不存在与 offscreen 抢通道的问题）
+ * - 任何异常都走 ok=false + message 返回，不让 offscreen 端 hang 住
+ */
+export function installOffscreenStorageBridge(): void {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (
+      !message ||
+      typeof message !== 'object' ||
+      (message as { type?: unknown }).type !== MessageType.OFFSCREEN_STORAGE_READ_REQUEST
+    ) {
+      return false;
+    }
+    const req = message as OffscreenStorageReadRequest;
+    void (async () => {
+      try {
+        const storage = createTypedStorage<StorageSchema>();
+        const values: Record<string, unknown> = {};
+        // 顺序读以避免 TypedStorage 的 get 打包开销——key 数量很少（<10）
+        for (const key of req.keys) {
+          values[key] = await storage.get(key as keyof StorageSchema);
+        }
+        const resp: OffscreenStorageReadResponse = {
+          type: MessageType.OFFSCREEN_STORAGE_READ_RESPONSE,
+          rpcId: req.rpcId,
+          ok: true,
+          values,
+        };
+        sendResponse(resp);
+      } catch (err) {
+        const resp: OffscreenStorageReadResponse = {
+          type: MessageType.OFFSCREEN_STORAGE_READ_RESPONSE,
+          rpcId: req.rpcId,
+          ok: false,
+          error: { message: (err as Error).message },
+        };
+        sendResponse(resp);
+      }
+    })();
+    return true; // async sendResponse
   });
 }

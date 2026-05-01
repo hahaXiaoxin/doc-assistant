@@ -14,6 +14,7 @@ import { createLogger, MessageType, type ExtensionMessage } from '@doc-assistant
 import {
   ensureOffscreenAlive,
   installMemoryRpcHook,
+  installOffscreenStorageBridge,
   verifyOffscreenAlive,
 } from './memory-handler';
 
@@ -27,6 +28,8 @@ logger.info('service worker 启动');
 void verifyOffscreenAlive('sw-boot');
 // v0.5.0：每次收到 MEMORY_RPC_REQUEST 前确保 offscreen 活着
 installMemoryRpcHook();
+// v0.5.0 hotfix：offscreen 只能用 chrome.runtime，读 chrome.storage 需绕 SW
+installOffscreenStorageBridge();
 
 /* ------------------------------------------------------------------ */
 /* Toolbar / 右键 / 消息路由（MVP 行为保留）                            */

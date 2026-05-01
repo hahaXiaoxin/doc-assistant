@@ -23,13 +23,14 @@ import {
   MessageType,
   STORAGE_KEYS,
   createLogger,
-  createTypedStorage,
   isUseMain,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
   type MemoryRpcResponse,
+  type MemorySettings,
+  type OffscreenStorageReadRequest,
+  type OffscreenStorageReadResponse,
   type ProviderConfigOrRef,
-  type StorageSchema,
 } from '@doc-assistant/shared';
 import { QwenEmbeddingProvider, QwenProvider } from '@doc-assistant/provider';
 import type { EmbeddingProvider, LLMProvider } from '@doc-assistant/provider';
@@ -60,14 +61,74 @@ interface OffscreenRuntime {
   scheduler: ReflectionScheduler | null;
 }
 
+/**
+ * 通过 SW 代理读取 chrome.storage.local（v0.5.0 hotfix）。
+ *
+ * Chrome 官方：offscreen 只支持 chrome.runtime，不支持 chrome.storage（
+ * 详见 https://developer.chrome.com/docs/extensions/reference/api/offscreen ）。
+ * 这里向 SW 发 OFFSCREEN_STORAGE_READ_REQUEST，SW 用 TypedStorage 读后回响应。
+ *
+ * 容错：SW 冷启动 / listener 未注册时 sendMessage 可能 resolve 为 undefined——
+ * bootstrap 阶段允许短暂重试（最多 3 次，与 RemoteMemoryStore transport 重试
+ * 策略一致）；仍拿不到就抛错，由上层的 ensureRuntimeReady catch 后标记失败。
+ */
+async function fetchStorageViaServiceWorker(
+  keys: string[],
+): Promise<Record<string, unknown>> {
+  const rpcId = `offscreen-storage-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const req: OffscreenStorageReadRequest = {
+    type: MessageType.OFFSCREEN_STORAGE_READ_REQUEST,
+    rpcId,
+    keys,
+  };
+  const maxRetries = 3;
+  const baseDelayMs = 150;
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms));
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const raw = (await chrome.runtime.sendMessage(req)) as unknown;
+      if (
+        raw &&
+        typeof raw === 'object' &&
+        (raw as { type?: unknown }).type === MessageType.OFFSCREEN_STORAGE_READ_RESPONSE
+      ) {
+        const resp = raw as OffscreenStorageReadResponse;
+        if (!resp.ok) {
+          throw new Error(resp.error?.message ?? 'OFFSCREEN_STORAGE_READ failed');
+        }
+        return resp.values ?? {};
+      }
+    } catch (err) {
+      // 最后一次仍失败则抛出
+      if (attempt === maxRetries) throw err;
+    }
+    if (attempt < maxRetries) await sleep(baseDelayMs * (attempt + 1));
+  }
+  throw new Error('OFFSCREEN_STORAGE_READ 未取得合法响应（SW 未挂 bridge？）');
+}
+
 async function bootstrapRuntime(): Promise<OffscreenRuntime> {
-  const storage = createTypedStorage<StorageSchema>();
-  const [mainStored, auxStored, embStored, memStored] = await Promise.all([
-    storage.get(STORAGE_KEYS.MAIN_PROVIDER_CONFIG),
-    storage.get(STORAGE_KEYS.AUX_PROVIDER_CONFIG),
-    storage.get(STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG),
-    storage.get(STORAGE_KEYS.MEMORY_SETTINGS),
+  // hotfix：offscreen 下 chrome.storage 不可用，必须走 SW 代理
+  const storageValues = await fetchStorageViaServiceWorker([
+    STORAGE_KEYS.MAIN_PROVIDER_CONFIG,
+    STORAGE_KEYS.AUX_PROVIDER_CONFIG,
+    STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG,
+    STORAGE_KEYS.MEMORY_SETTINGS,
   ]);
+  const mainStored = storageValues[STORAGE_KEYS.MAIN_PROVIDER_CONFIG] as
+    | LLMProviderConfig
+    | undefined;
+  const auxStored = storageValues[STORAGE_KEYS.AUX_PROVIDER_CONFIG] as
+    | ProviderConfigOrRef<LLMProviderConfig>
+    | undefined;
+  const embStored = storageValues[STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG] as
+    | ProviderConfigOrRef<EmbeddingProviderConfig>
+    | undefined;
+  const memStored = storageValues[STORAGE_KEYS.MEMORY_SETTINGS] as
+    | Partial<MemorySettings>
+    | undefined;
 
   const mainProvider: LLMProviderConfig = mainStored
     ? { ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored }

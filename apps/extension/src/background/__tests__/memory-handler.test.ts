@@ -9,7 +9,7 @@
  *   覆盖 SW 冷启动窗口（offscreen 尚未挂 listener）。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MessageType } from '@doc-assistant/shared';
+import { MessageType, STORAGE_KEYS } from '@doc-assistant/shared';
 
 type Listener = (
   message: unknown,
@@ -28,6 +28,14 @@ interface ChromeMock {
     hasDocument: ReturnType<typeof vi.fn>;
     createDocument: ReturnType<typeof vi.fn>;
   };
+  storage?: {
+    local: {
+      get: ReturnType<typeof vi.fn>;
+      set?: ReturnType<typeof vi.fn>;
+      remove?: ReturnType<typeof vi.fn>;
+    };
+    onChanged: { addListener: ReturnType<typeof vi.fn>; removeListener: ReturnType<typeof vi.fn> };
+  };
 }
 
 function setupChromeMock(): ChromeMock {
@@ -44,6 +52,17 @@ function setupChromeMock(): ChromeMock {
     offscreen: {
       hasDocument: vi.fn().mockResolvedValue(true),
       createDocument: vi.fn().mockResolvedValue(undefined),
+    },
+    storage: {
+      local: {
+        get: vi.fn().mockResolvedValue({}),
+        set: vi.fn().mockResolvedValue(undefined),
+        remove: vi.fn().mockResolvedValue(undefined),
+      },
+      onChanged: {
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+      },
     },
   };
   (globalThis as unknown as { chrome: ChromeMock }).chrome = mock;
@@ -204,5 +223,108 @@ describe('memory-handler · installMemoryRpcHook 契约', () => {
     const ok = await mod.verifyOffscreenAlive('test');
 
     expect(ok).toBe(false);
+  });
+});
+
+/**
+ * 红线（v0.5.0 hotfix · "recordPageVisit 失败 / chrome.storage.local is not available"）：
+ * Chrome 官方文档明确 offscreen 只支持 chrome.runtime API，不支持 chrome.storage。
+ * offscreen bootstrapRuntime 直接 createTypedStorage() 会抛，所有 RPC 都失败。
+ * 修复后由 SW 代理读取：offscreen 发 OFFSCREEN_STORAGE_READ_REQUEST，SW 回响应。
+ */
+describe('memory-handler · installOffscreenStorageBridge', () => {
+  let prevChrome: unknown;
+
+  beforeEach(() => {
+    prevChrome = (globalThis as unknown as { chrome?: unknown }).chrome;
+  });
+
+  afterEach(() => {
+    (globalThis as unknown as { chrome?: unknown }).chrome = prevChrome;
+    vi.restoreAllMocks();
+  });
+
+  it('OFFSCREEN_STORAGE_READ_REQUEST · 读取多个 key 后通过 sendResponse 回 ok=true', async () => {
+    const mock = setupChromeMock();
+    mock.storage!.local.get.mockImplementation(async (key: string) => {
+      if (key === STORAGE_KEYS.MAIN_PROVIDER_CONFIG) return { [key]: { apiKey: 'sk-x' } };
+      if (key === STORAGE_KEYS.MEMORY_SETTINGS) return { [key]: { reflectionEnabled: false } };
+      return {};
+    });
+
+    const mod = await importFresh();
+    mod.installOffscreenStorageBridge();
+
+    const listener = mock.runtime.onMessage._listeners[0]!;
+    const sendResponse = vi.fn();
+    const result = listener(
+      {
+        type: MessageType.OFFSCREEN_STORAGE_READ_REQUEST,
+        rpcId: 'r-stor-1',
+        keys: [STORAGE_KEYS.MAIN_PROVIDER_CONFIG, STORAGE_KEYS.MEMORY_SETTINGS],
+      },
+      {},
+      sendResponse,
+    );
+    // 必须声明异步响应
+    expect(result).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    const resp = sendResponse.mock.calls[0]![0] as {
+      type: string;
+      ok: boolean;
+      rpcId: string;
+      values?: Record<string, unknown>;
+    };
+    expect(resp.type).toBe(MessageType.OFFSCREEN_STORAGE_READ_RESPONSE);
+    expect(resp.rpcId).toBe('r-stor-1');
+    expect(resp.ok).toBe(true);
+    expect(resp.values?.[STORAGE_KEYS.MAIN_PROVIDER_CONFIG]).toEqual({ apiKey: 'sk-x' });
+    expect(resp.values?.[STORAGE_KEYS.MEMORY_SETTINGS]).toEqual({ reflectionEnabled: false });
+  });
+
+  it('非 OFFSCREEN_STORAGE_READ_REQUEST 消息被跳过（listener 返回 false）', async () => {
+    const mock = setupChromeMock();
+    const mod = await importFresh();
+    mod.installOffscreenStorageBridge();
+
+    const listener = mock.runtime.onMessage._listeners[0]!;
+    const result = listener({ type: 'something-else' }, {}, vi.fn());
+    expect(result).toBe(false);
+    expect(mock.storage!.local.get).not.toHaveBeenCalled();
+  });
+
+  it('storage.get 抛错时 listener 用 ok=false 回响应，不让 offscreen hang 住', async () => {
+    const mock = setupChromeMock();
+    mock.storage!.local.get.mockRejectedValue(new Error('storage boom'));
+
+    const mod = await importFresh();
+    mod.installOffscreenStorageBridge();
+
+    const listener = mock.runtime.onMessage._listeners[0]!;
+    const sendResponse = vi.fn();
+    listener(
+      {
+        type: MessageType.OFFSCREEN_STORAGE_READ_REQUEST,
+        rpcId: 'r-stor-2',
+        keys: [STORAGE_KEYS.MEMORY_SETTINGS],
+      },
+      {},
+      sendResponse,
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    const resp = sendResponse.mock.calls[0]![0] as {
+      ok: boolean;
+      error?: { message: string };
+    };
+    expect(resp.ok).toBe(false);
+    expect(resp.error?.message).toContain('storage boom');
   });
 });

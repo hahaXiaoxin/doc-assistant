@@ -55,6 +55,22 @@ export const MessageType = {
    * 转发到 offscreen，后者内部调 `scheduler.enqueueForVisit(visitId)` + `runPending()`。
    */
   PAGE_VISIT_ENDED: 'doc-assistant/page-visit-ended',
+  /**
+   * v0.5.0 · hotfix：offscreen → SW 读取 chrome.storage.local 请求。
+   *
+   * Chrome 官方：**offscreen document 只支持 `chrome.runtime` API**，`chrome.storage`
+   * 在 offscreen 下 `undefined` → `createTypedStorage()` 顶层 guard 抛
+   * "chrome.storage.local is not available in the current environment."
+   * → offscreen bootstrapRuntime 失败 → 所有 MEMORY_RPC_REQUEST 都回 ok=false
+   * 带此错误 → sidebar 侧 recordPageVisit / remember 等一律失败。
+   *
+   * 修复路径：offscreen 不再直接碰 `chrome.storage`，改为向 SW 发此消息；SW 持
+   * TypedStorage 读出请求的 keys 后回响应。SW/options/sidebar 仍保留
+   * `createTypedStorage()` 直读（它们本身有 storage 权限上下文）。
+   */
+  OFFSCREEN_STORAGE_READ_REQUEST: 'doc-assistant/offscreen-storage-read-request',
+  /** v0.5.0 · hotfix：SW → offscreen 读取响应。 */
+  OFFSCREEN_STORAGE_READ_RESPONSE: 'doc-assistant/offscreen-storage-read-response',
 } as const;
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType];
@@ -108,6 +124,33 @@ export interface PageVisitEndedMessage {
   visitId: string;
   /** 结束时刻（毫秒） */
   at: number;
+}
+
+/**
+ * v0.5.0 · hotfix：offscreen → SW 读取 chrome.storage.local 请求。
+ *
+ * 设计要点：
+ * - SW 端负责鉴权/审计（这里只是读取 storage，没有危险副作用，所以不做强校验）
+ * - 一次可带多把 key，SW 端用 TypedStorage 一次性读后以 { key: value } 返回
+ * - 仅用于 offscreen bootstrap 阶段；offscreen 之后不会频繁读 storage
+ */
+export interface OffscreenStorageReadRequest {
+  type: typeof MessageType.OFFSCREEN_STORAGE_READ_REQUEST;
+  /** 调用侧生成的 uuid，用于匹配响应 */
+  rpcId: string;
+  /** 要读取的 storage key 列表（对应 STORAGE_KEYS.*） */
+  keys: string[];
+}
+
+/** v0.5.0 · hotfix：SW → offscreen 读取响应。 */
+export interface OffscreenStorageReadResponse {
+  type: typeof MessageType.OFFSCREEN_STORAGE_READ_RESPONSE;
+  rpcId: string;
+  ok: boolean;
+  /** ok=true 时返回 {key: value}（value 为 undefined 表示 storage 中没有该 key） */
+  values?: Record<string, unknown>;
+  /** ok=false 时的错误说明 */
+  error?: { message: string };
 }
 
 /* ------------------------------------------------------------------ */
@@ -179,6 +222,8 @@ export type ExtensionMessage =
   | AckMessage
   | ReflectionTickMessage
   | PageVisitEndedMessage
+  | OffscreenStorageReadRequest
+  | OffscreenStorageReadResponse
   | MemoryRpcRequest
   | MemoryRpcResponse;
 
