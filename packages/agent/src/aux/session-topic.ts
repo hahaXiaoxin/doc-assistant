@@ -55,13 +55,45 @@ export interface IdentifySessionTopicResult {
 }
 
 /**
- * 触发策略：每 N 条 user 消息识别一次。
- * - 首条 user 即触发一次（冷启动立刻识别当前话题）；
- * - 之后每 `interval` 条触发一次。
+ * v0.4.0 · 话题漂移关键词触发
+ * ---------------------------------------------------------------
+ * 用户在 2~3 轮内明确表达"换个话题"时，若还等 interval=4 周期才识别，
+ * 中间几轮会注入旧话题；命中以下高置信漂移信号词 → 立即触发 identify。
+ *
+ * 仅关键词正则触发，不算 embedding、不调 aux（那些留给 v0.5 完整版）。
  */
-export function shouldIdentify(userMsgCount: number, interval = 4): boolean {
+const TOPIC_DRIFT_PATTERNS: ReadonlyArray<RegExp> = [
+  /换个话题|换话题|转个方向|不聊这个了|不说这个|聊点别的|说点别的|不如说|另外聊|另一个话题|来聊聊|我们聊聊/,
+  /\b(let'?s\s+(switch|change|talk\s+about)|switch\s+topic|new\s+topic|change\s+(the\s+)?(topic|subject)|different\s+topic)\b/i,
+];
+
+/** 导出以便单测复用（不建议外部业务引用）。 */
+export function matchTopicDrift(text: string | undefined | null): boolean {
+  if (!text) return false;
+  return TOPIC_DRIFT_PATTERNS.some((re) => re.test(text));
+}
+
+export interface ShouldIdentifyOptions {
+  /** 触发周期（user 消息条数），默认 4。 */
+  interval?: number;
+  /** 最近一条 user 消息内容；命中漂移关键词会立即返回 true（v0.4.0）。 */
+  latestUserInput?: string | undefined;
+}
+
+/**
+ * 触发策略：
+ * - 首条 user 消息即触发（冷启动立刻识别当前话题）；
+ * - 之后每 `interval` 条触发一次；
+ * - v0.4.0 新增：`latestUserInput` 命中话题漂移关键词 → 即使未到周期也立即触发。
+ */
+export function shouldIdentify(
+  userMsgCount: number,
+  opts: ShouldIdentifyOptions = {},
+): boolean {
+  const { interval = 4, latestUserInput } = opts;
   if (userMsgCount <= 0) return false;
   if (userMsgCount === 1) return true;
+  if (matchTopicDrift(latestUserInput)) return true;
   return userMsgCount % interval === 0;
 }
 
@@ -90,9 +122,6 @@ export async function identifySessionTopic(
     getNow = Date.now,
   } = input;
 
-  if (!memory.setSessionTopic) {
-    return { status: 'skipped', reason: 'memory.setSessionTopic unavailable' };
-  }
   if (!recentMessages.length) {
     return { status: 'skipped', reason: 'no recent messages' };
   }
@@ -129,7 +158,7 @@ export async function identifySessionTopic(
     }
 
     // 读已有记录以保留 history 审计
-    const existing = memory.getSessionTopic ? await memory.getSessionTopic(visitId) : null;
+    const existing = await memory.getSessionTopic(visitId);
     const now = getNow();
     const record: SessionTopicRecord = {
       visitId,

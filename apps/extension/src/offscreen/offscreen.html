@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Doc Assistant · Offscreen</title>
+    <!--
+      Offscreen Document（v0.5.0）
+      ---
+      职责：作为扩展 origin 下"统一记忆"的唯一真实 DB 宿主。
+      - 监听 chrome.runtime.onMessage 的 MEMORY_RPC_REQUEST
+      - 本体无 UI；Chrome 以 reason=LOCAL_STORAGE 拉起本文档（与 IndexedDB 同属
+        storage partition；Chrome 109+ 官方 Reason 白名单不含 IDB_PERSISTENCE）
+    -->
+  </head>
+  <body>
+    <script type="module" src="./index.ts"></script>
+  </body>
+</html>

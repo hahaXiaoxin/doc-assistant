@@ -46,7 +46,7 @@ export function createGetWorkingMemoryTool(
       if (!resolved.ok) return resolved;
       const { visit } = resolved;
       try {
-        const record = await deps.memory.getWorkingMemory!(visit.canonicalUrl);
+        const record = await deps.memory.getWorkingMemory(visit.canonicalUrl);
         if (!record) {
           return {
             ok: true,
@@ -58,9 +58,7 @@ export function createGetWorkingMemoryTool(
           };
         }
         // 刷新 lastAccessedAt（best-effort，失败不中断）
-        if (deps.memory.touchWorkingMemory) {
-          await deps.memory.touchWorkingMemory(visit.canonicalUrl, resolved.now).catch(() => {});
-        }
+        await deps.memory.touchWorkingMemory(visit.canonicalUrl, resolved.now).catch(() => {});
         return {
           ok: true,
           canonicalUrl: record.canonicalUrl,

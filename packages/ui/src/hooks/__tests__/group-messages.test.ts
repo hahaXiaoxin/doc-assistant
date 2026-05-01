@@ -1,17 +1,16 @@
 /**
  * 单测：groupMessagesByVisit（跨 visit 消息分组与 system 段注入）
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { groupMessagesByVisit, type UIMessage } from '../useStreamingChat';
 
 function m(
   role: 'user' | 'assistant',
   content: string,
-  visitId?: string,
+  visitId: string,
   visitTitle?: string,
 ): UIMessage {
-  const base: UIMessage = { id: `${role}-${content.slice(0, 4)}`, role, content };
-  if (visitId) base.visitId = visitId;
+  const base: UIMessage = { id: `${role}-${content.slice(0, 4)}`, role, content, visitId };
   if (visitTitle) base.visitTitle = visitTitle;
   return base;
 }
@@ -87,23 +86,7 @@ describe('groupMessagesByVisit', () => {
     expect(out[5]).toEqual({ role: 'user', content: 'Q3' });
   });
 
-  it('无 visitId 的旧消息 → 视为当前 visit，不降级', () => {
-    // 兼容 v0.2.4 之前沉淀在 UI 的消息（它们没有 visitId 字段）
-    const out = groupMessagesByVisit(
-      [m('user', '旧 UI 消息'), m('user', '新消息', 'v1', '当前')],
-      'v1',
-    );
-    // 无 visitId → bufferVisitId=null → 与 v1 不同 → 但 isCurrent 判定 null 视作当前 → 不加 system
-    // 两组：第一组 null；第二组 v1。第一组 isCurrent=true，不加 system；第二组也是当前，不加
-    expect(out).toEqual([
-      { role: 'user', content: '旧 UI 消息' },
-      { role: 'user', content: '新消息' },
-    ]);
-  });
-
-  it('currentVisitId=null（尚未建立 visit）→ 带 visitId 的旧消息会被标为历史', () => {
-    // 设计选择：没有当前 visit 说明 PageVisitManager 还没就绪；
-    // 此时任何带 visitId 的消息都来自过去，全部降级标注更安全
+  it('currentVisitId=null → 所有 visitId 都会被标为历史', () => {
     const out = groupMessagesByVisit(
       [m('user', 'A', 'v1', 'x'), m('user', 'B', 'v2', 'y')],
       null,
@@ -117,18 +100,30 @@ describe('groupMessagesByVisit', () => {
     expect(out[3]).toEqual({ role: 'user', content: 'B' });
   });
 
-  it('currentVisitId=null 且消息无 visitId → 全部视为当前，不加 system', () => {
-    // 这是 v0.2.4 之前的全旧数据 + 尚未建立 visit 的情形，应当保持平静
-    const out = groupMessagesByVisit([m('user', 'A'), m('user', 'B')], null);
-    expect(out).toEqual([
-      { role: 'user', content: 'A' },
-      { role: 'user', content: 'B' },
-    ]);
-  });
-
   it('旧 visit 无 title → 使用默认标签"上一篇文章"', () => {
     const out = groupMessagesByVisit([m('user', 'X', 'v-old')], 'v-new');
     expect(out[0]!.role).toBe('system');
     expect(out[0]!.content).toContain('上一篇文章');
+  });
+
+  // v0.3.0 · 读取层防腐：缺 visitId 的老数据被过滤 + warn
+  it('缺 visitId 的老消息被过滤并 warn 计数', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // 构造同时包含合法与非法（缺 visitId）的消息数组。
+    // 生产中 TS 已禁止缺 visitId，这里强制 cast 模拟老数据。
+    const messages = [
+      { id: 'clean', role: 'user' as const, content: '合法', visitId: 'v1' },
+      { id: 'dirty', role: 'user' as const, content: '老数据' } as unknown as UIMessage,
+    ];
+    const out = groupMessagesByVisit(messages, 'v1');
+    expect(out).toEqual([{ role: 'user', content: '合法' }]);
+    const matched = warnSpy.mock.calls.some((call) =>
+      call.some(
+        (a) =>
+          typeof a === 'string' && /跳过 1 条缺失 visitId/.test(a),
+      ),
+    );
+    expect(matched).toBe(true);
+    warnSpy.mockRestore();
   });
 });

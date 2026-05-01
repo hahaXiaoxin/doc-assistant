@@ -1,6 +1,6 @@
 {
   "name": "@doc-assistant/ui",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Doc Assistant · 视图层（React 组件、Lexical 编辑器、主题）",
   "type": "module",
@@ -19,6 +19,7 @@
   "dependencies": {
     "@doc-assistant/shared": "workspace:*",
     "@doc-assistant/agent": "workspace:*",
+    "@doc-assistant/memory": "workspace:*",
     "@doc-assistant/provider": "workspace:*",
     "@lexical/react": "^0.19.0",
     "antd": "^5.21.6",

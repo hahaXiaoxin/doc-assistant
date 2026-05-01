@@ -5,9 +5,178 @@
 
 ---
 
-## [Unreleased]
+## [v0.5.0] · 统一记忆 · Offscreen Document 架构
 
-- （留作下一个版本草稿区）
+> v0.4.0 真机测试暴露架构级问题：sidebar 跑在 content script 里，IndexedDB 按宿主域名
+> （`https://bilibili.com` / `https://github.com` / ...）各自隔离——每个域名一份独立的
+> "agent + 记忆 + 数据库"，违背产品本意（"所有域名共用一个 agent，上下文、数据库互通"）。
+> 配置页"记忆浏览器" Tab（扩展 origin）也因此空空如也，是同一根因的副作用。
+>
+> 本版本把 IndexedDB 从 content-script origin 搬到扩展 origin 下的 **Offscreen Document**，
+> sidebar / options 通过 `chrome.runtime.sendMessage` 代理读写，所有域名共用同一套记忆。
+> 顺手把 `docs/TROUBLESHOOTING.md §8` 登记的"SW 唤醒 sidebar 执行反思 Job"绕路彻底删除，
+> 反思 Job 迁到 offscreen 直接跑。
+>
+> 详细设计见 [`docs/requirements/v0.5.0-unified-memory.md`](./requirements/v0.5.0-unified-memory.md)。
+
+### Added
+
+- **`RemoteMemoryStore`**（`packages/memory/src/remote/remote-store.ts`）：实现 `MemoryStore` 契约的消息代理，sidebar / options 用它替代 `DexieMemoryStore` 直接构造。内置 pending map / rpcId 匹配 / 15s 超时 / 错误还原。
+- **Offscreen Document 架构**：
+  - `apps/extension/src/offscreen/index.ts` 为 offscreen entry，唯一真实 `DexieMemoryStore` 宿主
+  - `apps/extension/src/offscreen/offscreen.html` 最小骨架 HTML
+  - `apps/extension/src/background/memory-handler.ts` 封装 `ensureOffscreenAlive()`（幂等）与 `routeMemoryRpc()`
+  - `manifest.json` 新增 `offscreen` 权限
+- **`MEMORY_RPC_REQUEST` / `MEMORY_RPC_RESPONSE` envelope**（`packages/shared/src/messaging.ts`）：22 条 MemoryStore 方法 1:1 透传 RPC；`rpcId` 匹配、`{ok, result | error}` 标准化响应。
+- **`REFLECTION_TICK` 控制消息**（`packages/shared/src/messaging.ts`）：SW 听 `chrome.alarms.onAlarm` 后转发给 offscreen，替代老的 `REFLECTION_SCAN_TICK` 广播。
+- **`PAGE_VISIT_ENDED` 控制消息**（`packages/shared/src/messaging.ts`）：sidebar PageVisit 结束时通知 offscreen 登记反思任务并尝试立即跑。
+- **`remote-store.test.ts`**：对 22 条 RPC 方法的正常 / 错误 / 超时路径做单测全覆盖。
+
+### Changed
+
+- **反思 Job 迁移到 Offscreen**：`ReflectionRunner` / `ReflectionScheduler` 的 `import` 与装配从 sidebar 搬到 `apps/extension/src/offscreen/index.ts`；`QwenProvider`（aux）与 `QwenEmbeddingProvider` 也在 offscreen 内实例化。反思 Job 不再依赖 sidebar 在线，offscreen 常驻、不挂起。
+- **DB 统一在扩展 origin**：`DexieMemoryStore` 只在 `apps/extension/src/offscreen/index.ts` 构造；sidebar bootstrap / options bootstrap 改为 `new RemoteMemoryStore()`。
+- **SW alarm 路径**：`chrome.alarms.onAlarm` 处理改为 `ensureOffscreenAlive()` + 转发 `REFLECTION_TICK`；SW 不再直接跑任务逻辑。
+- **`minimum_chrome_version: 109`**：`chrome.offscreen` API 从 Chrome 109（2023-01 发布）起可用，manifest 显式声明版本下限，避免低版本 Chrome 安装后 crash。
+- **Bootstrap 返回值**：`bootstrapAgent` 移除 `reflectionScheduler` 字段（对应调用点同步清理）。
+
+### Removed
+
+- **`MessageType.REFLECTION_SCAN_TICK`**：`packages/shared/src/messaging.ts` 删除该枚举项及 `ReflectionScanTickMessage` 接口。
+- **sidebar 里的 `ReflectionRunner` / `ReflectionScheduler` 构造**：`apps/extension/src/sidebar/bootstrap.ts` / `sidebar/index.tsx` 不再 import / 构造反思相关模块。
+- **sidebar 对 `REFLECTION_SCAN_TICK` 的 `chrome.runtime.onMessage` 监听**：由 offscreen 内部直接响应 `REFLECTION_TICK` 取代。
+- **`docs/TROUBLESHOOTING.md §8` 的绕路方案**：SW 唤醒 sidebar 执行反思 Job 的历史方案已被标记为"v0.5.0 已解除"，保留为历史条目。
+
+### Breaking
+
+> ⚠️ 升级前请确认 Chrome 版本 **≥ 109**（macOS / Windows / Linux 均 OK，Chrome 109 是 2023-01
+> 发布的版本，基本所有人都已到）。低于 109 的浏览器会被 manifest `minimum_chrome_version`
+> 直接拒绝安装。
+
+- **所有宿主域名原先的 IDB 数据被丢弃**：v0.4.0 及更早版本在 `https://bilibili.com` / `https://github.com` / `https://zhihu.com` 等宿主 origin 下各自落过 `doc-assistant` IDB。v0.5.0 起代码**只读扩展 origin 下的唯一一份 IDB**，老数据技术上仍残留在宿主 origin，但**新代码永远不读**。用户需重新积累记忆。
+  - 决策依据：产品未正式发布、内测用户极少；跨 origin 迁移 IDB 需 content-script 配合，复杂度远超收益；强制"重建记忆"换来架构清洁
+  - 想手动清理残留？在 Chrome DevTools · Application · IndexedDB 下按 origin 删除即可（不删也无功能影响，仅占用磁盘空间）
+- **Chrome 108 或更低版本不再支持**：`chrome.offscreen` API 要求 Chrome 109+（2023-01 发布）。`minimum_chrome_version: "109"` 已写入 manifest，低版本浏览器安装时 Chrome 会直接拒绝，不会出现装上后 crash 的情况。
+
+### Version
+
+- 仓库根 `package.json` 与 6 个 workspace 子包（`memory` / `agent` / `tools` / `ui` / `shared` / `provider`） + `apps/extension` 的 `version` 统一为 `0.5.0`
+- `apps/extension/manifest.json · version` 同步为 `0.5.0`
+- `workspace:*` 依赖关系保持不变
+
+---
+
+## [v0.4.0] · 可见且可按时间检索的记忆系统
+
+> v0.3.0 砍掉 v0.1 兼容包袱后，记忆层进入"能用但不透明"状态：数据都在 IDB 黑盒里，
+> 用户既看不到、也不能按时间维度检索；Persona 一锅烩把"对 agent 的定义"和"对 user 的定义"
+> 混在一起存、混在一起注入，LLM 在第二人称语境下容易误读；话题漂移靠每 4 轮周期，
+> 无法即时响应；`host_permissions` 只覆盖千问两个域，用户自配 baseURL 的 Provider 被
+> CORS 拦截。
+>
+> 本版本把记忆系统从黑盒变成**可见可审**的"时序自传"，并顺手把 Persona 双主体、话题漂移
+> 关键词触发、全量 host_permissions 三件小事一并结清。详细设计见
+> [`docs/requirements/v0.4.0-visible-memory.md`](./requirements/v0.4.0-visible-memory.md)。
+
+### Changed
+
+- **`host_permissions` 放开为 `<all_urls>`**（需求 5）
+  - `apps/extension/manifest.json` 移除 `https://dashscope.aliyuncs.com/*` 与 `https://dashscope-intl.aliyuncs.com/*` 白名单，改为 `["<all_urls>"]`
+  - 动机：v0.3.0 的 Provider 抽象允许用户自配 baseURL（OpenAI / Anthropic / 自托管等），白名单外的域被 CORS 默默拦截且无错误提示
+  - 决策：**统一放开，不做 per-provider 白名单 / 不做 `optional_host_permissions` 动态申请**（详见 `docs/requirements/v0.4.0-visible-memory.md` §1 · 需求 5）
+  - 用户可感：升级时 Chrome 会弹出"扩展请求新权限"的提示，需点"接受"；拒绝则插件禁用（Chrome 默认行为）
+
+### Added
+
+- `docs/PRIVACY.md`：完整隐私政策。三条核心——API Key 仅存本机 / 对话 & 摘要仅发到用户配置的 baseURL / IDB 记忆完全本地；并显式声明 `<all_urls>` 的必要性（LLM 端点由用户决定，无法预声明）
+- `docs/CWS-REVIEW-NOTES.md`：Chrome Web Store 审核 justification 模板（英文）。逐项权限 + `<all_urls>` 广域权限 + 数据使用披露清单
+- README 文档索引补充隐私 / CWS 入口链接
+- BasicTab 的 Base URL 字段补一行 secondary text 说明"已放开所有域，可填任意 OpenAI 兼容 baseURL"
+- 需求 1/2/3/4 的主体能力（Persona 双主体、Chronological Index、记忆浏览器 Tab、话题漂移关键词触发）随 tag 发布（详见 `docs/requirements/v0.4.0-visible-memory.md`）
+
+---
+
+## [v0.3.0] · 移除 v0.1 兼容 · Breaking Change
+
+> 项目尚未正式发布，v0.1 MVP 的兼容代码（`QWEN_CONFIG` 迁移、`MemoryRecord.sessionId`、
+> `MemoryRecordType` 里的 `'summary' | 'fact' | 'reference'` 占位等）已成为长期无用包袱，
+> 散落在 `shared` / `memory` / `ui` / `extension` 四个包里。本次集中清理，干净切到
+> v0.2+ 的单一模型，消除长期维护成本。
+
+### Removed
+
+- **存储层**：
+  - `STORAGE_KEYS.QWEN_CONFIG`（对应 `doc-assistant.qwen-config` key）
+  - `QwenConfig` / `DEFAULT_QWEN_CONFIG` / `migrateQwenConfigToMain()`
+  - `StorageSchema` 的 `[STORAGE_KEYS.QWEN_CONFIG]` 条目
+- **Memory 接口**：
+  - `MemoryRecord.sessionId?`、`PersonaSource.sessionId?` 字段
+  - `MemoryRecordType` 里的 `'summary' | 'fact' | 'reference'`（收窄为
+    `'message' | 'persona' | 'visit_summary'`）
+- **Bootstrap / OptionsForm 迁移链路**：
+  - `bootstrap.ts` 的 `qwenLegacy` 读取分支与 `storage.remove(QWEN_CONFIG)` 写回
+  - `OptionsForm` 的 `migrated` state、"已从 v0.1 迁移"Alert、保存后 `storage.remove`
+
+### Breaking（跨包契约）
+
+- **`UIMessage.visitId` 必填**（原 `visitId?: string`）。
+  - `groupMessagesByVisit` 删除 `?? null` 兜底；读取层对缺 `visitId` 的老数据
+    **过滤 + warn 计数**，不做回填归档。
+
+- **`SlashCommandContext` 5 项新增能力必填**（原 `?`）：
+  `startNewVisit` / `triggerRecall` / `triggerTopicIdentify` / `setSessionTopic` /
+  `appendAssistantNote`。`notify` 保持可选。所有命令实现删除"能力未注入时的 fallback 文案"。
+
+- **`MemoryStore` 14 项原可选方法必填**：
+  `getWorkingMemory` / `setWorkingMemory` / `touchWorkingMemory` /
+  `archiveStaleWorkingMemories` / `listPersonas` / `addPersonaCandidate` /
+  `updatePersona` / `setSessionTopic` / `getSessionTopic` / `enqueueReflection` /
+  `listPendingReflections` / `updateReflection` / `recordPageVisit` / `close`。
+  - `remember` / `recall` 签名不变（历史"永恒接口"承诺维持）。
+  - `NullMemoryStore` 已提供全部 no-op 实现；`DexieMemoryStore` 原本即全部实现。
+  - interface JSDoc 明确"实现必须幂等且可重复调用"。
+
+- **对直接从 v0.1 升级（跳过 v0.2.x）的用户**：`doc-assistant.qwen-config` 中的
+  API Key 不再自动读取；Options 页首次打开会显示空，**需重新填写 API Key**。
+  此为 Q1 决策：不保留一次性迁移脚本，残留 key 直接忽略。
+
+### Upgrade Guide
+
+对包的上游消费者（若自研 MemoryStore / 自定义命令宿主），按以下模式升级：
+
+```ts
+// 1) UIMessage
+const msg: UIMessage = {
+  id, role: 'user', content,
+  visitId: currentVisit.visitId, // 必填
+};
+
+// 2) SlashCommandContext
+const ctx: SlashCommandContext = {
+  clearConversation, closeMenu, notify,
+  startNewVisit, triggerRecall, triggerTopicIdentify,
+  setSessionTopic, appendAssistantNote,
+};
+
+// 3) MemoryStore：自研 store 需补齐 14 个原可选方法（可参考 NullMemoryStore 的 no-op）
+```
+
+### Changed
+
+- **DexieMemoryStore · recall 读路径 schema 防腐**：读出记录若 `type` 不在新合法集合内，
+  跳过并 `console.warn` 计数（防腐，不是兼容）。这是为 IDB 里可能存在的遗留
+  `type='fact'` 等脏数据兜底。
+- **Dexie schema 版本号不变**：仅 TS 联合类型收窄，不改表结构。
+
+### Not Migrated（按意图不做）
+
+- 不做一次性数据迁移脚本（`doc-assistant.qwen-config` 直接丢弃）。
+- 不做 Options 页 UI 提示（"空 API Key 即信号"作为产品语义接受）。
+
+### Version
+
+- 仓库根与所有 workspace 子包 `version` 统一 `0.3.0`（从 `0.1.0` 跳过 `0.2.x`，
+  中间无发布版本）。
 
 ---
 

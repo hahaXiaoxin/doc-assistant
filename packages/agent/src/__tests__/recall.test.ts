@@ -3,7 +3,12 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { LLMProvider, ChatParams, ModelInfo } from '@doc-assistant/provider';
-import type { MemoryStore, MemoryRecord } from '@doc-assistant/memory';
+import {
+  NullMemoryStore,
+  type MemoryStore,
+  type MemoryRecord,
+  type RecallQuery,
+} from '@doc-assistant/memory';
 import type { ChatChunk } from '@doc-assistant/shared';
 import {
   detectRecallTrigger,
@@ -54,13 +59,14 @@ function makeMemory(opts: {
 } = {}): MemoryStore {
   const vs = opts.visitSummaries ?? [];
   const eps = opts.episodes ?? [];
-  return {
+  const base = new NullMemoryStore();
+  return Object.assign(base, {
     async remember() {},
-    async recall(q) {
+    async recall(q: RecallQuery) {
       if (q.types?.includes('visit_summary')) return vs;
       return eps;
     },
-  };
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -225,16 +231,84 @@ describe('recallMemory · explicit 模式', () => {
 
 describe('recallMemory · 错误路径', () => {
   it('memory.recall 抛错 → stage=error', async () => {
-    const mem: MemoryStore = {
-      async remember() {},
-      async recall() {
+    const mem: MemoryStore = Object.assign(new NullMemoryStore(), {
+      async recall(): Promise<never> {
         throw new Error('boom');
       },
-    };
+    });
     const r = await recallMemory({ memory: mem }, { query: 'x', mode: 'explicit' });
     expect(r.hit).toBe(false);
     expect(r.stage).toBe('error');
     expect(r.error).toContain('boom');
+  });
+});
+
+describe('recallMemory · v0.4.0 扩参', () => {
+  it('传 timeRange 透传到 memory.recall 的 timeRange 过滤', async () => {
+    const calls: RecallQuery[] = [];
+    const NOW = new Date(2026, 3, 29, 15, 0, 0).getTime();
+    const mem = Object.assign(new NullMemoryStore(), {
+      async recall(q: RecallQuery): Promise<MemoryRecord[]> {
+        calls.push(q);
+        return [];
+      },
+    });
+    await recallMemory(
+      { memory: mem },
+      {
+        query: 'hooks',
+        mode: 'explicit',
+        timeRange: 'today',
+        getNow: () => NOW,
+      },
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.timeRange).toBeDefined();
+    expect(Array.isArray(calls[0]!.timeRange)).toBe(true);
+  });
+
+  it('传 domain 透传到 memory.recall', async () => {
+    const calls: RecallQuery[] = [];
+    const mem = Object.assign(new NullMemoryStore(), {
+      async recall(q: RecallQuery): Promise<MemoryRecord[]> {
+        calls.push(q);
+        return [];
+      },
+    });
+    await recallMemory(
+      { memory: mem },
+      { query: 'x', mode: 'explicit', domain: 'react.dev' },
+    );
+    expect(calls[0]!.domain).toBe('react.dev');
+  });
+
+  it('传 articleId 透传到 memory.recall', async () => {
+    const calls: RecallQuery[] = [];
+    const mem = Object.assign(new NullMemoryStore(), {
+      async recall(q: RecallQuery): Promise<MemoryRecord[]> {
+        calls.push(q);
+        return [];
+      },
+    });
+    await recallMemory(
+      { memory: mem },
+      { query: 'x', mode: 'explicit', articleId: 'a1' },
+    );
+    expect(calls[0]!.articleId).toBe('a1');
+  });
+
+  it('custom timeRange 缺 startTs/endTs → stage=error', async () => {
+    const mem = Object.assign(new NullMemoryStore(), {
+      async recall(): Promise<MemoryRecord[]> {
+        return [];
+      },
+    });
+    const r = await recallMemory(
+      { memory: mem },
+      { query: 'x', mode: 'explicit', timeRange: 'custom' },
+    );
+    expect(r.hit).toBe(false);
+    expect(r.stage).toBe('error');
   });
 });
 
@@ -334,5 +408,76 @@ describe('createRelevantMemorySource', () => {
     const source = createRelevantMemorySource(makeMemory(), null);
     expect(source.priority).toBe(40);
     expect(source.name).toBe('relevant-memory');
+  });
+
+  /* v0.4.0 · 时间维自动路由 */
+  it('时间维元查询 → 跳过 aux/向量，直接按时间窗注入 visit_summary 清单', async () => {
+    const aux = fakeAux([]); // 不应被消费
+    const vs = [
+      {
+        id: 's1',
+        type: 'visit_summary' as const,
+        content: '今天看的 react hooks',
+        timestamp: 1,
+        domain: 'react.dev',
+        topic: ['react'],
+      },
+    ];
+    const mem = Object.assign(new NullMemoryStore(), {
+      async recall(q: RecallQuery): Promise<MemoryRecord[]> {
+        // 必须携带 timeRange（来自 resolveTimeRange）与 types=['visit_summary']
+        expect(q.types).toEqual(['visit_summary']);
+        expect(Array.isArray(q.timeRange)).toBe(true);
+        return vs;
+      },
+    });
+    const source = createRelevantMemorySource(mem, aux);
+    const seg = await source.gather({
+      userInput: '今天看了哪些文章',
+      history: [],
+    });
+    expect(seg).not.toBeNull();
+    expect(seg!.message.role).toBe('system');
+    expect(seg!.message.content).toContain('按时间窗自动召回');
+    expect(seg!.message.content).toContain('react hooks');
+    expect(aux.calls).toHaveLength(0); // 未触发 aux
+  });
+
+  it('时间维元查询 · 窗内无数据 → null', async () => {
+    const mem = Object.assign(new NullMemoryStore(), {
+      async recall(): Promise<MemoryRecord[]> {
+        return [];
+      },
+    });
+    const source = createRelevantMemorySource(mem, null);
+    const seg = await source.gather({
+      userInput: '今天看了哪些文章',
+      history: [],
+    });
+    expect(seg).toBeNull();
+  });
+
+  it('非时间维查询 → 走原语义召回链路', async () => {
+    // 通过 spy 断言"非时间维路径"走的是 recallMemory（semantic 非空）
+    const calls: RecallQuery[] = [];
+    const mem = Object.assign(new NullMemoryStore(), {
+      async recall(q: RecallQuery): Promise<MemoryRecord[]> {
+        calls.push(q);
+        return []; // 无命中
+      },
+    });
+    const source = createRelevantMemorySource(mem, null);
+    await source.gather({
+      userInput: '上次聊的 agent loop 怎么改',
+      history: [],
+    });
+    // 语义路径：recall-triggers 粗判命中后走 memory.recall({semantic})
+    // 本用例不断言命中结果（空数组），只断言**不是**时间窗分支：即 memory.recall 的调用
+    // 如果有调用必然带 semantic；如果粗判 miss 则根本不调 memory.recall
+    for (const q of calls) {
+      expect(q.semantic).toBeTruthy();
+      // 不应带预设 timeRange（因为 user 输入不是时间维）
+      // 这里不强行断言 timeRange === undefined，因为 semantic 路径本身不会自动注 timeRange
+    }
   });
 });

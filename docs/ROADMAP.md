@@ -14,12 +14,15 @@
 | --- | --- | --- |
 | **v0.1（MVP）** | 页面内文本对话 · Provider/Agent/Tools/UI 四层架构 · 侧边对话框 · 独立配置页 · 划词引用 · 斜杠命令 | ✅ 已发布（2026-04-17） |
 | **v0.1.1** | Sidebar 真实页面可用性修复（Shadow DOM / finish 语义 / CORS / modulePreload 等 7 条踩坑） | ✅ 已发布（2026-04-18） |
-| **v0.2.0 · Phase2 基础设施** | 三套 Provider + DexieMemoryStore + 四层记忆 Schema + PageVisit + Agent Loop 兜底 + 配置页 Tab 分页 | 🚧 开发中 |
-| **v0.2.1 · Phase2 高级能力** | 辅助 LLM（主题识别/Intent/反思）+ 反思 Job + 召回机制 + `/recall` `/topic` + WorkingMemory tools + Persona 审核 UI | 规划中 |
-| **v0.3（Phase2-b）** | 域名级 DSL 自学习文章提取器（见 §1） | 规划中 |
-| **v0.4（Phase3-a）** | OCR 策略 · 截图工具（见 §3） | 规划中 |
-| **v0.5（Phase3-b）** | CheckerAgent · 实时提醒（见 §4） | 规划中 |
-| **v0.6（Phase4）** | 云端同步（选配，E2EE）（见 §5） | 规划中 |
+| **v0.2.0 · Phase2 基础设施** | 三套 Provider + DexieMemoryStore + 四层记忆 Schema + PageVisit + Agent Loop 兜底 + 配置页 Tab 分页 | ✅ 已发布 |
+| **v0.2.1 · Phase2 高级能力** | 辅助 LLM（主题识别/Intent/反思）+ 反思 Job + 召回机制 + `/recall` `/topic` + WorkingMemory tools + Persona 审核 UI | ✅ 已发布 |
+| **v0.3.0** | 移除 v0.1 兼容代码（Breaking Change） | ✅ 已发布 |
+| **v0.4.0** | 可见且可按时间检索的记忆系统（Persona 双主体 / Chronological Index / 记忆浏览器 Tab / 话题漂移关键词触发 / host_permissions 放开） | ✅ 已发布 |
+| **v0.5.0** | 统一记忆 · Offscreen Document 架构（所有域名共用一套 DB，§8 绕路删除，反思 Job 迁到 offscreen） | ✅ 已发布 |
+| **v0.6（Phase2-b）** | 域名级 DSL 自学习文章提取器（见 §1） | 规划中 |
+| **v0.7（Phase3-a）** | OCR 策略 · 截图工具（见 §3） | 规划中 |
+| **v0.8（Phase3-b）** | CheckerAgent · 实时提醒（见 §4） | 规划中 |
+| **v0.9（Phase4）** | 云端同步（选配，E2EE）（见 §5） | 规划中 |
 
 ---
 
@@ -62,7 +65,7 @@
 
 ### 三套 Provider 配置
 
-- `main`：主对话（必填，v0.1 → v0.2 自动迁移旧 QWEN_CONFIG）
+- `main`：主对话（必填）
 - `auxiliary`：话题识别 / 反思 / Intent 精判（默认复用主，可单独配 qwen-turbo 省钱）
 - `embedding`：visit_summary 向量化 + query 向量化（默认复用主的 baseURL+apiKey，model 单独填 v2/v3）
 - 所有 Provider 统一 `baseUrl + model + apiKey` 规范，可接入本地或云端
@@ -170,6 +173,16 @@
 - [x] 保留 `persistMessage` 落库（数据基础不变，仅撤回**注入**逻辑）
 - [x] `initialHistoryForLLM` port 定义保留，供 Chronological Index 能力未来复用
 - [x] 接受"刷新承接式失忆"的代价：刷新后"然后呢"这类承接输入需要用户补一句上下文；真机验证后如高频可加"30 分钟内同 visit"窄条件兜底
+
+### v0.5.0（已完成）· 统一记忆 · Offscreen Document 架构
+
+> 详细设计见 [`docs/requirements/v0.5.0-unified-memory.md`](./requirements/v0.5.0-unified-memory.md)；变更摘要见 [`CHANGELOG · v0.5.0`](./CHANGELOG.md#v050--统一记忆--offscreen-document-架构)。
+
+- [x] **Origin 隔离修复 / cross-domain memory**：`DexieMemoryStore` 搬到 Offscreen Document（扩展 origin），所有域名共用同一份 IDB ✅ 已于 v0.5.0 完成
+- [x] **反思 Job 真机验证 / 迁移到 offscreen**：`ReflectionRunner` / `ReflectionScheduler` 从 sidebar 搬到 offscreen，关闭 sidebar 也能继续跑 ✅ 已于 v0.5.0 完成
+- [x] **§8 绕路删除**：`MessageType.REFLECTION_SCAN_TICK` 及其广播/监听链路彻底删除；改为 SW 转发 `REFLECTION_TICK` → offscreen 直接执行 ✅ 已于 v0.5.0 完成
+- [x] **`RemoteMemoryStore` 消息代理**：sidebar / options 通过 `MEMORY_RPC_REQUEST` envelope 调用 22 条 MemoryStore 方法 ✅ 已于 v0.5.0 完成
+- [x] **`minimum_chrome_version: 109`**：manifest 声明版本下限，避免低版本 Chrome 安装 crash ✅ 已于 v0.5.0 完成
 
 ### v0.2.5+（未来方向，未排期）
 
@@ -280,15 +293,13 @@
     - 千问 usage 字段在 AI SDK stream 的 `finish` part 里，`normalizer.ts` 已归一化为 `ChatChunk.usage`，可直接消费
 
 #### 代码清理
-- [ ] **移除 v0.1 向后兼容代码**（用户反馈，适合在稳定一版后做）
-  - 项目尚未正式发布，旧版本（v0.1）的兼容代码属于无用包袱，集中清理避免混乱
-  - 清理清单（初步）：
-    - `packages/shared/src/config.ts` · `STORAGE_KEYS.QWEN_CONFIG` 与 `QwenProviderConfig` 旧字段（v0.2 已迁移到 MAIN_PROVIDER_CONFIG）
-    - `apps/extension/src/sidebar/bootstrap.ts` · 旧 `QWEN_CONFIG` 自动迁移逻辑
-    - `packages/memory/src/interface.ts` · `MemoryRecord.sessionId`（v0.1 兼容字段，已被 `visitId` 取代）
-    - `packages/memory/src/interface.ts` · `MemoryRecordType` 里的 `'summary' | 'fact' | 'reference'`（v0.1 占位，v0.2 后未被任何代码写入）
-    - ChatSettings.systemPrompt 的"用户可改"逻辑如仍存在旧存储 key，一并清
-  - 风险：清理前先扫全仓确认无读写引用；IndexedDB 老数据（若有）需要明确是否允许丢弃
+- [x] **移除 v0.1 向后兼容代码**（已于 [v0.3.0](./CHANGELOG.md#v030--移除-v01-兼容--breaking-change) 完成）
+  - `STORAGE_KEYS.QWEN_CONFIG` / `QwenConfig` / `DEFAULT_QWEN_CONFIG` / `migrateQwenConfigToMain`
+  - `bootstrap.ts` / `OptionsForm.tsx` 的 v0.1 迁移链路
+  - `MemoryRecord.sessionId` / `PersonaSource.sessionId`
+  - `MemoryRecordType` 收窄为 `'message' | 'persona' | 'visit_summary'`
+  - `UIMessage.visitId` / `SlashCommandContext` 5 项新增能力 / `MemoryStore` 14 项原可选方法
+    全部收紧为必填
 
 ### 架构红线（ESLint 强约束）
 
@@ -296,7 +307,7 @@
 - **v0.2 起**：Memory 层**解除** dexie 约束（Phase2 已落地）
 - Tools 层仍禁止 `tesseract.js`（Phase3-a 才解禁）
 - ESLint `no-eval` 持续通过
-- `MemoryStore.remember / recall` 签名不得修改；新增方法一律**可选**；NullMemoryStore 提供 no-op 兜底
+- `MemoryStore.remember / recall` 签名不得修改；其它方法 v0.3 起全部必填，NullMemoryStore 提供 no-op 兜底
 - ContextSource priority 按上表约定，新 Source 不得占用已有数字
 
 ### 禁止事项（红线）
@@ -494,7 +505,7 @@ v0.2 范围聚焦"记忆层 + Agent Loop 兜底"，以下项目**明确延后到
 - [ ] **OCR / 多模态识图**（§3）
 - [ ] **CheckerAgent / 实时提醒**（§4）
 - [ ] **云端同步**（§5）
-- [ ] **`chrome.alarms` reflection-scan 的真正执行器**（v0.2.1 实装）
+- [x] **`chrome.alarms` reflection-scan 的真正执行器**（v0.2.1 实装 → v0.5.0 迁移到 offscreen）✅ 已于 v0.5.0 完成
 
 ---
 

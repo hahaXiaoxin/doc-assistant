@@ -95,21 +95,28 @@ function SidebarApp(props: MountOptions) {
       });
   }, []);
 
-  // v0.2.1：监听 SW 的 REFLECTION_SCAN_TICK（chrome.alarms 每 60 分钟触发一次）
+  // v0.5.0 PR-2：反思 Job 已迁到 offscreen（sidebar 不再监听反思 tick 广播消息）。
+  // alarm 触发时 SW 直接转发 REFLECTION_TICK 给 offscreen，offscreen 自己调 runPending。
+  // 这里只负责把 PageVisit 结束事件通过 PAGE_VISIT_ENDED 消息转发给 offscreen。
   useEffect(() => {
-    if (!bootstrap?.reflectionScheduler) return;
-    const scheduler = bootstrap.reflectionScheduler;
-    const handler = (message: { type?: string } | undefined) => {
-      if (message?.type !== MessageType.REFLECTION_SCAN_TICK) return;
-      logger.info('收到 REFLECTION_SCAN_TICK，触发 runPending');
-      void scheduler.runPending().catch((err: Error) => {
-        logger.warn('runPending 失败', err.message);
-      });
-    };
-    chrome.runtime.onMessage.addListener(handler);
-    return () => {
-      chrome.runtime.onMessage.removeListener(handler);
-    };
+    if (!bootstrap) return;
+    const pvm = bootstrap.pageVisitManager;
+    const unsubscribe = pvm.subscribe((event) => {
+      if (event.type !== 'end') return;
+      const visitId = event.visit.visitId;
+      logger.info(`PAGE_VISIT_ENDED → offscreen (visitId=${visitId})`);
+      chrome.runtime
+        .sendMessage({
+          type: MessageType.PAGE_VISIT_ENDED,
+          visitId,
+          at: Date.now(),
+        })
+        .catch((err: Error) => {
+          // offscreen 未就绪或被 Chrome 暂时回收：下次 alarm tick 会补跑 pending 任务
+          logger.debug('PAGE_VISIT_ENDED 发送失败（将由下次 alarm 补跑）', err.message);
+        });
+    });
+    return unsubscribe;
   }, [bootstrap]);
 
   // v0.2：PageVisit 生命周期管理
@@ -159,7 +166,6 @@ function SidebarApp(props: MountOptions) {
     const handleHashChange = () => {
       const current = pvm.getCurrent();
       if (!current) return;
-      if (!bootstrap.memory.setSessionTopic) return;
       const now = Date.now();
       void bootstrap.memory
         .setSessionTopic({
@@ -199,7 +205,7 @@ function SidebarApp(props: MountOptions) {
 
   const pageSummaryMemo = useMemo(
     () => () => buildPageSummary(bootstrap?.pageVisitManager.getCurrent()?.visitId),
-    // 依赖 visible 让面板显隐切换时重算（延续 v0.1.1 §5 修复）
+    // 依赖 visible 让面板显隐切换时重算（详见 docs/TROUBLESHOOTING.md §5）
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [visible, bootstrap],
   );
@@ -306,10 +312,8 @@ function SidebarApp(props: MountOptions) {
     async (text: string) => {
       if (!bootstrap) return;
       const visit = bootstrap.pageVisitManager.getCurrent();
-      if (!visit || !bootstrap.memory.setSessionTopic) return;
-      const existing = bootstrap.memory.getSessionTopic
-        ? await bootstrap.memory.getSessionTopic(visit.visitId)
-        : null;
+      if (!visit) return;
+      const existing = await bootstrap.memory.getSessionTopic(visit.visitId);
       await bootstrap.memory.setSessionTopic({
         visitId: visit.visitId,
         currentTopic: text,
@@ -343,10 +347,20 @@ function SidebarApp(props: MountOptions) {
   const onRoundFinished = useCallback(
     (info: { userMessageCount: number; recentMessages: ChatMessage[] }) => {
       if (!bootstrap) return;
-      if (!shouldIdentify(info.userMessageCount)) return;
+      // v0.4.0 · 关键词漂移触发：把最后一条 user 消息传给 shouldIdentify，
+      // 命中"换个话题/说点别的/switch topic"等显式漂移词则即使未到周期也立即触发。
+      const lastUserMsg = [...info.recentMessages]
+        .reverse()
+        .find((m) => m.role === 'user')?.content;
+      if (
+        !shouldIdentify(info.userMessageCount, {
+          ...(typeof lastUserMsg === 'string' ? { latestUserInput: lastUserMsg } : {}),
+        })
+      ) {
+        return;
+      }
       const visit = bootstrap.pageVisitManager.getCurrent();
       if (!visit) return;
-      if (!bootstrap.memory.setSessionTopic) return;
       void identifySessionTopic({
         aux: bootstrap.auxLLM,
         memory: bootstrap.memory,
@@ -393,10 +407,10 @@ function SidebarApp(props: MountOptions) {
       onTopicIdentify={onTopicIdentify}
       onTopicSet={onTopicSet}
       getPendingPersonas={async () => {
-        if (!bootstrap.memory.listPersonas) return [];
         const list = await bootstrap.memory.listPersonas({ status: 'pending' });
         return list.map((p) => ({
           id: p.id,
+          subject: p.subject,
           content: p.content,
           confidence: p.confidence,
           createdAt: p.createdAt,
@@ -405,7 +419,7 @@ function SidebarApp(props: MountOptions) {
       }}
       getWorkingMemory={async () => {
         const visit = bootstrap.pageVisitManager.getCurrent();
-        if (!visit?.canonicalUrl || !bootstrap.memory.getWorkingMemory) return null;
+        if (!visit?.canonicalUrl) return null;
         const wm = await bootstrap.memory.getWorkingMemory(visit.canonicalUrl);
         if (!wm) return null;
         return {
@@ -421,14 +435,14 @@ function SidebarApp(props: MountOptions) {
         };
       }}
       onConfirmPersona={async (id) => {
-        await bootstrap.memory.updatePersona?.(
+        await bootstrap.memory.updatePersona(
           id,
           { status: 'confirmed', reviewedByUser: true },
           'user confirm via banner',
         );
       }}
       onRejectPersona={async (id) => {
-        await bootstrap.memory.updatePersona?.(
+        await bootstrap.memory.updatePersona(
           id,
           { status: 'rejected', reviewedByUser: true },
           'user reject via banner',

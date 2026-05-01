@@ -1,8 +1,8 @@
 /**
  * Qwen Provider 配置 schema
  * ---------------------------------------------
- * 这里的 schema 与 shared/config.ts 中的 QwenConfig 对齐；本文件只负责 Provider 运行时校验，
- * 不负责 UI 表单校验（表单校验在 ui/features/options）。
+ * 这里的 schema 与 shared/config.ts 中的 LLMProviderConfig 对齐；本文件只负责 Provider
+ * 运行时校验，不负责 UI 表单校验（表单校验在 ui/features/options）。
  */
 import { z } from 'zod';
 

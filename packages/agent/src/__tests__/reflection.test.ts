@@ -13,12 +13,15 @@ import type {
   ModelInfo,
   EmbeddingInfo,
 } from '@doc-assistant/provider';
-import type {
-  MemoryStore,
-  MemoryRecord,
-  PersonaRecord,
-  ReflectionTask,
-  ReflectionTaskType,
+import {
+  NullMemoryStore,
+  type MemoryStore,
+  type MemoryRecord,
+  type PageVisitRecord,
+  type PersonaRecord,
+  type RecallQuery,
+  type ReflectionTask,
+  type ReflectionTaskType,
 } from '@doc-assistant/memory';
 import type { ChatChunk } from '@doc-assistant/shared';
 import { PageVisitManager } from '../page-visit';
@@ -91,6 +94,7 @@ interface FakeMemoryState {
   visitSummaries: MemoryRecord[];
   personas: PersonaRecord[];
   tasks: ReflectionTask[];
+  pageVisits: PageVisitRecord[];
 }
 
 function makeMemory(state: Partial<FakeMemoryState> = {}): MemoryStore & {
@@ -101,25 +105,34 @@ function makeMemory(state: Partial<FakeMemoryState> = {}): MemoryStore & {
     visitSummaries: state.visitSummaries ?? [],
     personas: state.personas ?? [],
     tasks: state.tasks ?? [],
+    pageVisits: state.pageVisits ?? [],
   };
   let idSeq = 0;
-  const store: MemoryStore & { state: FakeMemoryState } = {
+  const base = new NullMemoryStore();
+  const store: MemoryStore & { state: FakeMemoryState } = Object.assign(base, {
     state: _state,
-    async remember(record) {
+    async remember(record: MemoryRecord): Promise<void> {
       if (record.type === 'visit_summary') _state.visitSummaries.push(record);
       else _state.episodes.push(record);
     },
-    async recall(query) {
+    async recall(query: RecallQuery): Promise<MemoryRecord[]> {
       const all =
         query.types?.includes('message') || !query.types
           ? _state.episodes
           : _state.visitSummaries;
       return all.slice(0, query.limit ?? 10);
     },
-    async listPersonas({ status } = {}) {
+    async getPageVisit(visitId: string): Promise<PageVisitRecord | null> {
+      return _state.pageVisits.find((v) => v.visitId === visitId) ?? null;
+    },
+    async listPersonas(
+      { status }: { status?: PersonaRecord['status'] } = {},
+    ): Promise<PersonaRecord[]> {
       return status ? _state.personas.filter((p) => p.status === status) : _state.personas;
     },
-    async addPersonaCandidate(c) {
+    async addPersonaCandidate(
+      c: Omit<PersonaRecord, 'id' | 'createdAt' | 'updatedAt'>,
+    ): Promise<PersonaRecord> {
       const rec: PersonaRecord = {
         id: `persona_${++idSeq}`,
         createdAt: 1,
@@ -129,12 +142,17 @@ function makeMemory(state: Partial<FakeMemoryState> = {}): MemoryStore & {
       _state.personas.push(rec);
       return rec;
     },
-    async updatePersona(id, patch) {
+    async updatePersona(id: string, patch: Partial<PersonaRecord>): Promise<void> {
       const i = _state.personas.findIndex((p) => p.id === id);
       if (i < 0) return;
       _state.personas[i] = { ..._state.personas[i]!, ...patch };
     },
-    async enqueueReflection(task) {
+    async enqueueReflection(
+      task: Omit<ReflectionTask, 'id' | 'createdAt' | 'attemptsCount' | 'status'> & {
+        id?: string;
+        status?: ReflectionTask['status'];
+      },
+    ): Promise<ReflectionTask> {
       const rec: ReflectionTask = {
         id: task.id ?? `task_${++idSeq}`,
         visitId: task.visitId,
@@ -146,17 +164,20 @@ function makeMemory(state: Partial<FakeMemoryState> = {}): MemoryStore & {
       _state.tasks.push(rec);
       return rec;
     },
-    async listPendingReflections(maxAttempts = 3) {
+    async listPendingReflections(maxAttempts = 3): Promise<ReflectionTask[]> {
       return _state.tasks.filter(
         (t) => t.status === 'pending' && t.attemptsCount < maxAttempts,
       );
     },
-    async updateReflection(id, patch) {
+    async updateReflection(
+      id: string,
+      patch: Partial<ReflectionTask>,
+    ): Promise<void> {
       const i = _state.tasks.findIndex((t) => t.id === id);
       if (i < 0) return;
       _state.tasks[i] = { ..._state.tasks[i]!, ...patch };
     },
-  };
+  });
   return store;
 }
 
@@ -183,11 +204,31 @@ describe('parseSummaryOutput', () => {
 describe('parsePersonaOutput', () => {
   it('解析多条候选 + 归一化 confidence', () => {
     const r = parsePersonaOutput(
-      '{"candidates":[{"content":"默认使用 TypeScript 进行代码示例","confidence":0.9,"tags":["ts"]},{"content":"回答时采用前端语境举例","confidence":1.5}]}',
+      '{"candidates":[{"subject":"agent","content":"默认使用 TypeScript 进行代码示例","confidence":0.9,"tags":["ts"]},{"subject":"agent","content":"回答时采用前端语境举例","confidence":1.5}]}',
     );
     expect(r).toHaveLength(2);
+    expect(r[0]!.subject).toBe('agent');
     expect(r[0]!.tags).toEqual(['ts']);
     expect(r[1]!.confidence).toBe(1); // 归一化
+  });
+  it('同时含 agent / user 两类 candidate', () => {
+    const r = parsePersonaOutput(
+      '{"candidates":[{"subject":"user","content":"用户是前端工程师","confidence":0.9},{"subject":"agent","content":"回答时默认用前端语境","confidence":0.7}]}',
+    );
+    expect(r).toHaveLength(2);
+    expect(r.map((c) => c.subject).sort()).toEqual(['agent', 'user']);
+  });
+  it('缺 subject 的 candidate 被过滤', () => {
+    const r = parsePersonaOutput(
+      '{"candidates":[{"content":"无 subject","confidence":0.9}]}',
+    );
+    expect(r).toEqual([]);
+  });
+  it('subject 非法值的 candidate 被过滤', () => {
+    const r = parsePersonaOutput(
+      '{"candidates":[{"subject":"other","content":"非法","confidence":0.9}]}',
+    );
+    expect(r).toEqual([]);
   });
   it('candidates 缺失 → 空数组', () => {
     expect(parsePersonaOutput('{}')).toEqual([]);
@@ -345,6 +386,125 @@ describe('ReflectionRunner · visit_summary', () => {
     expect(memory.state.visitSummaries).toHaveLength(1);
     expect(memory.state.visitSummaries[0]!.embedding).toBeUndefined();
   });
+
+  it('page_visits 有 title → 写入 meta.title（供 list_recent_visits 清单显示）', async () => {
+    const memory = makeMemory({
+      episodes: [
+        {
+          id: 'm1',
+          type: 'message',
+          content: 'hi',
+          timestamp: 1,
+          visitId: 'v1',
+          role: 'user',
+          canonicalUrl: 'https://x/y',
+          domain: 'x',
+        },
+      ],
+      pageVisits: [
+        {
+          visitId: 'v1',
+          startedAt: 1,
+          url: 'https://x/y',
+          canonicalUrl: 'https://x/y',
+          domain: 'x',
+          title: '某篇文章',
+        },
+      ],
+    });
+    const aux = fakeAux([
+      { type: 'text-delta', delta: '{"summary":"摘要","tags":[]}' },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    const runner = new ReflectionRunner({ memory, aux });
+    const r = await runner.run({
+      id: 't1',
+      visitId: 'v1',
+      taskType: 'visit_summary',
+      status: 'pending',
+      attemptsCount: 0,
+      createdAt: 1,
+    });
+    expect(r.ok).toBe(true);
+    expect(memory.state.visitSummaries).toHaveLength(1);
+    const saved = memory.state.visitSummaries[0]!;
+    expect(saved.meta).toBeDefined();
+    expect((saved.meta as { title?: string }).title).toBe('某篇文章');
+    expect((saved.meta as { source?: string }).source).toBe('reflection');
+  });
+
+  it('page_visits 无记录 → meta.title 不写入（消费方走 URL 兜底）', async () => {
+    const memory = makeMemory({
+      episodes: [
+        {
+          id: 'm1',
+          type: 'message',
+          content: 'hi',
+          timestamp: 1,
+          visitId: 'v1',
+          role: 'user',
+        },
+      ],
+      // pageVisits 为空
+    });
+    const aux = fakeAux([
+      { type: 'text-delta', delta: '{"summary":"摘要"}' },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    const runner = new ReflectionRunner({ memory, aux });
+    const r = await runner.run({
+      id: 't1',
+      visitId: 'v1',
+      taskType: 'visit_summary',
+      status: 'pending',
+      attemptsCount: 0,
+      createdAt: 1,
+    });
+    expect(r.ok).toBe(true);
+    const saved = memory.state.visitSummaries[0]!;
+    expect((saved.meta as { title?: string }).title).toBeUndefined();
+  });
+
+  it('page_visits.title 为空串 → meta.title 不写入', async () => {
+    const memory = makeMemory({
+      episodes: [
+        {
+          id: 'm1',
+          type: 'message',
+          content: 'hi',
+          timestamp: 1,
+          visitId: 'v1',
+          role: 'user',
+        },
+      ],
+      pageVisits: [
+        {
+          visitId: 'v1',
+          startedAt: 1,
+          url: 'https://x/y',
+          canonicalUrl: 'https://x/y',
+          domain: 'x',
+          title: '   ',
+        },
+      ],
+    });
+    const aux = fakeAux([
+      { type: 'text-delta', delta: '{"summary":"摘要"}' },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    const runner = new ReflectionRunner({ memory, aux });
+    const r = await runner.run({
+      id: 't1',
+      visitId: 'v1',
+      taskType: 'visit_summary',
+      status: 'pending',
+      attemptsCount: 0,
+      createdAt: 1,
+    });
+    expect(r.ok).toBe(true);
+    const saved = memory.state.visitSummaries[0]!;
+    expect((saved.meta as { title?: string }).title).toBeUndefined();
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -368,7 +528,7 @@ describe('ReflectionRunner · persona_extraction', () => {
     const aux = fakeAux([
       {
         type: 'text-delta',
-        delta: '{"candidates":[{"content":"默认使用 TypeScript 进行代码示例","confidence":0.9,"tags":["ts"]}]}',
+        delta: '{"candidates":[{"subject":"agent","content":"默认使用 TypeScript 进行代码示例","confidence":0.9,"tags":["ts"]}]}',
       },
       { type: 'finish', finishReason: 'stop' },
     ]);
@@ -384,7 +544,141 @@ describe('ReflectionRunner · persona_extraction', () => {
     expect(r.ok).toBe(true);
     expect(memory.state.personas).toHaveLength(1);
     expect(memory.state.personas[0]!.status).toBe('pending');
+    expect(memory.state.personas[0]!.subject).toBe('agent');
     expect(memory.state.personas[0]!.confidence).toBeCloseTo(0.9);
+  });
+
+  it('同一批对话能同时产出 agent + user 两类 candidate', async () => {
+    const memory = makeMemory({
+      episodes: [
+        {
+          id: 'm1',
+          type: 'message',
+          content: '我是前端工程师',
+          timestamp: 1,
+          visitId: 'v1',
+          role: 'user',
+        },
+      ],
+    });
+    const aux = fakeAux([
+      {
+        type: 'text-delta',
+        delta:
+          '{"candidates":[' +
+          '{"subject":"user","content":"用户是前端工程师","confidence":0.9},' +
+          '{"subject":"agent","content":"回答时默认用前端语境举例","confidence":0.7}' +
+          ']}',
+      },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    const runner = new ReflectionRunner({ memory, aux });
+    const r = await runner.run({
+      id: 't1',
+      visitId: 'v1',
+      taskType: 'persona_extraction',
+      status: 'pending',
+      attemptsCount: 0,
+      createdAt: 1,
+    });
+    expect(r.ok).toBe(true);
+    expect(memory.state.personas).toHaveLength(2);
+    const subjects = memory.state.personas.map((p) => p.subject).sort();
+    expect(subjects).toEqual(['agent', 'user']);
+  });
+
+  it('缺 subject 的候选被过滤掉(不落库)', async () => {
+    const memory = makeMemory({
+      episodes: [
+        {
+          id: 'm1',
+          type: 'message',
+          content: '任何',
+          timestamp: 1,
+          visitId: 'v1',
+          role: 'user',
+        },
+      ],
+    });
+    const aux = fakeAux([
+      {
+        type: 'text-delta',
+        delta:
+          '{"candidates":[' +
+          '{"content":"缺 subject 的条目","confidence":0.8},' +
+          '{"subject":"user","content":"保留这条","confidence":0.8}' +
+          ']}',
+      },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    const runner = new ReflectionRunner({ memory, aux });
+    const r = await runner.run({
+      id: 't1',
+      visitId: 'v1',
+      taskType: 'persona_extraction',
+      status: 'pending',
+      attemptsCount: 0,
+      createdAt: 1,
+    });
+    expect(r.ok).toBe(true);
+    expect(memory.state.personas).toHaveLength(1);
+    expect(memory.state.personas[0]!.subject).toBe('user');
+    expect(memory.state.personas[0]!.content).toBe('保留这条');
+  });
+
+  it('dedupe 按 (content, subject) 组合键: 同 content 不同 subject 不视为重复', async () => {
+    const memory = makeMemory({
+      personas: [
+        {
+          id: 'exist',
+          subject: 'agent',
+          content: '前端工程师',
+          status: 'pending',
+          confidence: 0.6,
+          hitCount: 1,
+          reviewedByUser: false,
+          createdAt: 1,
+          updatedAt: 1,
+          source: { visitId: 'v0', extractedBy: 'reflection' },
+        },
+      ],
+      episodes: [
+        {
+          id: 'm1',
+          type: 'message',
+          content: '任何',
+          timestamp: 1,
+          visitId: 'v1',
+          role: 'user',
+        },
+      ],
+    });
+    const aux = fakeAux([
+      {
+        type: 'text-delta',
+        delta:
+          '{"candidates":[{"subject":"user","content":"前端工程师","confidence":0.9}]}',
+      },
+      { type: 'finish', finishReason: 'stop' },
+    ]);
+    const runner = new ReflectionRunner({ memory, aux });
+    const r = await runner.run({
+      id: 't2',
+      visitId: 'v1',
+      taskType: 'persona_extraction',
+      status: 'pending',
+      attemptsCount: 0,
+      createdAt: 1,
+    });
+    expect(r.ok).toBe(true);
+    // agent 侧老条目 + 新 user 侧条目,两条并存
+    expect(memory.state.personas).toHaveLength(2);
+    expect(memory.state.personas.find((p) => p.subject === 'agent')!.hitCount).toBe(
+      1,
+    );
+    expect(memory.state.personas.find((p) => p.subject === 'user')!.content).toBe(
+      '前端工程师',
+    );
   });
 
   it('重复候选 → dedupe 并 hitCount++', async () => {
@@ -392,6 +686,7 @@ describe('ReflectionRunner · persona_extraction', () => {
       personas: [
         {
           id: 'exist',
+          subject: 'agent',
           content: '默认使用 TypeScript 进行代码示例',
           status: 'pending',
           confidence: 0.6,
@@ -416,7 +711,7 @@ describe('ReflectionRunner · persona_extraction', () => {
     const aux = fakeAux([
       {
         type: 'text-delta',
-        delta: '{"candidates":[{"content":"默认使用 TypeScript 进行代码示例","confidence":0.95}]}',
+        delta: '{"candidates":[{"subject":"agent","content":"默认使用 TypeScript 进行代码示例","confidence":0.95}]}',
       },
       { type: 'finish', finishReason: 'stop' },
     ]);
@@ -433,26 +728,6 @@ describe('ReflectionRunner · persona_extraction', () => {
     expect(memory.state.personas).toHaveLength(1);
     expect(memory.state.personas[0]!.hitCount).toBe(2);
     expect(memory.state.personas[0]!.confidence).toBeCloseTo(0.95);
-  });
-
-  it('memory 不支持 addPersonaCandidate → skipped', async () => {
-    const partial: MemoryStore = {
-      async remember() {},
-      async recall() {
-        return [];
-      },
-    };
-    const runner = new ReflectionRunner({ memory: partial, aux: fakeAux([]) });
-    const r = await runner.run({
-      id: 't1',
-      visitId: 'v1',
-      taskType: 'persona_extraction',
-      status: 'pending',
-      attemptsCount: 0,
-      createdAt: 1,
-    });
-    expect(r.ok).toBe(true);
-    expect((r as { detail?: { skipped?: boolean } }).detail?.skipped).toBe(true);
   });
 });
 

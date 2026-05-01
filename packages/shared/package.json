@@ -1,6 +1,6 @@
 {
   "name": "@doc-assistant/shared",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Doc Assistant · 公共类型与工具（不依赖任何业务层）",
   "type": "module",

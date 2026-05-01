@@ -34,6 +34,12 @@ export {
   buildRecentHistoryHint,
   type RecallTriggerResult,
 } from './recall-triggers';
+export {
+  detectTimeScopedMetaQuery,
+  resolveTimeRange,
+  type TimeRangeKey,
+  type ResolveTimeRangeOptions,
+} from './time-query';
 
 import type { LLMProvider } from '@doc-assistant/provider';
 import type { ContextSource } from './source';
@@ -64,8 +70,10 @@ export function buildDefaultMVPSources(opts: DefaultMVPSourcesOptions): ContextS
 
 export interface DefaultPhase2SourcesOptions extends DefaultMVPSourcesOptions {
   memory: MemoryStore;
-  /** Persona 注入条数上限 */
-  personaTopK?: number;
+  /** 对 agent 的定义注入条数上限（默认 10，见 PersonaSourceOptions） */
+  agentPersonaTopK?: number;
+  /** 对 user 的定义注入条数上限（默认 8，见 PersonaSourceOptions） */
+  userPersonaTopK?: number;
 }
 
 /**
@@ -76,7 +84,7 @@ export function buildDefaultPhase2_0Sources(opts: DefaultPhase2SourcesOptions): 
     createSystemPromptSource(opts.systemPrompt),
     pageContextSource,
     referenceTagSource,
-    createPersonaSource(opts.memory, opts.personaTopK !== undefined ? { topK: opts.personaTopK } : {}),
+    createPersonaSource(opts.memory, personaOptsFrom(opts)),
     createSessionTopicSource(opts.memory),
     createWorkingMemorySource(opts.memory),
     createChatHistorySource(opts.maxHistoryChars),
@@ -106,10 +114,21 @@ export function buildDefaultPhase2_1Sources(
     createSystemPromptSource(opts.systemPrompt),
     pageContextSource,
     referenceTagSource,
-    createPersonaSource(opts.memory, opts.personaTopK !== undefined ? { topK: opts.personaTopK } : {}),
+    createPersonaSource(opts.memory, personaOptsFrom(opts)),
     createSessionTopicSource(opts.memory),
     createWorkingMemorySource(opts.memory),
     createRelevantMemorySource(opts.memory, opts.auxLLM ?? null, opts.relevantMemory ?? {}),
     createChatHistorySource(opts.maxHistoryChars),
   ];
+}
+
+/**
+ * v0.4.0：把 DefaultPhase2SourcesOptions 里的 agentPersonaTopK / userPersonaTopK
+ * 折成 PersonaSourceOptions；缺省字段由 createPersonaSource 内部兜底。
+ */
+function personaOptsFrom(opts: DefaultPhase2SourcesOptions): import('./persona').PersonaSourceOptions {
+  const personaOpts: import('./persona').PersonaSourceOptions = {};
+  if (opts.agentPersonaTopK !== undefined) personaOpts.agentTopK = opts.agentPersonaTopK;
+  if (opts.userPersonaTopK !== undefined) personaOpts.userTopK = opts.userPersonaTopK;
+  return personaOpts;
 }

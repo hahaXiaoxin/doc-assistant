@@ -47,9 +47,9 @@ export interface UIMessage {
   reasoning?: string;
   reasoningElapsedMs?: number;
   error?: boolean;
-  /** v0.2.4：消息产生时所在的 PageVisit ID（用于跨 visit 分组降权） */
-  visitId?: string;
-  /** v0.2.4：消息产生时所在页面的标题（用于分组标注） */
+  /** 消息产生时所在的 PageVisit ID（用于跨 visit 分组降权） */
+  visitId: string;
+  /** 消息产生时所在页面的标题（用于分组标注；可能缺失） */
   visitTitle?: string;
 }
 
@@ -86,14 +86,15 @@ export interface UseStreamingChatOptions {
     recentMessages: ChatMessage[];
   }) => void;
   /**
-   * v0.2.4 · 可选：获取当前 PageVisit 的元信息。
+   * 获取当前 PageVisit 的元信息。
    * - send() 追加 user / assistant 消息时带上 visitId + visitTitle，
    *   使 UIMessage 带有"产生时所在页面"的溯源标签。
    * - send() 组装 history 时，按 visitId 分组：**非当前 visit** 的消息会被前置为
    *   system 段"【之前在《上篇文章》中的对话】"，让 Agent 知晓来源并做适当降权。
-   * 返回 null / 未注入时，退化为 v0.2.3 行为（无分组，全量透传）。
+   * 返回 null 表示当前还没建立 visit（此时该轮消息的 visitId 用空串占位，UI 层在
+   *   写入 UIMessage 前拦截——实践中 bootstrap 首个 effect 就会启动 visit，几乎不触发）。
    */
-  getCurrentVisitMeta?: () => { visitId: string; title?: string } | null;
+  getCurrentVisitMeta: () => { visitId: string; title?: string } | null;
 }
 
 function genId(): string {
@@ -118,37 +119,43 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
   }, []);
 
   /**
-   * v0.2.1：向聊天流追加一条 **非流式** assistant 消息。
+   * 向聊天流追加一条 **非流式** assistant 消息。
    * 用于 /recall 命令回显召回结果、未来可扩展为"系统提示"卡片。
    * 不会触发 agent.run，不影响下一轮 history 的语义（它会像普通 assistant 消息
    * 一样进入下次调用的 history）。
    */
-  const appendAssistantNote = useCallback((content: string) => {
-    const trimmed = content.trim();
-    if (!trimmed) return;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: genId(),
-        role: 'assistant',
-        content: trimmed,
-      },
-    ]);
-  }, []);
+  const appendAssistantNote = useCallback(
+    (content: string) => {
+      const trimmed = content.trim();
+      if (!trimmed) return;
+      const visitMeta = opts.getCurrentVisitMeta();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: genId(),
+          role: 'assistant',
+          content: trimmed,
+          visitId: visitMeta?.visitId ?? '',
+          ...(visitMeta?.title ? { visitTitle: visitMeta.title } : {}),
+        },
+      ]);
+    },
+    [opts],
+  );
 
   const send = useCallback(
     async (userInput: string, references?: string) => {
       const trimmed = userInput.trim();
       if (!trimmed) return;
 
-      // v0.2.4：抓一次"本轮所在的 visit"快照，用于给 user/assistant 打标
-      const currentVisitMeta = opts.getCurrentVisitMeta?.() ?? null;
+      // 抓一次"本轮所在的 visit"快照，用于给 user/assistant 打标
+      const currentVisitMeta = opts.getCurrentVisitMeta();
 
       const userMsg: UIMessage = {
         id: genId(),
         role: 'user',
         content: trimmed,
-        ...(currentVisitMeta?.visitId ? { visitId: currentVisitMeta.visitId } : {}),
+        visitId: currentVisitMeta?.visitId ?? '',
         ...(currentVisitMeta?.title ? { visitTitle: currentVisitMeta.title } : {}),
       };
       setMessages((prev) => [...prev, userMsg]);
@@ -230,9 +237,7 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
                 ? { reasoningElapsedMs: s.thinkingElapsedMs }
                 : {}),
               ...(hadError ? { error: true } : {}),
-              ...(currentVisitMeta?.visitId
-                ? { visitId: currentVisitMeta.visitId }
-                : {}),
+              visitId: currentVisitMeta?.visitId ?? '',
               ...(currentVisitMeta?.title
                 ? { visitTitle: currentVisitMeta.title }
                 : {}),
@@ -326,10 +331,10 @@ function applyChunk(
 }
 
 /**
- * v0.2.4 · 按 visitId 分组消息 → ChatMessage[]
+ * 按 visitId 分组消息 → ChatMessage[]
  * ---------------------------------------------
- * 规则：
- * - 没有 visitId 的消息（v0.2.4 之前追加的旧消息）一律视为"当前 visit"，不做特殊处理。
+ * 规则（v0.3 起 UIMessage.visitId 已必填）：
+ * - 读取层对老数据里缺 visitId 的记录**过滤 + warn 计数**，不做回填归档。
  * - 当前 visit 的消息原文透传（用户刚才聊的内容）。
  * - 非当前 visit 的消息：每组（按 visitId 聚合）前置一条 system 段：
  *     【之前在《标题》中的对话（N 条）】
@@ -344,14 +349,30 @@ export function groupMessagesByVisit(
 ): ChatMessage[] {
   if (messages.length === 0) return [];
 
+  // 读取层防腐：过滤缺 visitId 的老数据
+  const filtered: UIMessage[] = [];
+  let droppedNoVisitId = 0;
+  for (const m of messages) {
+    if (!m.visitId) {
+      droppedNoVisitId += 1;
+      continue;
+    }
+    filtered.push(m);
+  }
+  if (droppedNoVisitId > 0) {
+    logger.warn(
+      `groupMessagesByVisit: 跳过 ${droppedNoVisitId} 条缺失 visitId 的老消息`,
+    );
+  }
+  if (filtered.length === 0) return [];
+
   const out: ChatMessage[] = [];
   let buffer: UIMessage[] = [];
   let bufferVisitId: string | null = null;
 
   const flushBuffer = () => {
     if (buffer.length === 0) return;
-    const isCurrent =
-      bufferVisitId === null || bufferVisitId === currentVisitId;
+    const isCurrent = bufferVisitId === currentVisitId;
     if (!isCurrent) {
       // 非当前 visit：前置一条 system 段标注来源
       const title = buffer.find((m) => m.visitTitle)?.visitTitle?.trim();
@@ -368,8 +389,8 @@ export function groupMessagesByVisit(
     bufferVisitId = null;
   };
 
-  for (const m of messages) {
-    const visitId = m.visitId ?? null;
+  for (const m of filtered) {
+    const visitId = m.visitId;
     if (buffer.length === 0) {
       buffer = [m];
       bufferVisitId = visitId;

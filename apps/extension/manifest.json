@@ -1,16 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Doc Assistant · 智能阅读助手",
-  "version": "0.1.0",
+  "version": "0.5.0",
   "description": "在任意网页右侧提供上下文感知的大模型对话面板，提升在线学习与文档阅读效率。",
 
-  "permissions": ["storage", "activeTab", "scripting", "contextMenus", "alarms"],
+  "permissions": ["storage", "activeTab", "scripting", "contextMenus", "alarms", "offscreen"],
 
-  "_comment_host_permissions": "每新增一个 LLM Provider 域都要加入下方，否则 content script 的 fetch 会被 CORS 拦截。详见 docs/TROUBLESHOOTING.md §4",
-  "host_permissions": [
-    "https://dashscope.aliyuncs.com/*",
-    "https://dashscope-intl.aliyuncs.com/*"
-  ],
+  "minimum_chrome_version": "109",
+
+  "_comment_host_permissions": "v0.4.0 起使用 <all_urls> 以支持用户自配任意 LLM baseURL（OpenAI/Anthropic/自托管等）。统一放开，不做 per-provider 白名单——各厂商 API 本身已有鉴权与脱敏机制。插件不会自动访问任何 host，仅当用户在配置页填入 baseURL 且点击「测试」或发起对话时才会向该 host 发起 fetch。详见 docs/PRIVACY.md 与 docs/CWS-REVIEW-NOTES.md",
+  "host_permissions": ["<all_urls>"],
 
   "action": {
     "default_title": "Doc Assistant · 打开/关闭侧边栏",

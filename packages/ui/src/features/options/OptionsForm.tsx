@@ -2,19 +2,12 @@
  * OptionsForm · Tabs 容器（v0.2 重构）
  * ---------------------------------------------
  * 职责：
- * - 加载 v0.2 新 STORAGE_KEYS，同时读取 v0.1 遗留 QWEN_CONFIG 做一次性迁移
+ * - 加载 STORAGE_KEYS
  * - 将各段配置（main / aux / embedding / chat / memorySettings）分发给对应 Tab
  * - 统一的 Save / Reset 底部吸附栏
- *
- * v0.1 → v0.2 迁移策略：
- * - 启动时读 MAIN_PROVIDER_CONFIG 与 QWEN_CONFIG
- *   · 若 MAIN 存在 → 直接用
- *   · 若 MAIN 不存在但 QWEN_CONFIG 存在 → migrateQwenConfigToMain() 迁移到 state，保存时才写入新 key
- *   · 两者都不存在 → 用 DEFAULT_MAIN_PROVIDER_CONFIG
- * - v0.1 QWEN_CONFIG 保留读取路径但不再写入；保存时只写新 keys
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Space, Tabs, Typography, message } from 'antd';
+import { Button, Space, Tabs, Typography, message } from 'antd';
 import {
   DEFAULT_AUX_PROVIDER_CONFIG,
   DEFAULT_CHAT_SETTINGS,
@@ -25,7 +18,6 @@ import {
   clampMaxTurns,
   createLogger,
   maskSecret,
-  migrateQwenConfigToMain,
   type ChatSettings,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
@@ -37,8 +29,10 @@ import {
 import { z } from 'zod';
 import { BasicTab } from './tabs/BasicTab';
 import { MemoryTab } from './tabs/MemoryTab';
+import { MemoryBrowserTab } from './tabs/MemoryBrowserTab';
 import { AdvancedTab } from './tabs/AdvancedTab';
 import { DebugTab } from './tabs/DebugTab';
+import type { MemoryStore } from '@doc-assistant/memory';
 
 const logger = createLogger('ui:options');
 
@@ -87,9 +81,11 @@ const memorySettingsSchema = z.object({
 
 export interface OptionsFormProps {
   storage: TypedStorage<StorageSchema>;
+  /** v0.4.0：记忆浏览器 Tab 的数据源；为 null 时该 Tab 显示占位文案 */
+  memory?: MemoryStore | null;
 }
 
-export function OptionsForm({ storage }: OptionsFormProps) {
+export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
   const [main, setMain] = useState<LLMProviderConfig>(DEFAULT_MAIN_PROVIDER_CONFIG);
   const [aux, setAux] =
     useState<ProviderConfigOrRef<LLMProviderConfig>>(DEFAULT_AUX_PROVIDER_CONFIG);
@@ -100,33 +96,22 @@ export function OptionsForm({ storage }: OptionsFormProps) {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [migrated, setMigrated] = useState(false);
 
   const keyMask = useMemo(() => maskSecret(main.apiKey), [main.apiKey]);
 
   useEffect(() => {
     void (async () => {
-      const [mainStored, auxStored, embStored, chatStored, memStored, qwenLegacy] =
+      const [mainStored, auxStored, embStored, chatStored, memStored] =
         await Promise.all([
           storage.get(STORAGE_KEYS.MAIN_PROVIDER_CONFIG),
           storage.get(STORAGE_KEYS.AUX_PROVIDER_CONFIG),
           storage.get(STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG),
           storage.get(STORAGE_KEYS.CHAT_SETTINGS),
           storage.get(STORAGE_KEYS.MEMORY_SETTINGS),
-          storage.get(STORAGE_KEYS.QWEN_CONFIG),
         ]);
 
-      // 主 Provider：优先用新 key；未设置但有 v0.1 QWEN_CONFIG → 迁移
       if (mainStored) {
         setMain({ ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored });
-      } else if (qwenLegacy) {
-        const migratedConfig = migrateQwenConfigToMain(qwenLegacy);
-        setMain(migratedConfig);
-        setMigrated(true);
-        logger.info('检测到 v0.1 QWEN_CONFIG，迁移到 MAIN_PROVIDER_CONFIG（保存时生效）', {
-          apiKey: maskSecret(migratedConfig.apiKey),
-          model: migratedConfig.model,
-        });
       }
 
       if (auxStored) setAux(auxStored);
@@ -186,11 +171,6 @@ export function OptionsForm({ storage }: OptionsFormProps) {
         [STORAGE_KEYS.CHAT_SETTINGS]: chat,
         [STORAGE_KEYS.MEMORY_SETTINGS]: memorySettings,
       });
-      if (migrated) {
-        // 迁移完成后清理 v0.1 遗留 key，避免下次启动再走迁移路径
-        await storage.remove(STORAGE_KEYS.QWEN_CONFIG);
-        setMigrated(false);
-      }
       logger.info('配置已保存', {
         provider: main.kind,
         model: main.model,
@@ -232,16 +212,6 @@ export function OptionsForm({ storage }: OptionsFormProps) {
         所有配置仅保存在本地浏览器（chrome.storage.local），不会上传任何服务器。
       </Typography.Paragraph>
 
-      {migrated && (
-        <Alert
-          type="success"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="已从 v0.1 迁移千问配置"
-          description="原有 API Key / Base URL / 模型已迁移到新的「主 Provider」配置。点击保存完成迁移。"
-        />
-      )}
-
       <Tabs
         defaultActiveKey="basic"
         items={[
@@ -266,6 +236,11 @@ export function OptionsForm({ storage }: OptionsFormProps) {
                 onSettingsChange={setMemorySettings}
               />
             ),
+          },
+          {
+            key: 'memory-browser',
+            label: '记忆浏览器',
+            children: <MemoryBrowserTab memory={memory} />,
           },
           {
             key: 'advanced',

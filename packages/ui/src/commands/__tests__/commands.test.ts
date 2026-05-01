@@ -14,6 +14,12 @@ function makeCtx(overrides: Partial<SlashCommandContext> = {}): SlashCommandCont
     clearConversation: vi.fn(),
     closeMenu: vi.fn(),
     notify: vi.fn(),
+    // v0.3 · 5 项新增能力全部必填，默认注入 no-op mock
+    startNewVisit: vi.fn().mockResolvedValue(undefined),
+    triggerRecall: vi.fn().mockResolvedValue(undefined),
+    triggerTopicIdentify: vi.fn().mockResolvedValue(undefined),
+    setSessionTopic: vi.fn().mockResolvedValue(undefined),
+    appendAssistantNote: vi.fn(),
     ...overrides,
   };
 }
@@ -30,13 +36,6 @@ describe('/new 命令', () => {
     expect(ctx.clearConversation).toHaveBeenCalledTimes(1);
     expect(startNewVisit).toHaveBeenCalledTimes(1);
     expect(ctx.notify).toHaveBeenCalledWith('已开启新的会话');
-    expect(ctx.closeMenu).toHaveBeenCalledTimes(1);
-  });
-
-  it('宿主未注入 startNewVisit → 仅清 UI', async () => {
-    const ctx = makeCtx();
-    await newCommand.execute(ctx);
-    expect(ctx.clearConversation).toHaveBeenCalledTimes(1);
     expect(ctx.closeMenu).toHaveBeenCalledTimes(1);
   });
 
@@ -72,12 +71,6 @@ describe('/recall 命令', () => {
     expect(ctx.closeMenu).toHaveBeenCalledTimes(1);
   });
 
-  it('宿主未注入 triggerRecall → notify 不支持', async () => {
-    const ctx = makeCtx();
-    await recallCommand.execute(ctx, 'x');
-    expect(ctx.notify).toHaveBeenCalledWith(expect.stringContaining('不支持'));
-  });
-
   it('triggerRecall 抛错 → notify 失败', async () => {
     const ctx = makeCtx({
       triggerRecall: vi.fn().mockRejectedValue(new Error('rag down')),
@@ -107,18 +100,6 @@ describe('/topic 命令', () => {
     await topicCommand.execute(ctx, 'Agent 设计');
     expect(setSessionTopic).toHaveBeenCalledWith('Agent 设计');
     expect(ctx.notify).toHaveBeenCalledWith(expect.stringContaining('Agent 设计'));
-  });
-
-  it('有 args 但未注入 setSessionTopic → notify 不支持', async () => {
-    const ctx = makeCtx();
-    await topicCommand.execute(ctx, 'x');
-    expect(ctx.notify).toHaveBeenCalledWith(expect.stringContaining('不支持'));
-  });
-
-  it('无 args 但未注入 triggerTopicIdentify → notify 不支持', async () => {
-    const ctx = makeCtx();
-    await topicCommand.execute(ctx);
-    expect(ctx.notify).toHaveBeenCalledWith(expect.stringContaining('不支持'));
   });
 
   it('triggerTopicIdentify 抛错 → notify 失败', async () => {

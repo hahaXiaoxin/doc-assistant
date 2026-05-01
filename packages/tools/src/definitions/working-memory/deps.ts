@@ -56,12 +56,12 @@ export function emptyWorkingMemory(
 }
 
 /**
- * 检查当前 PageVisit 与 memory 能力可用性。
- * @param requireWrite 是否需要写能力（setWorkingMemory）；默认 true。
+ * 检查当前 PageVisit 可用性。memory 能力已在接口层保证必填，无需运行时检查。
+ * @param _requireWrite 历史参数，保留占位；v0.3 起默认所有实现都支持读写。
  */
 export function resolveVisitAndMemory(
   deps: WorkingMemoryToolDeps,
-  requireWrite = true,
+  _requireWrite = true,
 ):
   | {
       ok: true;
@@ -72,12 +72,6 @@ export function resolveVisitAndMemory(
   const visit = deps.getCurrentVisit();
   if (!visit) {
     return { ok: false, error: '当前没有活跃的 PageVisit，无法操作 WorkingMemory' };
-  }
-  if (!deps.memory.getWorkingMemory) {
-    return { ok: false, error: 'MemoryStore 不支持 getWorkingMemory' };
-  }
-  if (requireWrite && !deps.memory.setWorkingMemory) {
-    return { ok: false, error: 'MemoryStore 不支持 setWorkingMemory' };
   }
   return { ok: true, visit, now: (deps.getNow ?? Date.now)() };
 }

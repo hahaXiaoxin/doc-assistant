@@ -63,7 +63,7 @@ export function MessageList({ messages, streaming }: MessageListProps) {
     return (
       <Wrap ref={wrapRef}>
         <Empty>
-          <Pill>v0.1 MVP</Pill>
+          <Pill>Doc Assistant</Pill>
           <div style={{ fontWeight: 600, color: tokens.color.textSecondary }}>
             向当前页面提问吧
           </div>

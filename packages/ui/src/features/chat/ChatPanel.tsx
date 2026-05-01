@@ -104,7 +104,7 @@ export interface ChatPanelProps {
   /**
    * v0.2.3：每条 user/assistant 消息成功产生时调用一次，
    * 由 sidebar 负责写入 episodes_msg（含 visitId/canonicalUrl/orderInVisit）。
-   * 缺省时聊天仍可用，只是不落库（退化到 v0.1 行为）。
+   * 缺省时聊天仍可用，只是不落库（无持久化能力时的降级表现）。
    */
   persistMessage?: (msg: { role: 'user' | 'assistant'; content: string }) => Promise<void>;
   /**
@@ -258,15 +258,15 @@ export function ChatPanel({
           ...(page.canonicalUrl ? { canonicalUrl: page.canonicalUrl } : {}),
           ...(page.domain ? { domain: page.domain } : {}),
         } as NonNullable<AgentInvokeContext['page']>,
-        // v0.2：visitId 直接放顶层（ContextSource 从 ctx.visitId 读）
+        // visitId 直接放顶层（ContextSource 从 ctx.visitId 读）
         ...(page.visitId ? { visitId: page.visitId } : {}),
       };
     },
     buildToolExecCtx: () => buildToolMeta(),
+    getCurrentVisitMeta: getCurrentVisitMeta ?? (() => null),
     ...(persistMessage ? { persistMessage } : {}),
     ...(initialHistoryForLLM ? { initialHistoryForLLM } : {}),
     ...(onRoundFinished ? { onRoundFinished } : {}),
-    ...(getCurrentVisitMeta ? { getCurrentVisitMeta } : {}),
   });
 
   useSelectionBridge(() => inputActionsRef.current?.insertReference ?? null);
@@ -345,21 +345,21 @@ export function ChatPanel({
     closeMenu: () => {},
     notify: (msg) => messageApi.success(msg),
     appendAssistantNote: (content) => chat.appendAssistantNote(content),
-    ...(onStartNewVisit ? { startNewVisit: onStartNewVisit } : {}),
-    ...(onRecall
-      ? {
-          triggerRecall: async (query: string) => {
-            const out = await onRecall(query);
-            if (!out || !out.hit) {
-              messageApi.info('未在历史记忆中找到相关内容');
-              return;
-            }
-            chat.appendAssistantNote(out.text);
-          },
-        }
-      : {}),
-    ...(onTopicIdentify ? { triggerTopicIdentify: onTopicIdentify } : {}),
-    ...(onTopicSet ? { setSessionTopic: onTopicSet } : {}),
+    startNewVisit: onStartNewVisit ?? (async () => {}),
+    triggerRecall: async (query: string) => {
+      if (!onRecall) {
+        messageApi.info('未在历史记忆中找到相关内容');
+        return;
+      }
+      const out = await onRecall(query);
+      if (!out || !out.hit) {
+        messageApi.info('未在历史记忆中找到相关内容');
+        return;
+      }
+      chat.appendAssistantNote(out.text);
+    },
+    triggerTopicIdentify: onTopicIdentify ?? (async () => {}),
+    setSessionTopic: onTopicSet ?? (async () => {}),
   };
 
   const handleSubmit = (payload: {

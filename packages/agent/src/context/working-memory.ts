@@ -13,7 +13,7 @@
  *
  * 容错：
  * - canonicalUrl 未传 → null
- * - MemoryStore 无 getWorkingMemory → null
+ * - memory 为 null/undefined → null
  * - 无记录或无未完成 TODO 且无 activeGoal → null
  */
 import type { MemoryStore, TodoItem } from '@doc-assistant/memory';
@@ -29,7 +29,7 @@ export function createWorkingMemorySource(
     name: 'working-memory',
     priority: 50,
     async gather(ctx: AgentInvokeContext): Promise<ContextSegment | null> {
-      if (!memory?.getWorkingMemory) return null;
+      if (!memory) return null;
       const canonicalUrl = ctx.page?.canonicalUrl;
       if (!canonicalUrl) return null;
       try {
@@ -45,8 +45,14 @@ export function createWorkingMemorySource(
           lines.push(`当前目标：${wm.activeGoal}`);
         }
         if (activeTodos.length > 0) {
-          lines.push('\n未完成待办（按顺序推进，完成一项请调用 complete_todo tool）：');
+          lines.push(
+            '\n未完成待办（activeTodos，按顺序推进）：',
+          );
           lines.push(...activeTodos.map((t, i) => formatTodoLine(t, i)));
+          lines.push(
+            '\n⚠️ 强制规范：每完成其中一条，**必须立刻**调用 `complete_todo({ id: "<上面列出的 id>" })`。',
+          );
+          lines.push('不要等一整轮结束再一次性清；也不要只在脑海里标记。未调用 complete_todo 视为违反工作规范。');
         }
         return {
           source: 'working-memory',
@@ -63,5 +69,5 @@ export function createWorkingMemorySource(
 function formatTodoLine(t: TodoItem, idx: number): string {
   const mark = t.status === 'in_progress' ? '▶' : '•';
   const prio = t.priority && t.priority !== 'normal' ? ` [${t.priority}]` : '';
-  return `${idx + 1}. ${mark} ${t.content}${prio}`;
+  return `${idx + 1}. ${mark} {id=${t.id}} ${t.content}${prio}`;
 }
