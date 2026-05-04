@@ -33,7 +33,6 @@ export {
   buildRecentHistoryHint,
   detectTimeScopedMetaQuery,
   resolveTimeRange,
-  pageContextSource,
   referenceTagSource,
   type AgentInvokeContext,
   type ContextSegment,

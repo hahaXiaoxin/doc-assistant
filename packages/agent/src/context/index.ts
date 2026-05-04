@@ -9,7 +9,6 @@
  */
 export type { AgentInvokeContext, ContextSegment, ContextSource } from './source';
 export { createSystemPromptSource } from './system-prompt';
-export { pageContextSource } from './page-context';
 export { referenceTagSource } from './reference-tag';
 export { createChatHistorySource } from './chat-history';
 export { createPersonaSource, type PersonaSourceOptions } from './persona';
@@ -45,7 +44,6 @@ import type { LLMProvider } from '@doc-assistant/provider';
 import type { ContextSource } from './source';
 import type { MemoryStore } from '@doc-assistant/memory';
 import { createSystemPromptSource } from './system-prompt';
-import { pageContextSource } from './page-context';
 import { referenceTagSource } from './reference-tag';
 import { createChatHistorySource } from './chat-history';
 import { createPersonaSource } from './persona';
@@ -58,11 +56,10 @@ export interface DefaultMVPSourcesOptions {
   maxHistoryChars: number;
 }
 
-/** MVP 默认 Source 组合：System / Page / Reference / ChatHistory */
+/** MVP 默认 Source 组合：System / Reference / ChatHistory */
 export function buildDefaultMVPSources(opts: DefaultMVPSourcesOptions): ContextSource[] {
   return [
     createSystemPromptSource(opts.systemPrompt),
-    pageContextSource,
     referenceTagSource,
     createChatHistorySource(opts.maxHistoryChars),
   ];
@@ -77,12 +74,11 @@ export interface DefaultPhase2SourcesOptions extends DefaultMVPSourcesOptions {
 }
 
 /**
- * v0.2.0 默认 Source 组合：MVP 4 个 + Persona/SessionTopic/WorkingMemory 3 个 = 7 个
+ * v0.2.0 默认 Source 组合：System + Reference + Persona/SessionTopic/WorkingMemory + ChatHistory
  */
 export function buildDefaultPhase2_0Sources(opts: DefaultPhase2SourcesOptions): ContextSource[] {
   return [
     createSystemPromptSource(opts.systemPrompt),
-    pageContextSource,
     referenceTagSource,
     createPersonaSource(opts.memory, personaOptsFrom(opts)),
     createSessionTopicSource(opts.memory),
@@ -104,15 +100,13 @@ export interface DefaultPhase2_1SourcesOptions extends DefaultPhase2SourcesOptio
 }
 
 /**
- * v0.2.1 默认 Source 组合：Phase2_0 的 7 个 + RelevantMemorySource = 8 个
- * 新增的 RelevantMemorySource 按需召回，只在命中关键词粗判时才走 aux + 向量。
+ * v0.2.1 默认 Source 组合：Phase2_0 + RelevantMemorySource（priority=40，按需召回）
  */
 export function buildDefaultPhase2_1Sources(
   opts: DefaultPhase2_1SourcesOptions,
 ): ContextSource[] {
   return [
     createSystemPromptSource(opts.systemPrompt),
-    pageContextSource,
     referenceTagSource,
     createPersonaSource(opts.memory, personaOptsFrom(opts)),
     createSessionTopicSource(opts.memory),

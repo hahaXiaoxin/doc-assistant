@@ -1,79 +1,49 @@
 /**
- * 单测：PageContextSource（v1.1 PR-1 · Context 瘦身）
+ * 单测：v1.1 PR-2 C6 · 彻底移除 page 身份段 system 注入
  *
- * 覆盖点：
- * - 只渲染身份段（标题 + URL + 文章 ID），不再渲染"## 正文摘要"段
- * - 不再渲染"摘要只是预览..."的工具使用提示
- * - 即便上游（历史代码）传了 summary，也应被忽略（AgentInvokeContext.page 已去掉该字段）
- * - ctx.page 缺失时返回 null
+ * 背景：
+ * - PR-1 时 PageContextSource 降级为"只渲染身份段（标题 / URL / 文章 ID）"。
+ * - PR-2 C6 最终决策：LLM 不再需要任何"当前页面"的 system 段；
+ *   URL / title / identityId 仅保留在系统内部（`ToolExecutionContext.meta.pageContext`），
+ *   主模型如需页面正文，自行调 `read_page_content` 工具。
+ * - 因此 `pageContextSource` 与 `page-context.ts` 整个被删除。
+ *
+ * 本测试作为回归护栏：
+ * - 断言默认 Phase2 / MVP Source 组合里不再出现 name = 'page-context' 的 Source；
+ * - 断言 @doc-assistant/agent 入口不再导出 `pageContextSource`。
  */
 import { describe, it, expect } from 'vitest';
-import { pageContextSource } from '../context/page-context';
-import type { AgentInvokeContext } from '../context';
+import {
+  buildDefaultMVPSources,
+  buildDefaultPhase2_0Sources,
+  buildDefaultPhase2_1Sources,
+} from '../context';
+import { NullMemoryStore } from '@doc-assistant/memory';
+import * as agentEntry from '../index';
 
-const BASE: AgentInvokeContext = {
-  userInput: 'hi',
-  history: [],
-};
+describe('PR-2 C6 · page 身份段 system 注入已彻底移除', () => {
+  const baseOpts = {
+    systemPrompt: 'you are a helpful assistant',
+    maxHistoryChars: 2000,
+    memory: new NullMemoryStore(),
+  };
 
-describe('pageContextSource · v1.1 PR-1', () => {
-  it('priority=80 且 name=page-context', () => {
-    expect(pageContextSource.priority).toBe(80);
-    expect(pageContextSource.name).toBe('page-context');
+  it('buildDefaultMVPSources 不再包含 page-context Source', () => {
+    const names = buildDefaultMVPSources(baseOpts).map((s) => s.name);
+    expect(names).not.toContain('page-context');
   });
 
-  it('ctx.page 缺失 → null', async () => {
-    expect(await pageContextSource.gather(BASE)).toBeNull();
+  it('buildDefaultPhase2_0Sources 不再包含 page-context Source', () => {
+    const names = buildDefaultPhase2_0Sources(baseOpts).map((s) => s.name);
+    expect(names).not.toContain('page-context');
   });
 
-  it('只渲染身份段（标题 / URL / 文章 ID），不含 summary / 摘要提示', async () => {
-    const seg = await pageContextSource.gather({
-      ...BASE,
-      page: {
-        url: 'https://example.com/a',
-        title: 'Tab Title',
-        identityTitle: 'Canonical Title',
-        identityId: 'article_001',
-      },
-    });
-    expect(seg).not.toBeNull();
-    expect(seg!.message.role).toBe('system');
-    const content = String(seg!.message.content);
-    expect(content).toContain('# 当前页面上下文');
-    expect(content).toContain('Canonical Title');
-    expect(content).toContain('https://example.com/a');
-    expect(content).toContain('article_001');
-    // 明确不再出现摘要段与摘要使用提示
-    expect(content).not.toContain('正文摘要');
-    expect(content).not.toContain('## 正文摘要');
-    expect(content).not.toContain('摘要只是预览');
+  it('buildDefaultPhase2_1Sources 不再包含 page-context Source', () => {
+    const names = buildDefaultPhase2_1Sources(baseOpts).map((s) => s.name);
+    expect(names).not.toContain('page-context');
   });
 
-  it('未识别身份时用 title 兜底；无 identityId 时不渲染文章 ID 行', async () => {
-    const seg = await pageContextSource.gather({
-      ...BASE,
-      page: {
-        url: 'https://example.com/b',
-        title: 'Fallback Title',
-      },
-    });
-    const content = String(seg!.message.content);
-    expect(content).toContain('Fallback Title');
-    expect(content).not.toContain('文章 ID');
-  });
-
-  it('即使上游偷偷塞 summary 字段（类型系统已禁），也不会出现在输出里', async () => {
-    const seg = await pageContextSource.gather({
-      ...BASE,
-      page: {
-        url: 'https://example.com/c',
-        title: 'T',
-        // @ts-expect-error v1.1 PR-1 已从 AgentInvokeContext.page 移除 summary 字段
-        summary: '这是一段不应出现在 prompt 里的摘要',
-      },
-    });
-    const content = String(seg!.message.content);
-    expect(content).not.toContain('这是一段不应出现在 prompt 里的摘要');
-    expect(content).not.toContain('正文摘要');
+  it('@doc-assistant/agent 入口不再导出 pageContextSource', () => {
+    expect((agentEntry as Record<string, unknown>).pageContextSource).toBeUndefined();
   });
 });
