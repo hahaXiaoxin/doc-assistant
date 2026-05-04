@@ -156,9 +156,16 @@ const Header = styled.header`
   justify-content: space-between;
   padding: 10px 14px;
   height: 44px;
-  border-bottom: 1px solid ${tokens.color.border};
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(8px);
+  /**
+   * v1.1 PR-2 头部断层修复：
+   * - 删掉 PageContextCard 之后，Header 的 border-bottom + rgba(255,255,255,0.7)
+   *   会直接和 MessageList 的纯白背景碰撞，出现一条明显的横线"断层"。
+   * - 这里让 Header 背景透明、底边改为极轻的 shadow 分隔（只在有 scroll 内容时
+   *   才隐约可见），整个顶部靠外层 CollapsiblePanel 的玻璃 bg 托着，视觉上就
+   *   是一整块浅面板向下过渡到消息流。
+   */
+  background: transparent;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
   flex-shrink: 0;
 `;
 
