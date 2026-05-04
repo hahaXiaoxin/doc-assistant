@@ -79,6 +79,7 @@ export function buildPhase2Tools(deps: Phase2ToolsDeps): ToolDefinition[] {
 }
 
 export { readPageContentTool, getPageIdentityTool, getSelectionTextTool };
+export type { ReadPageContentArgs, ReadPageContentResult } from './read-page-content';
 export {
   buildWorkingMemoryTools,
   createGetWorkingMemoryTool,

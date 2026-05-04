@@ -21,8 +21,11 @@ export interface AgentInvokeContext {
   page?: {
     url: string;
     title: string;
-    /** Agent 层不直接持有 Document；由调用方通过 page-context source 取摘要 */
-    summary?: string;
+    /**
+     * v1.1 PR-1：已移除 `summary` 字段。
+     * Context 层不再注入页面正文摘要 —— 主模型需要原文时通过 `read_page_content`
+     * 工具按需分页获取。这里只保留身份段与 canonical/domain 元信息。
+     */
     identityTitle?: string;
     identityId?: string;
     /** v0.2 新增：归一化 canonical URL（若可用），用于 WorkingMemory / Episodic 索引 */

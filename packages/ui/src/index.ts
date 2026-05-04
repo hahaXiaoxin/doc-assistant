@@ -9,7 +9,12 @@
  */
 
 // 对话面板
-export { ChatPanel, type ChatPanelProps, type PageSummary } from './features/chat/ChatPanel';
+export {
+  ChatPanel,
+  buildAgentInvokeContextFragment,
+  type ChatPanelProps,
+  type PageSummary,
+} from './features/chat/ChatPanel';
 
 // 配置页
 export { OptionsForm } from './features/options/OptionsForm';

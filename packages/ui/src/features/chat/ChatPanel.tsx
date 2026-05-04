@@ -55,6 +55,36 @@ export interface PageSummary {
   extractor?: string;
 }
 
+/**
+ * 把 `PageSummary`（UI 层视图模型）投影为 Agent 调用所需的 `{ page, visitId }` 片段。
+ *
+ * v1.1 PR-1（Context 瘦身）：
+ * - **不再**把 `page.summary` 透传到 AgentInvokeContext.page —— Context 层停止主动
+ *   注入页面正文摘要；主模型需要正文时通过 `read_page_content`（分页）按需拿。
+ * - 其他身份/元信息（url / title / identityTitle / identityId / canonicalUrl /
+ *   domain / visitId）仍然透传，用于 memory 记账 + ContextSource 拼装。
+ *
+ * 抽成纯函数是为了在 useStreamingChat / ChatPanel 之外也能单测到"page 对象不再含
+ * summary"这一契约。
+ */
+export function buildAgentInvokeContextFragment(
+  page: PageSummary | null,
+): Omit<AgentInvokeContext, 'history' | 'userInput' | 'references'> {
+  if (!page) return {};
+  return {
+    page: {
+      url: page.url,
+      title: page.title,
+      ...(page.identityTitle ? { identityTitle: page.identityTitle } : {}),
+      ...(page.identityId ? { identityId: page.identityId } : {}),
+      ...(page.canonicalUrl ? { canonicalUrl: page.canonicalUrl } : {}),
+      ...(page.domain ? { domain: page.domain } : {}),
+    } as NonNullable<AgentInvokeContext['page']>,
+    // visitId 直接放顶层（ContextSource 从 ctx.visitId 读）
+    ...(page.visitId ? { visitId: page.visitId } : {}),
+  };
+}
+
 export interface ChatPanelProps {
   visible: boolean;
   onRequestOpen: () => void;
@@ -235,23 +265,7 @@ export function ChatPanel({
 
   const chat = useStreamingChat({
     agent,
-    buildInvokeContext: (_input, _refs) => {
-      const page = getPageSummary();
-      if (!page) return {};
-      return {
-        page: {
-          url: page.url,
-          title: page.title,
-          ...(page.summary ? { summary: page.summary } : {}),
-          ...(page.identityTitle ? { identityTitle: page.identityTitle } : {}),
-          ...(page.identityId ? { identityId: page.identityId } : {}),
-          ...(page.canonicalUrl ? { canonicalUrl: page.canonicalUrl } : {}),
-          ...(page.domain ? { domain: page.domain } : {}),
-        } as NonNullable<AgentInvokeContext['page']>,
-        // visitId 直接放顶层（ContextSource 从 ctx.visitId 读）
-        ...(page.visitId ? { visitId: page.visitId } : {}),
-      };
-    },
+    buildInvokeContext: (_input, _refs) => buildAgentInvokeContextFragment(getPageSummary()),
     buildToolExecCtx: () => buildToolMeta(),
     getCurrentVisitMeta: getCurrentVisitMeta ?? (() => null),
     ...(persistMessage ? { persistMessage } : {}),
