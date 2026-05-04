@@ -18,7 +18,7 @@ export interface PageContext {
   lang?: string;
 }
 
-/** 文章身份：用于会话绑定（MVP 不做持久化，Phase 2 作为 memory key） */
+/** 文章身份：用于会话绑定（作为 memory key） */
 export interface ArticleIdentity {
   /** 稳定的唯一标识（不会随滚动等操作变化） */
   id: string;
@@ -31,11 +31,11 @@ export interface ArticleIdentity {
 /** 文章主体：注入给 LLM 的上下文原料 */
 export interface ExtractedContent {
   title: string;
-  /** 主体内容，MVP 为纯文本；Phase 2 可扩展 Markdown */
+  /** 主体内容，当前为纯文本；后续可扩展 Markdown */
   content: string;
   /** 摘要或开头前 N 字，便于快速注入 */
   excerpt: string;
-  /** 字符数（MVP 不做 token 计数） */
+  /** 字符数（不做 token 计数） */
   charCount: number;
   /** 产出此内容的提取器名 */
   extractor: string;

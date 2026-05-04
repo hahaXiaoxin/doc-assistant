@@ -6,8 +6,6 @@
  * - 命中则弹出 CommandMenu，展示按前缀过滤后的命令
  * - 键盘：↑↓ 选择、Enter/Tab 执行、Esc 关闭
  * - 选中命令后从编辑器里移除 `/xxx` 片段，再执行命令的 execute
- *
- * 简化实现（MVP 可用）：
  * - 通过 OnChangePlugin 回调检查 rootElement.textContent 的最后一段
  * - 命令菜单位置通过 window.getSelection().getRangeAt(0).getBoundingClientRect() 计算
  */

@@ -16,7 +16,7 @@
  *
  * 注意：
  * - 使用 ref 累积 text/reasoning 以避免大量 setState；定时 flush 到 state
- * - clear() 只清 UI 与 history；不触碰记忆层（MVP 也没有）
+ * - clear() 只清 UI 与 history；不触碰记忆层
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Agent, AgentInvokeContext } from '@doc-assistant/agent';
@@ -311,7 +311,7 @@ function applyChunk(
         };
       case 'tool-call':
       case 'tool-result':
-        // 可在此处扩展 tool 调用的 UI 提示；MVP 暂不展示
+        // 可在此处扩展 tool 调用的 UI 提示；当前不展示
         return s;
       case 'finish': {
         const elapsed =

@@ -459,7 +459,7 @@ function SidebarApp(props: MountOptions) {
 
 /**
  * 构造 PageSummary：只跑 Identity pipeline 拿身份段（title + id + canonical + domain）。
- * v0.2：附带 canonicalUrl / domain / visitId（给 Phase2 ContextSource 用）
+ * 附带 canonicalUrl / domain / visitId（给 ContextSource 与 tool 用）
  * v1.1 PR-2：不再跑 content pipeline 取摘要 —— summary / extractor 字段随
  * PageContextCard 一起删除；主模型要正文时走 `read_page_content`（分页）按需拿。
  * 好处：每次 send 前的 buildInvokeContext 调用不再触发 Readability 全量 DOM 扫描。

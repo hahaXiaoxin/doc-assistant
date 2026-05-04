@@ -3,7 +3,7 @@
  * ---------------------------------------------
  * PHASE3：本文件仅为接口骨架。真正的实现（Tesseract.js / 多模态 LLM）见 docs/ROADMAP.md §3。
  *
- * MVP 不安装 tesseract.js（ESLint 强约束）。
+ * 当前不安装 tesseract.js（ESLint 强约束）。
  */
 
 export interface OCRInput {

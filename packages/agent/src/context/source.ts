@@ -4,8 +4,8 @@
  * 核心设计：
  * - 每个 Agent 持有一组 ContextSource，按 priority 降序组装发送给 LLM 的 messages
  * - ContextSegment 是 source 产出的一段结构化内容，可对应一条 system/user 消息或消息的附加文本
- * - MVP 注册 4 个 source（SystemPromptSource/PageContextSource/ReferenceTagSource/ChatHistorySource）
- * - v0.2 Phase2 新增 4 个（PersonaSource/SessionTopicSource/WorkingMemorySource/RelevantMemorySource）
+ * - 默认注册 7 个 source: SystemPrompt / Reference / Persona / SessionTopic /
+ *   WorkingMemory / RelevantMemory / ChatHistory
  *
  * 每个 Agent 可以有自己的 Source 组合，实现"各自的上下文获取逻辑"。
  */

@@ -32,7 +32,7 @@ installMemoryRpcHook();
 installOffscreenStorageBridge();
 
 /* ------------------------------------------------------------------ */
-/* Toolbar / 右键 / 消息路由（MVP 行为保留）                            */
+/* Toolbar / 右键 / 消息路由                                           */
 /* ------------------------------------------------------------------ */
 
 chrome.action.onClicked.addListener(async (tab) => {

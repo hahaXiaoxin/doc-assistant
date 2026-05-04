@@ -202,7 +202,7 @@ function safeParseJSON(s: string): unknown {
  * 最小可用的 JSON Schema → zod 转换
  * ---------------------------------------------
  * 仅支持本项目 tools 中会用到的形态：object + string/number/boolean/array + required。
- * 复杂 schema 不支持；MVP 够用。
+ * 复杂 schema 不支持；当前够用。
  */
 function jsonSchemaToZod(schema: Record<string, unknown>): z.ZodTypeAny {
   const type = schema.type;

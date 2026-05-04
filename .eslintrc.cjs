@@ -4,9 +4,9 @@
  * 关键约束：
  * 1. Agent 层（packages/agent）严禁直接 import `ai` 或 `@ai-sdk/*`，
  *    必须通过 LLMProvider 接口使用 —— 通过 overrides + no-restricted-imports 强制。
- * 2. Memory 层（packages/memory）MVP 严禁依赖 `dexie`（只留接口与 NullMemoryStore）。
- * 3. Tools 层（packages/tools）MVP 严禁依赖 `tesseract.js`。
- * 4. 禁止裸 console；使用 `packages/shared` 的 logger（logger 内部可使用 console）。
+ * 2. Tools 层（packages/tools）暂不接入 OCR 实现（`tesseract.js`）；
+ *    OCR 只保留接口骨架，详见 docs/ROADMAP.md §3。
+ * 3. 禁止裸 console；使用 `packages/shared` 的 logger（logger 内部可使用 console）。
  */
 module.exports = {
   root: true,
@@ -75,22 +75,9 @@ module.exports = {
       },
     },
     /**
-     * v0.2 起：Memory 层解除 dexie 约束（PHASE2 已落地）
+     * Tools 层暂不引入 OCR 实现
      * ---------------------------------------------
-     * v0.1 MVP 仅保留接口与 NullMemoryStore，禁止 dexie；
-     * v0.2 起 DexieMemoryStore 落地（见 docs/ROADMAP.md §2），memory 层可直接依赖 dexie。
-     * 其它包（agent / tools / ui / provider）仍然不得依赖 dexie，统一走 MemoryStore 接口。
-     */
-    {
-      files: ['packages/memory/**/*.{ts,tsx}'],
-      rules: {
-        // 本块曾禁止 import 'dexie'，v0.2 起不再限制。
-      },
-    },
-    /**
-     * MVP 约束：Tools 层禁止引入 OCR 实现
-     * ---------------------------------------------
-     * MVP 只定义 OCRStrategy 接口骨架；Phase 3 实现（见 docs/ROADMAP.md §3）。
+     * 只保留 OCRStrategy 接口骨架，真实 OCR（Tesseract.js / 多模态 LLM）见 docs/ROADMAP.md §3。
      */
     {
       files: ['packages/tools/**/*.{ts,tsx}'],
@@ -102,7 +89,7 @@ module.exports = {
               {
                 name: 'tesseract.js',
                 message:
-                  '[MVP 约束] Tools 层 MVP 不接入 tesseract.js，OCR 接口骨架即可。详见 docs/ROADMAP.md §3。',
+                  '[架构约束] Tools 层暂不接入 tesseract.js，OCR 保持接口骨架即可。详见 docs/ROADMAP.md §3。',
               },
             ],
           },

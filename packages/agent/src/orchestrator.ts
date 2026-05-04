@@ -2,7 +2,7 @@
  * AgentOrchestrator
  * ---------------------------------------------
  * 多 Agent 注册与调度。
- * MVP 只注册 ChatAgent；PHASE3 新增 CheckerAgent（实时提醒）。
+ * 当前只注册 ChatAgent；PHASE3 新增 CheckerAgent（实时提醒）。
  *
  * 目前只实现"按 name 调度"，未来可扩展"自动路由"（由 router Agent 决定谁来回答）。
  */
