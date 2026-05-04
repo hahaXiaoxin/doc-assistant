@@ -1,25 +1,27 @@
 /**
  * PersonaReviewBanner · sidebar 顶部"待审核 Persona 定义"折叠条
  * ---------------------------------------------
- * v0.2.1 · 反思 Job（persona_extraction）产出的 pending PersonaRecord 在此浮现。
+ * v0.2.1 · 反思 Job(persona_extraction) 产出的 pending PersonaRecord 在此浮现。
  * v0.4.0 · Persona 双主体：每条候选带 `subject: 'agent' | 'user'` 标注
- *   （在定义 agent / 在定义 user）。banner 用 `[关于你]` / `[关于用户]` 徽章
+ *   (在定义 agent / 在定义 user)。banner 用 `[关于你]` / `[关于用户]` 徽章
  *   与注入段落标题保持一致。
+ * v1.1 PR-3 C1 · 视觉壳迁移到通用 `StatusStrip`(左侧 3px 琥珀 accent + 单行 32-36px),
+ *   展开态继续渲染 PersonaRow 列表;业务逻辑(onConfirm/onReject)保持不变。
  *
  * 视觉：
- * - 折叠态（默认）：一行：📌 `N 条 Persona 定义待审核（关于你 / 关于用户）` · 箭头
- * - 展开态：逐条显示 subject 徽章 / content / tags / [✓ 采纳] [✗ 忽略] 三个按钮。
- *   "去配置页批量管理"不在此直接处理，引导用户去 options 页（传 onOpenOptions）。
+ * - 折叠态(StatusStrip 顶部行): 📌 · `N 条 Persona 定义待审核` · meta 省略(主体分布) · chevron
+ * - 展开态(StatusStrip body): 逐条 subject 徽章 / content / tags / 采纳 / 忽略
  *
  * UX：
- * - 每次 mount 与对话结束时刷新（由父组件通过 `refreshKey` 触发）。
- * - 采纳/忽略调用 `onConfirm(id)` / `onReject(id)`，成功后本地列表剔除该条。
+ * - 每次 mount 与对话结束时刷新(由父组件通过 `refreshKey` 触发)。
+ * - 采纳/忽略调用 `onConfirm(id)` / `onReject(id)`,成功后本地列表剔除该条。
  *
- * 鸭子类型：仅依赖 PersonaView（见下方），保持 UI 不反向依赖 memory 类型。
+ * 鸭子类型：仅依赖 PersonaView(见下方),保持 UI 不反向依赖 memory 类型。
  */
 import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import { tokens } from '../theme/tokens';
+import { StatusStrip, StatusStripChevron } from './StatusStrip';
 
 export type PersonaSubjectView = 'agent' | 'user';
 
@@ -41,51 +43,13 @@ export interface PersonaReviewBannerProps {
   /** 通过/拒绝操作 */
   onConfirm: (id: string) => Promise<void>;
   onReject: (id: string) => Promise<void>;
-  /** 打开配置页（批量管理） */
+  /** 打开配置页(批量管理) */
   onOpenOptions?: () => void;
   /**
-   * 外部信号：当其变化时重新获取列表（由 ChatPanel 监听 chat.streaming 跳回 null 时递增）。
+   * 外部信号：当其变化时重新获取列表(由 ChatPanel 监听 chat.streaming 跳回 null 时递增)。
    */
   refreshKey?: number;
 }
-
-const Wrap = styled.div`
-  margin: 10px 12px 0;
-  padding: 8px 12px;
-  background: ${tokens.color.bgThinking};
-  border: 1px solid rgba(9, 88, 217, 0.15);
-  border-radius: ${tokens.radius.sm};
-  font-size: ${tokens.font.sizeSmall};
-  flex-shrink: 0;
-`;
-
-const Header = styled.button`
-  all: unset;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  color: ${tokens.color.textPrimary};
-
-  &:focus-visible {
-    outline: 2px solid ${tokens.color.primary};
-    outline-offset: 2px;
-    border-radius: ${tokens.radius.sm};
-  }
-`;
-
-const Title = styled.span`
-  flex: 1;
-  font-weight: 500;
-`;
-
-const Chevron = styled.span<{ $open: boolean }>`
-  display: inline-block;
-  transition: transform ${tokens.motion.fast};
-  transform: rotate(${(p) => (p.$open ? 90 : 0)}deg);
-  color: ${tokens.color.textTertiary};
-`;
 
 const List = styled.ul`
   list-style: none;
@@ -190,6 +154,7 @@ const LinkButton = styled.button`
   color: ${tokens.color.primary};
   font-size: ${tokens.font.sizeSmall};
   margin-left: auto;
+  padding: 4px 0 0;
 
   &:hover {
     text-decoration: underline;
@@ -242,61 +207,59 @@ export function PersonaReviewBanner({
     }
   };
 
+  const metaParts: string[] = [];
+  if (agentCount > 0) metaParts.push(`关于你 ${agentCount}`);
+  if (userCount > 0) metaParts.push(`关于用户 ${userCount}`);
+  const metaText = metaParts.length > 0 ? metaParts.join(' · ') : undefined;
+
   return (
-    <Wrap aria-label="Persona 定义审核条">
-      <Header onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span style={{ fontSize: 14 }}>📌</span>
-        <Title>
-          {list.length} 条 Persona 定义待审核
-          {(agentCount > 0 || userCount > 0) && (
-            <span style={{ color: tokens.color.textTertiary, fontWeight: 400 }}>
-              （{agentCount > 0 ? `关于你 ${agentCount}` : ''}
-              {agentCount > 0 && userCount > 0 ? ' · ' : ''}
-              {userCount > 0 ? `关于用户 ${userCount}` : ''}）
-            </span>
-          )}
-        </Title>
-        <Chevron $open={open}>›</Chevron>
-      </Header>
-      {open && (
-        <List>
-          {list.map((p) => (
-            <PersonaRow key={p.id}>
-              <PersonaBody>
-                <PersonaContent>
-                  <SubjectBadge $subject={p.subject}>
-                    {p.subject === 'agent' ? '[关于你]' : '[关于用户]'}
-                  </SubjectBadge>
-                  {p.content}
-                </PersonaContent>
-                <PersonaMeta>
-                  <span>置信度 {(p.confidence * 100).toFixed(0)}%</span>
-                  {p.tags?.map((t) => <Tag key={t}>{t}</Tag>)}
-                </PersonaMeta>
-              </PersonaBody>
-              <Actions>
-                <ActionButton
-                  $variant="primary"
-                  disabled={!!busy[p.id]}
-                  onClick={() => void handle(p.id, 'confirm')}
-                >
-                  采纳
-                </ActionButton>
-                <ActionButton
-                  $variant="danger"
-                  disabled={!!busy[p.id]}
-                  onClick={() => void handle(p.id, 'reject')}
-                >
-                  忽略
-                </ActionButton>
-              </Actions>
-            </PersonaRow>
-          ))}
-          {onOpenOptions && (
-            <LinkButton onClick={onOpenOptions}>去配置页批量管理 →</LinkButton>
-          )}
-        </List>
-      )}
-    </Wrap>
+    <StatusStrip
+      accentColor={tokens.color.accentPersona}
+      icon={<span>📌</span>}
+      label={`${list.length} 条待审核`}
+      {...(metaText !== undefined ? { meta: metaText } : {})}
+      action={<StatusStripChevron $open={open}>›</StatusStripChevron>}
+      expanded={open}
+      onToggle={() => setOpen((v) => !v)}
+      ariaLabel="Persona 定义审核条"
+    >
+      <List>
+        {list.map((p) => (
+          <PersonaRow key={p.id}>
+            <PersonaBody>
+              <PersonaContent>
+                <SubjectBadge $subject={p.subject}>
+                  {p.subject === 'agent' ? '[关于你]' : '[关于用户]'}
+                </SubjectBadge>
+                {p.content}
+              </PersonaContent>
+              <PersonaMeta>
+                <span>置信度 {(p.confidence * 100).toFixed(0)}%</span>
+                {p.tags?.map((t) => <Tag key={t}>{t}</Tag>)}
+              </PersonaMeta>
+            </PersonaBody>
+            <Actions>
+              <ActionButton
+                $variant="primary"
+                disabled={!!busy[p.id]}
+                onClick={() => void handle(p.id, 'confirm')}
+              >
+                采纳
+              </ActionButton>
+              <ActionButton
+                $variant="danger"
+                disabled={!!busy[p.id]}
+                onClick={() => void handle(p.id, 'reject')}
+              >
+                忽略
+              </ActionButton>
+            </Actions>
+          </PersonaRow>
+        ))}
+        {onOpenOptions && (
+          <LinkButton onClick={onOpenOptions}>去配置页批量管理 →</LinkButton>
+        )}
+      </List>
+    </StatusStrip>
   );
 }

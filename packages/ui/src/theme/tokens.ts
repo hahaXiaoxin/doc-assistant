@@ -33,6 +33,15 @@ export const tokens = {
     bgFab: 'rgba(255, 255, 255, 0.92)',
     bgHoverSubtle: 'rgba(0, 0, 0, 0.04)',
 
+    /**
+     * v1.1 PR-3 C1 StatusStrip accent：
+     * - `accentWM`：WorkingMemory 条左侧竖条(灰蓝)——中性、不抢焦。
+     * - `accentPersona`：Persona 审核条左侧竖条(琥珀/warning)——轻度引导用户处理。
+     * 两者配合 StatusStrip 的 3px 竖条使用,整体克制但可识别。
+     */
+    accentWM: '#6B7A99',
+    accentPersona: '#FAAD14',
+
     border: '#E5E7EB',
     borderStrong: '#D9D9D9',
 

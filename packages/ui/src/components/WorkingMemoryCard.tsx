@@ -2,17 +2,20 @@
  * WorkingMemoryCard · sidebar 顶部的工作记忆卡片
  * ---------------------------------------------
  * v0.2.1 · 显示当前 canonicalUrl 对应的 activeGoal + TODO 进度。
+ * v1.1 PR-3 C1 · 视觉壳迁移到通用 `StatusStrip`（左侧 3px 灰蓝 accent + 单行 32-36px），
+ *   展开态保留原来的 goal 详情 + TODO 列表渲染;业务逻辑不变。
  *
  * 视觉：
- * - 折叠态：一行：目标 · `3/5 TODO 已完成` · 小箭头
- * - 展开态：展开列出 TODO，每条有 status 图标（pending / in_progress / done / skipped）
+ * - 折叠态(StatusStrip 顶部行): 🎯 · 目标(label) · 3/5 TODO 已完成(meta 省略) · chevron
+ * - 展开态(StatusStrip body): goal 详情 + TODO list(双通道图标/done 中划线)
  *
- * 鸭子类型：仅依赖 WorkingMemoryView（见下方），避免 UI 反向依赖 @doc-assistant/memory。
- * 刷新策略：由调用方（ChatPanel）通过 `wm` props 传入，自身不 fetch。
+ * 鸭子类型：仅依赖 WorkingMemoryView(见下方), 避免 UI 反向依赖 @doc-assistant/memory。
+ * 刷新策略：由调用方(ChatPanel)通过 `wm` props 传入,自身不 fetch。
  */
 import { useState } from 'react';
 import styled from 'styled-components';
 import { tokens } from '../theme/tokens';
+import { StatusStrip, StatusStripChevron } from './StatusStrip';
 
 export type TodoStatus = 'pending' | 'in_progress' | 'done' | 'skipped';
 
@@ -33,54 +36,6 @@ export interface WorkingMemoryView {
 export interface WorkingMemoryCardProps {
   wm: WorkingMemoryView | null;
 }
-
-const Wrap = styled.div`
-  margin: 10px 12px 0;
-  padding: 8px 12px;
-  background: ${tokens.color.bgSoft};
-  border: 1px solid ${tokens.color.border};
-  border-radius: ${tokens.radius.sm};
-  font-size: ${tokens.font.sizeSmall};
-  color: ${tokens.color.textSecondary};
-  flex-shrink: 0;
-`;
-
-const Header = styled.button`
-  all: unset;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-
-  &:focus-visible {
-    outline: 2px solid ${tokens.color.primary};
-    outline-offset: 2px;
-    border-radius: ${tokens.radius.sm};
-  }
-`;
-
-const Title = styled.span`
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: ${tokens.color.textPrimary};
-  font-weight: 500;
-`;
-
-const Progress = styled.span`
-  color: ${tokens.color.textTertiary};
-  font-size: ${tokens.font.sizeSmall};
-  flex-shrink: 0;
-`;
-
-const Chevron = styled.span<{ $open: boolean }>`
-  display: inline-block;
-  transition: transform ${tokens.motion.fast};
-  transform: rotate(${(p) => (p.$open ? 90 : 0)}deg);
-  color: ${tokens.color.textTertiary};
-`;
 
 const List = styled.ul`
   list-style: none;
@@ -156,50 +111,56 @@ export function WorkingMemoryCard({ wm }: WorkingMemoryCardProps): JSX.Element |
   const total = wm.todos.length;
   const done = wm.todos.filter((t) => t.status === 'done' || t.status === 'skipped').length;
 
+  // label(主文案) = goal 或占位;meta = 进度(x/y)
+  const labelText = wm.activeGoal ?? '当前页面的 TODO';
+  const metaText = total > 0 ? `${done}/${total}` : undefined;
+
   return (
-    <Wrap aria-label="WorkingMemory 卡片">
-      <Header onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span style={{ fontSize: 14, flexShrink: 0 }}>🎯</span>
-        <Title>{wm.activeGoal ?? '当前页面的 TODO'}</Title>
-        {total > 0 && (
-          <Progress>
-            {done}/{total}
-          </Progress>
-        )}
-        <Chevron $open={open}>›</Chevron>
-      </Header>
-      {open && (
-        <>
-          {/* 展开态优先显示 activeGoal 详情（折叠态 Title 超长会省略） */}
-          {wm.activeGoal && (
-            <GoalDetail>
-              <span style={{ color: tokens.color.textTertiary }}>目标：</span>
-              {wm.activeGoal}
-            </GoalDetail>
-          )}
-          {total > 0 ? (
-            <List>
-              {wm.todos.map((t) => (
-                <TodoRow key={t.id} $done={t.status === 'done' || t.status === 'skipped'}>
-                  <StatusIcon $status={t.status} aria-label={t.status}>
-                    {statusSymbol(t.status)}
-                  </StatusIcon>
-                  <span>
-                    {t.content}
-                    {t.notes ? (
-                      <span style={{ color: tokens.color.textTertiary, marginLeft: 6 }}>
-                        · {t.notes}
-                      </span>
-                    ) : null}
-                  </span>
-                </TodoRow>
-              ))}
-            </List>
-          ) : (
-            <EmptyHint>暂无 TODO</EmptyHint>
-          )}
-        </>
+    <StatusStrip
+      accentColor={tokens.color.accentWM}
+      icon={<span>🎯</span>}
+      label={<span style={{
+        maxWidth: 180,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        display: 'inline-block',
+        verticalAlign: 'bottom',
+      }} title={labelText}>{labelText}</span>}
+      {...(metaText !== undefined ? { meta: metaText } : {})}
+      action={<StatusStripChevron $open={open}>›</StatusStripChevron>}
+      expanded={open}
+      onToggle={() => setOpen((v) => !v)}
+      ariaLabel="WorkingMemory 卡片"
+    >
+      {/* 展开态优先显示 activeGoal 详情(折叠态 Title 超长会省略) */}
+      {wm.activeGoal && (
+        <GoalDetail>
+          <span style={{ color: tokens.color.textTertiary }}>目标:</span>
+          {wm.activeGoal}
+        </GoalDetail>
       )}
-    </Wrap>
+      {total > 0 ? (
+        <List>
+          {wm.todos.map((t) => (
+            <TodoRow key={t.id} $done={t.status === 'done' || t.status === 'skipped'}>
+              <StatusIcon $status={t.status} aria-label={t.status}>
+                {statusSymbol(t.status)}
+              </StatusIcon>
+              <span>
+                {t.content}
+                {t.notes ? (
+                  <span style={{ color: tokens.color.textTertiary, marginLeft: 6 }}>
+                    · {t.notes}
+                  </span>
+                ) : null}
+              </span>
+            </TodoRow>
+          ))}
+        </List>
+      ) : (
+        <EmptyHint>暂无 TODO</EmptyHint>
+      )}
+    </StatusStrip>
   );
 }
