@@ -201,7 +201,7 @@ const IconButton = styled.button`
   transition: background ${tokens.motion.fast};
 
   &:hover {
-    background: rgba(0, 0, 0, 0.04);
+    background: ${tokens.color.bgHoverSubtle};
     color: ${tokens.color.textPrimary};
   }
 `;

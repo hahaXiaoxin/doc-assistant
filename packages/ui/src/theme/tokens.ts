@@ -22,6 +22,17 @@ export const tokens = {
     bgUserMsg: '#E6F4FF',
     bgThinking: '#F4F1FB',
 
+    /**
+     * v1.1 PR-2 背景色阶 token 化：
+     * - `bgPanel`：侧边栏展开态的玻璃面板底（略偏不透明，避免 host 页透字）。
+     * - `bgFab`：折叠态小圆按钮的底（比 Panel 略轻，保留玻璃感）。
+     * - `bgHoverSubtle`：IconButton / 列表项 hover 的最轻叠加层。
+     * 过去这几个值散落在 CollapsiblePanel / ChatPanel 里用 rgba 硬编码。
+     */
+    bgPanel: 'rgba(255, 255, 255, 0.96)',
+    bgFab: 'rgba(255, 255, 255, 0.92)',
+    bgHoverSubtle: 'rgba(0, 0, 0, 0.04)',
+
     border: '#E5E7EB',
     borderStrong: '#D9D9D9',
 

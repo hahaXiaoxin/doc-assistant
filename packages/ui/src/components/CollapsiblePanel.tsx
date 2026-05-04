@@ -27,7 +27,7 @@ const Panel = styled.aside<{ $width: number }>`
   bottom: 0;
   width: ${(p) => p.$width}px;
   max-width: 90vw;
-  background: rgba(255, 255, 255, 0.96);
+  background: ${tokens.color.bgPanel};
   backdrop-filter: saturate(180%) blur(18px);
   -webkit-backdrop-filter: saturate(180%) blur(18px);
   box-shadow: ${tokens.shadow.panel};
@@ -71,7 +71,7 @@ const CollapsedFab = styled.button`
   width: 44px;
   height: 44px;
   border-radius: ${tokens.radius.pill} 0 0 ${tokens.radius.pill};
-  background: rgba(255, 255, 255, 0.92);
+  background: ${tokens.color.bgFab};
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   box-shadow: -4px 0 12px rgba(0, 0, 0, 0.08);
