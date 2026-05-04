@@ -34,12 +34,23 @@ export interface LexicalChatInputProps {
   onSubmit: (payload: { userInput: string; references: ReferencePayload[] }) => void;
   /** 允许外部调用 insertReference / clear 等方法的 ref */
   actionsRef?: React.MutableRefObject<ChatInputActions | null>;
+  /**
+   * v1.1 PR-3 C3 · 每次编辑器内容变化时回调 isEmpty,供外部驱动发送按钮的
+   * disabled 状态。判据: 序列化后的 `userInput.trim()` 为空且无 references。
+   * 不走 ref 轮询,避免外部每帧 setState。
+   */
+  onContentChange?: (isEmpty: boolean) => void;
 }
 
 export interface ChatInputActions {
   insertReference: (payload: ReferencePayload) => void;
   clear: () => void;
   focus: () => void;
+  /**
+   * v1.1 PR-3 C3 · 外部按钮触发发送;语义等价于键盘回车(仍经 onSubmit 回调)。
+   * 空输入 / disabled 时走和键盘回车相同的兜底(不触发 onSubmit)。
+   */
+  submit: () => void;
 }
 
 const EditorShell = styled.div`
@@ -89,9 +100,11 @@ setReferenceRenderer((payload) => <ReferenceTag payload={payload} />);
 function ActionsBridge({
   actionsRef,
   insertRef,
+  submitRef,
 }: {
   actionsRef?: React.MutableRefObject<ChatInputActions | null>;
   insertRef: React.MutableRefObject<((p: ReferencePayload) => void) | null>;
+  submitRef: React.MutableRefObject<(() => void) | null>;
 }) {
   const [editor] = useLexicalComposerContext();
   useEffect(() => {
@@ -103,11 +116,12 @@ function ActionsBridge({
       insertReference: (payload) => insertRef.current?.(payload),
       clear: () => clearEditor(editor),
       focus: () => editor.focus(),
+      submit: () => submitRef.current?.(),
     };
     return () => {
       actionsRef.current = null;
     };
-  }, [editor, actionsRef, insertRef]);
+  }, [editor, actionsRef, insertRef, submitRef]);
   return null;
 }
 
@@ -117,6 +131,9 @@ export function LexicalChatInput(props: LexicalChatInputProps) {
     references: [],
   });
   const insertRef = useRef<((p: ReferencePayload) => void) | null>(null);
+  const submitRef = useRef<(() => void) | null>(null);
+  // v1.1 PR-3 C3 · 本地缓存 isEmpty 的上次值,避免每次 onChange 都打父组件 setState。
+  const lastIsEmptyRef = useRef<boolean>(true);
 
   const initialConfig = useMemo(
     () => ({
@@ -138,6 +155,7 @@ export function LexicalChatInput(props: LexicalChatInputProps) {
     if (!payload.userInput.trim()) return;
     props.onSubmit(payload);
   };
+  submitRef.current = handleSubmit;
 
   return (
     <EditorShell aria-label="对话输入">
@@ -152,7 +170,14 @@ export function LexicalChatInput(props: LexicalChatInputProps) {
         <HistoryPlugin />
         <OnChangePlugin
           onChange={(_state, editor) => {
-            editorRef.current = serializeEditorState(editor);
+            const payload = serializeEditorState(editor);
+            editorRef.current = payload;
+            const isEmpty =
+              payload.userInput.trim().length === 0 && payload.references.length === 0;
+            if (props.onContentChange && isEmpty !== lastIsEmptyRef.current) {
+              lastIsEmptyRef.current = isEmpty;
+              props.onContentChange(isEmpty);
+            }
           }}
         />
         <SubmitPlugin onSubmit={handleSubmit} />
@@ -162,7 +187,7 @@ export function LexicalChatInput(props: LexicalChatInputProps) {
           }}
         />
         <SlashCommandPlugin registry={props.slashRegistry} context={props.slashContext} />
-        {props.actionsRef && <ActionsBridge actionsRef={props.actionsRef} insertRef={insertRef} />}
+        {props.actionsRef && <ActionsBridge actionsRef={props.actionsRef} insertRef={insertRef} submitRef={submitRef} />}
       </LexicalComposer>
     </EditorShell>
   );

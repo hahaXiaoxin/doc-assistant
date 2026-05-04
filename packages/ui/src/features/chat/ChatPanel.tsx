@@ -235,20 +235,113 @@ const ActionBar = styled.div`
   margin-top: 8px;
   font-size: ${tokens.font.sizeSmall};
   color: ${tokens.color.textTertiary};
+  min-height: 24px;
 `;
 
-const SendButton = styled.button<{ $disabled?: boolean }>`
+/**
+ * v1.1 PR-3 C3 · 快捷键提示改为 `?` icon hover tooltip:
+ * - 过去是一行长文案常驻,占视觉 + 和主按钮挤同一行不克制。
+ * - 现在是 24×24 圆按钮,hover / focus 弹出 popover 气泡,空闲时几乎不可见。
+ */
+const HintHost = styled.div`
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+`;
+
+const HintButton = styled.button`
   all: unset;
-  cursor: ${(p) => (p.$disabled ? 'not-allowed' : 'pointer')};
+  cursor: help;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: ${tokens.color.textTertiary};
+  border: 1px solid ${tokens.color.border};
+  font-size: 11px;
+  line-height: 1;
+  transition: color ${tokens.motion.fast}, border-color ${tokens.motion.fast};
+
+  &:hover,
+  &:focus-visible {
+    color: ${tokens.color.textSecondary};
+    border-color: ${tokens.color.borderStrong};
+    outline: none;
+  }
+`;
+
+const HintPopover = styled.span`
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  white-space: nowrap;
+  padding: 6px 10px;
+  background: ${tokens.color.textPrimary};
+  color: ${tokens.color.textInverse};
+  border-radius: ${tokens.radius.sm};
+  font-size: ${tokens.font.sizeSmall};
+  line-height: 1.5;
+  box-shadow: ${tokens.shadow.card};
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity ${tokens.motion.fast};
+
+  ${HintHost}:hover &,
+  ${HintHost}:focus-within & {
+    opacity: 1;
+  }
+`;
+
+/**
+ * v1.1 PR-3 C3 · 常驻主按钮:
+ * - $mode='send'    · primary 填充 pill,空闲默认态;空输入 disabled
+ * - $mode='stop'    · danger 轮廓(不填充)pill,进行中态
+ * - $mode='disabled'· 灰色填充 pill · aria-disabled · not-allowed
+ */
+const PrimaryButton = styled.button<{ $mode: 'send' | 'stop' | 'disabled' }>`
+  all: unset;
+  box-sizing: border-box;
+  cursor: ${(p) => (p.$mode === 'disabled' ? 'not-allowed' : 'pointer')};
   padding: 6px 14px;
   border-radius: ${tokens.radius.pill};
-  background: ${(p) => (p.$disabled ? tokens.color.borderStrong : tokens.color.primary)};
-  color: ${tokens.color.textInverse};
   font-size: ${tokens.font.sizeSmall};
   font-weight: 500;
-  transition: background ${tokens.motion.fast};
-  &:hover {
-    background: ${(p) => (p.$disabled ? tokens.color.borderStrong : tokens.color.primaryHover)};
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background ${tokens.motion.fast}, color ${tokens.motion.fast},
+    border-color ${tokens.motion.fast};
+
+  ${(p) =>
+    p.$mode === 'send' &&
+    `
+      background: ${tokens.color.primary};
+      color: ${tokens.color.textInverse};
+      border: 1px solid ${tokens.color.primary};
+      &:hover { background: ${tokens.color.primaryHover}; border-color: ${tokens.color.primaryHover}; }
+    `}
+  ${(p) =>
+    p.$mode === 'stop' &&
+    `
+      background: transparent;
+      color: ${tokens.color.danger};
+      border: 1px solid ${tokens.color.danger};
+      &:hover { background: rgba(255,77,79,0.08); }
+    `}
+  ${(p) =>
+    p.$mode === 'disabled' &&
+    `
+      background: ${tokens.color.bgGray};
+      color: ${tokens.color.textTertiary};
+      border: 1px solid ${tokens.color.border};
+    `}
+
+  &:focus-visible {
+    outline: 2px solid ${tokens.color.primary};
+    outline-offset: 2px;
   }
 `;
 
@@ -275,6 +368,8 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [messageApi, contextHolder] = message.useMessage({ top: 52 });
   const inputActionsRef = useRef<ChatInputActions | null>(null);
+  // v1.1 PR-3 C3 · 由 LexicalChatInput.onContentChange 同步,驱动主按钮 disabled。
+  const [inputEmpty, setInputEmpty] = useState(true);
 
   const slashRegistry = useMemo(() => createDefaultCommandRegistry(), []);
 
@@ -444,13 +539,45 @@ export function ChatPanel({
             slashRegistry={slashRegistry}
             slashContext={slashCtx}
             actionsRef={inputActionsRef}
+            onContentChange={setInputEmpty}
             onSubmit={handleSubmit}
           />
           <ActionBar>
-            <span>Enter 发送 · Shift+Enter 换行 · 输入 / 查看命令</span>
+            <HintHost>
+              <HintButton
+                type="button"
+                aria-label="查看输入快捷键"
+                tabIndex={0}
+              >
+                ?
+              </HintButton>
+              <HintPopover role="tooltip">
+                Enter 发送 · Shift+Enter 换行 · 输入 / 查看命令
+              </HintPopover>
+            </HintHost>
             {chat.isBusy ? (
-              <SendButton onClick={chat.abort}>停止</SendButton>
-            ) : null}
+              <PrimaryButton
+                type="button"
+                $mode="stop"
+                aria-label="停止生成"
+                onClick={chat.abort}
+              >
+                停止 <span aria-hidden>■</span>
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton
+                type="button"
+                $mode={inputEmpty ? 'disabled' : 'send'}
+                aria-label="发送"
+                aria-disabled={inputEmpty}
+                onClick={() => {
+                  if (inputEmpty) return;
+                  inputActionsRef.current?.submit();
+                }}
+              >
+                发送 <span aria-hidden>➤</span>
+              </PrimaryButton>
+            )}
           </ActionBar>
         </InputArea>
       </CollapsiblePanel>
