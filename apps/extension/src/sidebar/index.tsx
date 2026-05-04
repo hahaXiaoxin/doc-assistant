@@ -19,9 +19,6 @@ import { canonicalizeUrl, createLogger, extractDomain, MessageType } from '@doc-
 import type { ChatMessage } from '@doc-assistant/shared';
 import {
   runIdentityPipeline,
-  runContentPipeline,
-  contentRegistry,
-  type ContentExtractor,
 } from '@doc-assistant/tools';
 import {
   identifySessionTopic,
@@ -292,12 +289,10 @@ function SidebarApp(props: MountOptions) {
       logger.warn('/topic 识别失败：当前无活跃 PageVisit');
       return;
     }
-    // 从 UI 取最近消息（通过 ChatPanel 的 pageSummary 并非理想做法；这里偷懒用
-    // page summary 的 summary 作为"最近内容"占位，实际效果由辅 LLM 评估）
-    const sum = pageSummaryMemo();
-    const recentMessages = sum?.summary
-      ? [{ role: 'user' as const, content: sum.summary }]
-      : [];
+    // v1.1 PR-2：PageSummary.summary 已删，/topic 无参时没有现成的"最近内容"占位。
+    // 这里传空数组即可——identifySessionTopic 内部会按对话历史 + 身份段走常规路径，
+    // 失去了这个偷懒兜底也不影响主流程（原来就是"并非理想做法"的权宜实现）。
+    const recentMessages: Array<{ role: 'user'; content: string }> = [];
     await identifySessionTopic({
       aux: bootstrap.auxLLM,
       memory: bootstrap.memory,
@@ -463,8 +458,11 @@ function SidebarApp(props: MountOptions) {
 }
 
 /**
- * 构造 PageSummary：跑 Identity + Content pipeline，取前 800 字作为摘要。
+ * 构造 PageSummary：只跑 Identity pipeline 拿身份段（title + id + canonical + domain）。
  * v0.2：附带 canonicalUrl / domain / visitId（给 Phase2 ContextSource 用）
+ * v1.1 PR-2：不再跑 content pipeline 取摘要 —— summary / extractor 字段随
+ * PageContextCard 一起删除；主模型要正文时走 `read_page_content`（分页）按需拿。
+ * 好处：每次 send 前的 buildInvokeContext 调用不再触发 Readability 全量 DOM 扫描。
  */
 function buildPageSummary(visitId?: string): PageSummary | null {
   try {
@@ -472,13 +470,8 @@ function buildPageSummary(visitId?: string): PageSummary | null {
       url: location.href,
       title: document.title,
       document,
-      ...(window.getSelection()?.toString()
-        ? { selectionText: window.getSelection()!.toString() }
-        : {}),
     };
     const identity = runIdentityPipeline(ctx);
-    // 摘要用非 selection 的 extractors（避免用户划词时页面上下文被替换为选区）
-    const extracted = runContentPipeline(ctx, getNonSelectionExtractors());
     const canonicalUrl = canonicalizeUrl(document, location.href);
     return {
       url: ctx.url,
@@ -488,8 +481,6 @@ function buildPageSummary(visitId?: string): PageSummary | null {
       canonicalUrl,
       domain: extractDomain(canonicalUrl),
       ...(visitId ? { visitId } : {}),
-      ...(extracted ? { summary: extracted.excerpt } : {}),
-      ...(extracted?.extractor ? { extractor: extracted.extractor } : {}),
     };
   } catch (err) {
     logger.warn('buildPageSummary 失败:', (err as Error).message);
@@ -508,8 +499,4 @@ function safeRunIdentity(): ReturnType<typeof runIdentityPipeline> | null {
     logger.warn('runIdentityPipeline 失败', (err as Error).message);
     return null;
   }
-}
-
-function getNonSelectionExtractors(): ContentExtractor[] {
-  return contentRegistry.list().filter((e) => e.name !== 'selection');
 }

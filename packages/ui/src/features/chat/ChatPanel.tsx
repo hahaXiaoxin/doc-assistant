@@ -40,18 +40,12 @@ export interface PageSummary {
   title: string;
   identityTitle?: string;
   identityId?: string;
-  summary?: string;
   /** v0.2：归一化后的 canonical URL（用于 WorkingMemory / Episodic 索引） */
   canonicalUrl?: string;
   /** v0.2：extractDomain(canonicalUrl) */
   domain?: string;
   /** v0.2：当前活跃 PageVisit ID（用于 SessionTopicSource 等） */
   visitId?: string;
-  /**
-   * v0.2.4：摘要来源的提取器标签（readability / semantic / full-body / selection）。
-   * full-body 可信度低（可能含导航/菜单噪声），UI 需要降级提示。
-   */
-  extractor?: string;
 }
 
 /**
