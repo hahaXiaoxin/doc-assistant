@@ -42,13 +42,21 @@ const Bubble = styled.div<{ $role: 'user' | 'assistant'; $error?: boolean }>`
         ? tokens.color.bgUserMsg
         : tokens.color.bgGray};
   color: ${(p) => (p.$error ? tokens.color.danger : tokens.color.textPrimary)};
+  /*
+   * v1.1 PR-2 C5 气泡 border 微调：
+   * - 错误态保留红色描边以突出。
+   * - 用户气泡把之前略偏重的 rgba(22,119,255,0.12) 降到 0.08，和 bgUserMsg 贴得更近，
+   *   避免在白底面板上两道蓝线过于抢眼。
+   * - 助手气泡从 transparent 改为和背景同阶的浅灰线，让两侧气泡"看起来是
+   *   同一套体系"，顺便给没有阴影的 host 页做个极轻的边缘分隔。
+   */
   border: 1px solid
     ${(p) =>
       p.$error
         ? 'rgba(255, 77, 79, 0.24)'
         : p.$role === 'user'
-          ? 'rgba(22, 119, 255, 0.12)'
-          : 'transparent'};
+          ? 'rgba(22, 119, 255, 0.08)'
+          : tokens.color.border};
   box-shadow: ${tokens.shadow.card};
 
   code {

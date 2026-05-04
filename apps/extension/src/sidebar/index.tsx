@@ -301,7 +301,7 @@ function SidebarApp(props: MountOptions) {
       ...(visit.articleId !== undefined ? { articleId: visit.articleId } : {}),
       recentMessages,
     });
-  }, [bootstrap, pageSummaryMemo]);
+  }, [bootstrap]);
 
   const onTopicSet = useCallback(
     async (text: string) => {
