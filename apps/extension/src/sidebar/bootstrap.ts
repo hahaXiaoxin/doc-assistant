@@ -12,7 +12,7 @@
  *   `PAGE_VISIT_ENDED` 消息转发到 offscreen，由 offscreen 内部的 scheduler
  *   登记反思任务并跑 runPending（见 sidebar/index.tsx 的 pvm.subscribe）。
  * - 初始化 PageVisitManager（注入 memory 以登记 page_visits 表，所有 API 走 RPC）
- * - 构造 ChatAgent（phase2=true 接入新 ContextSource）
+ * - 构造 ChatAgent（组装 Persona/WorkingMemory/RelevantMemory 等 ContextSource）
  */
 import {
   DEFAULT_AUX_PROVIDER_CONFIG,
@@ -187,7 +187,7 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     },
   });
 
-  // 装配 Agent（phase2=true + auxLLM → 自动启用 Phase2-1，含 RelevantMemorySource）
+  // 装配 Agent（auxLLM 存在时 RelevantMemorySource 启用 aux-intent 精判）
   const agent = createChatAgent({
     llm: mainLLM,
     memory,
@@ -195,7 +195,6 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     systemPrompt: chatSettings.systemPrompt,
     maxHistoryChars: chatSettings.maxContextChars,
     maxTurns: chatSettings.maxTurns,
-    phase2: true,
     auxLLM,
   });
 

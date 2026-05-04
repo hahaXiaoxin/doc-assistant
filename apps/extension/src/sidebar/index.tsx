@@ -2,7 +2,7 @@
  * Sidebar React 应用入口（由 content script 挂载到 Shadow DOM）
  * ---------------------------------------------
  * 装配：
- * - 从 chrome.storage 读取三套 Provider 配置 → 构造 ChatAgent（phase2 模式）
+ * - 从 chrome.storage 读取三套 Provider 配置 → 构造 ChatAgent
  * - 运行页面提取 pipeline 获取当前文章身份与摘要 → 作为 PageSummary 注入 ChatPanel
  * - ChatPanel 通过 Agent 发起对话，tool 执行时能访问当前页面 document
  *
