@@ -36,7 +36,7 @@ import {
   RemoteMemoryStore,
   type MemoryStore,
 } from '@doc-assistant/memory';
-import { buildPhase2Tools } from '@doc-assistant/tools';
+import { buildDefaultTools } from '@doc-assistant/tools';
 import {
   createChatAgent,
   PageVisitManager,
@@ -127,8 +127,8 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
   // PageVisitManager（注入 memory 以登记 page_visits）
   const pageVisitManager = new PageVisitManager({ memory });
 
-  // v0.2.1 → v0.4.0：装配 Phase2 tool 集合
-  const tools = buildPhase2Tools({
+  // 装配默认 tool 集合（动态按 deps 能力注册 recall / list_recent_visits）
+  const tools = buildDefaultTools({
     memory,
     getCurrentVisit: () => pageVisitManager.getCurrent(),
     // recall_memory tool 的执行器：走与 RelevantMemorySource 相同的底层链路（explicit 模式，绕过粗判/精判）

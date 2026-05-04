@@ -12,7 +12,7 @@ import {
 } from '@doc-assistant/memory';
 import {
   buildWorkingMemoryTools,
-  buildPhase2Tools,
+  buildDefaultTools,
   type PageVisitLike,
   type WorkingMemoryToolDeps,
 } from '../definitions';
@@ -100,8 +100,8 @@ describe('buildWorkingMemoryTools · 工厂', () => {
     );
   });
 
-  it('buildPhase2Tools = MVP 3 + WorkingMemory 7 + remember_persona', () => {
-    const tools = buildPhase2Tools(makeDeps(makeMemory()));
+  it('buildDefaultTools = 3 个页面 tool + 7 个 WorkingMemory tool + remember_persona', () => {
+    const tools = buildDefaultTools(makeDeps(makeMemory()));
     expect(tools.length).toBe(11);
     expect(tools.map((t) => t.name)).toEqual(
       expect.arrayContaining([

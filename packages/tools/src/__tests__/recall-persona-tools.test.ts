@@ -16,9 +16,9 @@ import {
   createRecallMemoryTool,
   createListRecentVisitsTool,
   createRememberPersonaTool,
-  buildPhase2Tools,
+  buildDefaultTools,
   type PageVisitLike,
-  type Phase2ToolsDeps,
+  type DefaultToolsDeps,
 } from '../definitions';
 
 import type { ToolDefinition } from '@doc-assistant/shared';
@@ -505,11 +505,11 @@ describe('remember_persona tool', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* buildPhase2Tools 集成                                                */
+/* buildDefaultTools 集成                                              */
 /* ------------------------------------------------------------------ */
 
-describe('buildPhase2Tools · 按 deps 动态注册', () => {
-  function makeDeps(overrides: Partial<Phase2ToolsDeps> = {}): Phase2ToolsDeps {
+describe('buildDefaultTools · 按 deps 动态注册', () => {
+  function makeDeps(overrides: Partial<DefaultToolsDeps> = {}): DefaultToolsDeps {
     const base = new NullMemoryStore();
     const memory: MemoryStore = Object.assign(base, {
       async addPersonaCandidate(
@@ -530,7 +530,7 @@ describe('buildPhase2Tools · 按 deps 动态注册', () => {
   }
 
   it('recallSemantic + listRecentVisits 都注入 → 13 个 tool', () => {
-    const tools = buildPhase2Tools({
+    const tools = buildDefaultTools({
       ...makeDeps(),
       recallSemantic: async () => ({ hit: false, text: '', count: 0 }),
       listRecentVisits: async () => ({ count: 0, visits: [] }),
@@ -539,12 +539,12 @@ describe('buildPhase2Tools · 按 deps 动态注册', () => {
     expect(names).toContain('recall_memory');
     expect(names).toContain('list_recent_visits');
     expect(names).toContain('remember_persona');
-    // MVP 3 + WM 7 + persona + recall + list_recent_visits = 13
+    // 3 页面 tool + 7 WM tool + persona + recall + list_recent_visits = 13
     expect(tools.length).toBe(13);
   });
 
   it('只注入 recallSemantic → 12 个，不含 list_recent_visits', () => {
-    const tools = buildPhase2Tools({
+    const tools = buildDefaultTools({
       ...makeDeps(),
       recallSemantic: async () => ({ hit: false, text: '', count: 0 }),
     });
@@ -555,7 +555,7 @@ describe('buildPhase2Tools · 按 deps 动态注册', () => {
   });
 
   it('两个都不注入 → 11 个', () => {
-    const tools = buildPhase2Tools(makeDeps());
+    const tools = buildDefaultTools(makeDeps());
     const names = tools.map((t) => t.name);
     expect(names).not.toContain('recall_memory');
     expect(names).not.toContain('list_recent_visits');

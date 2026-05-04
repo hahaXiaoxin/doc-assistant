@@ -10,8 +10,8 @@
  *   - clear_todos
  *   - set_active_goal
  *
- * 由 agent 层在装配 phase2 tool 集合时调用：
- *   buildPhase2Tools({ memory, getCurrentVisit })
+ * 由 agent 层在装配默认 tool 集合时调用：
+ *   buildDefaultTools({ memory, getCurrentVisit })
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
 import type { WorkingMemoryToolDeps } from './deps';

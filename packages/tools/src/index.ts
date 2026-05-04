@@ -6,7 +6,7 @@
  * - LLM Tool 定义（提供给 Agent 注入到 LLM 的本地工具清单）
  *
  * 架构约束：
- * - MVP 不接入 tesseract.js；OCR 仅定义接口骨架。详见 docs/ROADMAP.md §3。
+ * - 目前不接入 tesseract.js；OCR 仅定义接口骨架。详见 docs/ROADMAP.md §3。
  */
 
 export { Registry } from './registry';

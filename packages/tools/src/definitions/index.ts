@@ -1,12 +1,12 @@
 /**
  * LLM Tool 默认集合
  * ---------------------------------------------
- * - `buildDefaultMVPTools()`：MVP 的 3 个 tool（读页面 / 页面身份 / 划词文本）。
- * - `buildPhase2Tools(deps)`：在 MVP 3 个基础上追加：
- *    - WorkingMemory 的 7 个细粒度 tool
- *    - remember_persona
- *    - （可选）recall_memory：deps.recallSemantic 存在时加入
- *    - （可选）list_recent_visits：deps.listRecentVisits 存在时加入（v0.4.0 新增，Chronological Index）
+ * `buildDefaultTools(deps)` 按 deps 能力动态注册全部 tool:
+ *   - 3 个页面 tool: read_page_content / get_page_identity / get_selection_text
+ *   - 7 个 WorkingMemory 细粒度 tool
+ *   - remember_persona
+ *   - (可选) recall_memory: deps.recallSemantic 存在时加入
+ *   - (可选) list_recent_visits: deps.listRecentVisits 存在时加入
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
 import { readPageContentTool } from './read-page-content';
@@ -29,34 +29,34 @@ import {
   type RememberPersonaToolDeps,
 } from './remember-persona';
 
-export function buildDefaultMVPTools(): ToolDefinition[] {
-  return [readPageContentTool, getPageIdentityTool, getSelectionTextTool];
-}
-
-export interface Phase2ToolsDeps extends WorkingMemoryToolDeps {
+export interface DefaultToolsDeps extends WorkingMemoryToolDeps {
   /**
-   * 可选：语义召回执行器。提供时会注册 `recall_memory` tool；
-   * 省略时不注册（例如 memory 未启用向量召回）。
+   * 可选: 语义召回执行器。提供时会注册 `recall_memory` tool;
+   * 省略时不注册(例如 memory 未启用向量召回)。
    */
   recallSemantic?: RecallMemoryToolDeps['recallSemantic'];
   /**
-   * 可选：时间维列清单执行器。提供时会注册 `list_recent_visits` tool；
-   * 省略时不注册（例如 NullMemoryStore 场景）。
+   * 可选: 时间维列清单执行器。提供时会注册 `list_recent_visits` tool;
+   * 省略时不注册(例如 NullMemoryStore 场景)。
    */
   listRecentVisits?: ListRecentVisitsToolDeps['listRecentVisits'];
   /**
-   * 可选：显式 remember_persona 依赖覆盖项；默认复用 WorkingMemory 的 memory/getCurrentVisit。
+   * 可选: 显式 remember_persona 依赖覆盖项;默认复用 WorkingMemory 的 memory/getCurrentVisit。
    */
   persona?: Partial<RememberPersonaToolDeps>;
 }
 
 /**
- * Phase2 tool 集合：
- *   MVP 3 + WorkingMemory 7 + remember_persona + (可选) recall_memory + (可选) list_recent_visits
+ * 默认 tool 集合:
+ *   read_page_content / get_page_identity / get_selection_text
+ *   + 7 个 WorkingMemory tool + remember_persona
+ *   + (可选) recall_memory + (可选) list_recent_visits
  */
-export function buildPhase2Tools(deps: Phase2ToolsDeps): ToolDefinition[] {
+export function buildDefaultTools(deps: DefaultToolsDeps): ToolDefinition[] {
   const tools: ToolDefinition[] = [
-    ...buildDefaultMVPTools(),
+    readPageContentTool,
+    getPageIdentityTool,
+    getSelectionTextTool,
     ...buildWorkingMemoryTools(deps),
     createRememberPersonaTool({
       memory: deps.memory,
