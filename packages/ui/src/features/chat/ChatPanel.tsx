@@ -21,6 +21,11 @@ import { tokens } from '../../theme/tokens';
 import { GlobalStyle } from '../../theme/GlobalStyle';
 import { CollapsiblePanel } from '../../components/CollapsiblePanel';
 import {
+  IconMessageSquarePlus,
+  IconPanelRightClose,
+  IconSettings,
+} from '../../components/icons';
+import {
   PersonaReviewBanner,
   type PersonaView,
 } from '../../components/PersonaReviewBanner';
@@ -190,19 +195,29 @@ const Dot = styled.span`
 const IconButton = styled.button`
   all: unset;
   cursor: pointer;
-  width: 28px;
-  height: 28px;
+  /**
+   * v1.1 PR-3 C2 · 统一 32×32 hit area + 16px icon:
+   * - 原来是 28×28 容器 + 16px 字符图标,视觉偏小,移动/触屏下 hit area 不够舒服。
+   * - 换成 32×32 更贴近 iOS HIG / Material 推荐的最小 icon button,键盘
+   *   focus 环也更好看。
+   */
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: ${tokens.radius.sm};
   color: ${tokens.color.textSecondary};
-  font-size: 16px;
-  transition: background ${tokens.motion.fast};
+  transition: background ${tokens.motion.fast}, color ${tokens.motion.fast};
 
   &:hover {
     background: ${tokens.color.bgHoverSubtle};
     color: ${tokens.color.textPrimary};
+  }
+
+  &:focus-visible {
+    outline: 2px solid ${tokens.color.primary};
+    outline-offset: -2px;
   }
 `;
 
@@ -382,14 +397,29 @@ export function ChatPanel({
             <span>Doc Assistant</span>
           </HeaderLeft>
           <div style={{ display: 'flex', gap: 4 }}>
-            <IconButton title="清空上下文（/new）" onClick={slashCtx.clearConversation}>
-              ⟳
+            <IconButton
+              type="button"
+              title="开启新对话"
+              aria-label="开启新对话"
+              onClick={slashCtx.clearConversation}
+            >
+              <IconMessageSquarePlus />
             </IconButton>
-            <IconButton title="打开配置" onClick={onOpenOptions}>
-              ⚙
+            <IconButton
+              type="button"
+              title="打开配置"
+              aria-label="打开配置"
+              onClick={onOpenOptions}
+            >
+              <IconSettings />
             </IconButton>
-            <IconButton title="折叠" onClick={onRequestClose}>
-              ✕
+            <IconButton
+              type="button"
+              title="折叠侧栏"
+              aria-label="折叠侧栏"
+              onClick={onRequestClose}
+            >
+              <IconPanelRightClose />
             </IconButton>
           </div>
         </Header>

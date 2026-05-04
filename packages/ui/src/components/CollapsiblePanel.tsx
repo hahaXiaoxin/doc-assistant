@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import styled, { keyframes } from 'styled-components';
 import { tokens } from '../theme/tokens';
+import { IconMessageCircle } from './icons';
 
 const WIDTH_KEY = 'doc-assistant.sidebar-width';
 const MIN_W = 360;
@@ -132,7 +133,7 @@ export function CollapsiblePanel({ visible, onRequestOpen, children }: Collapsib
   if (!visible) {
     return (
       <CollapsedFab title="打开 Doc Assistant" onClick={onRequestOpen} aria-label="打开 Doc Assistant">
-        ⌘
+        <IconMessageCircle size={20} />
       </CollapsedFab>
     );
   }
