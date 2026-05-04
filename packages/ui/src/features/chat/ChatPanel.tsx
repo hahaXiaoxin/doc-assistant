@@ -157,16 +157,6 @@ const Dot = styled.span`
   flex-shrink: 0;
 `;
 
-const PageTitle = styled.div`
-  font-weight: 500;
-  font-size: ${tokens.font.sizeSmall};
-  color: ${tokens.color.textSecondary};
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-`;
-
 const IconButton = styled.button`
   all: unset;
   cursor: pointer;
@@ -439,9 +429,7 @@ export function ChatPanel({
             <span>Enter 发送 · Shift+Enter 换行 · 输入 / 查看命令</span>
             {chat.isBusy ? (
               <SendButton onClick={chat.abort}>停止</SendButton>
-            ) : (
-              <PageTitle>{pageSummary?.url ?? ''}</PageTitle>
-            )}
+            ) : null}
           </ActionBar>
         </InputArea>
       </CollapsiblePanel>
