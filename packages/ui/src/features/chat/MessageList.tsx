@@ -187,7 +187,7 @@ export function MessageList({ messages, streaming }: MessageListProps) {
           <div style={{ fontWeight: 600, color: tokens.color.textSecondary }}>
             向当前页面提问吧
           </div>
-          <div>可输入 /new 清空上下文;可划词后插入引用</div>
+          <div>试试 /recall 查历史笔记 · /topic 切换会话主题 · 划词可插入引用</div>
         </Empty>
       </Wrap>
     );
