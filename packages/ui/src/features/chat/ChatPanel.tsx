@@ -28,7 +28,6 @@ import {
   WorkingMemoryCard,
   type WorkingMemoryView,
 } from '../../components/WorkingMemoryCard';
-import { PageContextCard } from '../../components/PageContextCard';
 import { LexicalChatInput, type ChatInputActions } from '../../editor/LexicalChatInput';
 import { MessageList } from './MessageList';
 import { useStreamingChat } from '../../hooks/useStreamingChat';
@@ -275,15 +274,9 @@ export function ChatPanel({
 
   useSelectionBridge(() => inputActionsRef.current?.insertReference ?? null);
 
-  // pageSummary 只在面板显隐切换时重算 · 详见 docs/TROUBLESHOOTING.md §5
-  // 不缓存会让每次输入都同步跑 runIdentityPipeline + runContentPipeline（全量
-  // DOM 克隆 + Readability），造成秒级输入延迟并诱发宿主页面 IO 误触发。
+  // v1.1 PR-2：PageContextCard 已删除，这里不再需要为 UI 缓存 pageSummary；
   // send 时 buildInvokeContext 会即时调 getPageSummary() 保证发给 LLM 的信息新鲜。
-  const pageSummary = useMemo(
-    () => getPageSummary(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visible],
-  );
+  // 顺带消掉之前那段"面板显隐切换时重算 pipeline"的兜底逻辑——已无 UI 消费。
 
   // v0.2.1：WorkingMemory / Persona 数据刷新
   // 策略：
@@ -411,23 +404,6 @@ export function ChatPanel({
           />
         )}
         <WorkingMemoryCard wm={workingMemory} />
-
-        <PageContextCard
-          page={
-            pageSummary
-              ? {
-                  title: pageSummary.identityTitle ?? pageSummary.title,
-                  url: pageSummary.url,
-                  ...(pageSummary.summary !== undefined
-                    ? { summary: pageSummary.summary }
-                    : {}),
-                  ...(pageSummary.extractor !== undefined
-                    ? { extractor: pageSummary.extractor }
-                    : {}),
-                }
-              : null
-          }
-        />
 
         <MessageList messages={chat.messages} streaming={chat.streaming} />
 
