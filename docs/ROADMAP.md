@@ -301,6 +301,65 @@
   - `UIMessage.visitId` / `SlashCommandContext` 5 项新增能力 / `MemoryStore` 14 项原可选方法
     全部收紧为必填
 
+#### 工程治理 · Prompt / Agent 参数化
+
+- [ ] **集中化的"代码配置文件"（prompt / agent 超参共享配置）**（用户提出 2026-05-01）
+
+  **用户故事**
+  作为 **Agent / Prompt 维护者**，我希望**有一份集中管理的配置文件(或配置模块)**，用于存放目前散落在各 prompt / agent / tool 调用点的"运行时可调参数"，以便**只改配置就能微调 agent 行为，不需要改动代码或重写 prompt**。
+
+  **背景与价值（Why）**
+  - 现状：Agent 的优先级、`maxTurn`、反思 Job 间隔、召回粗判触发词、tool 注册 deps、system prompt 片段 等超参分散在 `packages/shared/src/config.ts`、`packages/agent/src/loop.ts`、`packages/agent/src/reflection/*`、`packages/tools/src/definitions/**`、`.claude/agents/*.md` 等多个位置；
+  - 痛点：每次想做"A/B 微调"——比如"把主循环 maxTurn 从 8 调到 12"、"把某 agent 优先级降一级"、"把某个 tool description 措辞改一版"——都要修改代码并重新构建，改动分散、容易遗漏，且**难以可视化对比**不同参数下的效果；
+  - 价值：
+    1. **微调能力**（fine-tune-able）:改配置即改行为，减少代码改动 → 降低回归风险
+    2. **集中可见**：一眼看到"这个 agent / 这个 tool / 这个 prompt 当前用的是什么参数"
+    3. **可版本化**：不同 profile(如 `default` / `cheap` / `aggressive-recall`)可切换
+    4. **便于协作调参**：product-manager 不写代码也能提调参 PR
+
+  **范围（What · MVP）**
+  1. 新增 `packages/shared/src/agent-config.ts`（或 `packages/shared/config/agent.ts`），作为**唯一可信源**；
+  2. **抽取首批参数**到 "shared" 区域（命名建议 `AgentRuntimeConfig`）：
+     - 各 agent 的 **priority**（若有 orchestrator 调度优先级的概念）
+     - 主循环 / 各 agent 的 **maxTurn**（最大回合数）
+     - 辅 LLM 调用的 **temperature / topP / maxTokens**
+     - 反思 Job 的 **scanIntervalMinutes** / **retryLimit** / **batchSize**
+     - 召回链路的 **keyword 粗判触发集合**、**intent 精判置信度阈值**、**向量 topK**、**邻居消息拼接窗口**
+     - 各 tool description 中"可外置"的文案片段（如 TODO 推进规则的强度措辞）
+     - SessionTopic `shouldIdentify()` 的**触发周期轮数**与**漂移阈值**
+  3. 留一条通用扩展点:`share.extras: Record<string, unknown>`，方便后续新增参数不立刻改 schema；
+  4. bootstrap 处统一 `loadAgentRuntimeConfig()` → 注入到 Loop / Reflection / RelevantMemorySource / buildPhase2Tools 等消费方；
+  5. 提供 `DEFAULT_AGENT_RUNTIME_CONFIG` 常量，保证零配置下行为与当前完全一致(向后兼容)。
+
+  **初步验收标准**
+  - [ ] 至少抽取 **5 类参数**到新配置文件(maxTurn / agent priority / reflection 间隔 / 召回阈值 / tool 文案片段)
+  - [ ] 改配置**不需要改业务代码**即可生效(Loop / Reflection 等消费方通过 config 读取，不再出现魔法常量)
+  - [ ] 全部消费方 **100% 走 config**，`Grep` 在旧位置找不到遗留魔法常量
+  - [ ] 单测覆盖:配置默认值、覆盖值、扩展字段合并、边界非法值(如 `maxTurn<=0`)被 clamp
+  - [ ] 不破坏 v0.5.0 已有行为(既有测试全绿)
+  - [ ] `docs/` 内附 **配置速查表**:每一项的名称、默认值、取值范围、影响面
+  - [ ] (可选 / 验收加分项)配置页"调试" Tab 新增只读视图，展示当前生效的 `AgentRuntimeConfig` JSON
+
+  **优先级建议**
+  - **🟧 中**。不直接解决用户可感知痛点，但**显著降低后续所有 prompt / agent 调优的成本**，属于"越晚做越贵"的基础设施治理项。建议在 v0.6(DSL 自学习提取器)之前或并行完成,因为 v0.6 会引入更多可调参数,若届时仍无集中配置，碎片化会加剧。
+
+  **可能涉及的实现要点(提示，非方案)**
+  - 位置:优先 `packages/shared/src/`(符合"依赖方向严格单向"红线，任何层都能读)
+  - Schema:建议用 **纯 TypeScript interface + `satisfies` + `Object.freeze`**，不引入 zod 等新依赖(除非已有);
+  - 配置分层:`DEFAULT` → `profile 覆盖` → `用户 chrome.storage 覆盖`(三层 merge);
+  - 兼容性:现有魔法常量保留为 DEFAULT 的取值，**行为零变化**；
+  - 风险点:
+    - ⚠️ 不要把 **API Key / baseURL / model id** 塞进来(这些是"用户配置",不是"超参");职责要分清
+    - ⚠️ system prompt 全文不放 config(太重,且涉及 i18n);只放"可外置的文案片段/强度词"
+    - ⚠️ 配置 reload 时机:MVP 只在 bootstrap 加载一次，不做热更新;写到红线里
+  - 测试策略:`packages/shared/src/__tests__/agent-config.test.ts` 覆盖 DEFAULT 冻结、merge 语义、clamp 边界
+
+  **范围边界（本次不做）**
+  - ❌ 不做 GUI 编辑器(先只支持改源码常量 / chrome.storage key)
+  - ❌ 不做多 profile 切换 UI(数据结构预留，实现延后)
+  - ❌ 不把 prompt 全文搬进 config(仅外置可调片段)
+  - ❌ 不做配置热更新(bootstrap-time 加载)
+
 ### 架构红线（ESLint 强约束）
 
 - Agent 层禁止 `import 'ai'` / `@ai-sdk/*`（通过 LLMProvider / EmbeddingProvider 接口访问）
