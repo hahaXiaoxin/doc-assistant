@@ -12,7 +12,7 @@ import type { ToolDefinition } from '@doc-assistant/shared';
 import type { LLMProvider } from '@doc-assistant/provider';
 import type { MemoryStore } from '@doc-assistant/memory';
 import { Agent } from '../agent';
-import { buildDefaultPhase2_1Sources } from '../context';
+import { buildDefaultSources } from '../context';
 
 export interface CreateChatAgentOptions {
   llm: LLMProvider;
@@ -39,7 +39,7 @@ export interface CreateChatAgentOptions {
 }
 
 export function createChatAgent(opts: CreateChatAgentOptions): Agent {
-  const sources = buildDefaultPhase2_1Sources({
+  const sources = buildDefaultSources({
     systemPrompt: opts.systemPrompt,
     maxHistoryChars: opts.maxHistoryChars,
     memory: opts.memory,

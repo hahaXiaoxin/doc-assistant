@@ -18,9 +18,7 @@ export { runAgentLoop, type LoopOptions } from './loop';
 export { createChatAgent, type CreateChatAgentOptions } from './agents/chat-agent';
 
 export {
-  buildDefaultMVPSources,
-  buildDefaultPhase2_0Sources,
-  buildDefaultPhase2_1Sources,
+  buildDefaultSources,
   createSystemPromptSource,
   createChatHistorySource,
   createPersonaSource,
@@ -37,9 +35,7 @@ export {
   type AgentInvokeContext,
   type ContextSegment,
   type ContextSource,
-  type DefaultMVPSourcesOptions,
-  type DefaultPhase2SourcesOptions,
-  type DefaultPhase2_1SourcesOptions,
+  type DefaultSourcesOptions,
   type PersonaSourceOptions,
   type RelevantMemorySourceOptions,
   type RecallInput,
