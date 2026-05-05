@@ -31,6 +31,7 @@ const Overlay = styled.div`
   align-items: center;
   justify-content: center;
   padding: 24px;
+  pointer-events: auto; /* host 设了 none，portal 到 shadowRoot 后要显式恢复 */
   animation: fadeIn ${tokens.motion.fast} both;
 
   @keyframes fadeIn {
