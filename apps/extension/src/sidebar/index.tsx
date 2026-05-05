@@ -15,7 +15,7 @@ import { StyleSheetManager } from 'styled-components';
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { canonicalizeUrl, createLogger, extractDomain, MessageType } from '@doc-assistant/shared';
+import { canonicalizeUrl, createLogger, extractDomain, MessageType, setLogPersistor } from '@doc-assistant/shared';
 import type { ChatMessage } from '@doc-assistant/shared';
 import {
   runIdentityPipeline,
@@ -29,8 +29,12 @@ import {
 import { ChatPanel, type PageSummary } from '@doc-assistant/ui';
 import { bootstrapAgent } from './bootstrap';
 import { installShadowSelectionPatch } from './patch-shadow-selection';
+import { createRemoteLogPersistor } from '../shared-logger-persistor';
 
 const logger = createLogger('extension:sidebar');
+
+// v0.6.0:sidebar 日志通过 RPC 批量推给 offscreen 落盘
+setLogPersistor(createRemoteLogPersistor('sidebar'));
 
 export interface MountOptions {
   shadowRoot: ShadowRoot;

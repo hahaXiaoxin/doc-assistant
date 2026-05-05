@@ -245,7 +245,7 @@ export interface LogRpcEntry {
   level: 'debug' | 'info' | 'warn' | 'error';
   module: string;
   msg: string;
-  meta?: Record<string, unknown>;
+  meta?: Record<string, unknown> | undefined;
 }
 
 export interface LogPersistRequest {

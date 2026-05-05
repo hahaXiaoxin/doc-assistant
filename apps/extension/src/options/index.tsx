@@ -14,12 +14,17 @@ import zhCN from 'antd/locale/zh_CN';
 import {
   createLogger,
   createTypedStorage,
+  setLogPersistor,
   type StorageSchema,
 } from '@doc-assistant/shared';
 import { RemoteMemoryStore, type MemoryStore } from '@doc-assistant/memory';
 import { OptionsForm } from '@doc-assistant/ui';
+import { createRemoteLogPersistor } from '../shared-logger-persistor';
 
 const logger = createLogger('extension:options');
+
+// v0.6.0:options 日志通过 RPC 推给 offscreen 落盘
+setLogPersistor(createRemoteLogPersistor('options'));
 
 const container = document.getElementById('options-root');
 if (!container) {

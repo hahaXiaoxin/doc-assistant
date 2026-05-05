@@ -24,8 +24,10 @@ import {
   STORAGE_KEYS,
   createLogger,
   isUseMain,
+  setLogPersistor,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
+  type LogEntry,
   type MemoryRpcResponse,
   type MemorySettings,
   type OffscreenStorageReadRequest,
@@ -45,11 +47,20 @@ import {
   ReflectionScheduler,
 } from '@doc-assistant/agent';
 import { installReflectionBridge } from './reflection-bridge';
+import { installLogBridge, persistLogsDirectly } from './log-bridge';
 
 const logger = createLogger('extension:offscreen:memory');
 const reflectionLogger = createLogger('extension:offscreen:reflection');
 
 logger.info('offscreen document 启动（统一记忆宿主）');
+
+// offscreen 自己的 logger 不走 RPC,直接写本地 IDB
+setLogPersistor((entries: LogEntry[]) => {
+  void persistLogsDirectly(entries, 'offscreen').catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn('[offscreen] 日志落盘失败', (err as Error).message);
+  });
+});
 
 /* ------------------------------------------------------------------ */
 /* 1. 构造 DexieMemoryStore（含 embedQuery）+ Aux LLM + 反思 Scheduler */
@@ -305,6 +316,12 @@ chrome.runtime.onMessage.addListener(
 installReflectionBridge(chrome.runtime, {
   getScheduler: async () => (await ensureRuntimeReady()).scheduler,
 });
+
+/* ------------------------------------------------------------------ */
+/* 5. LOG_PERSIST / LOG_EXPORT 路由(v0.6.0 Debug 导出)                 */
+/* ------------------------------------------------------------------ */
+
+installLogBridge(chrome.runtime);
 
 /** 仅供测试直接校验 runtime 构造路径（生产代码不会 import 这个） */
 export const __internal = {

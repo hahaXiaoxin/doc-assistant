@@ -10,15 +10,19 @@
  *   给 offscreen；sidebar 不再参与反思 Job 的执行。§8 的反思 tick 广播绕路
  *   （SW 唤醒 sidebar 跑 runPending）已删除。
  */
-import { createLogger, MessageType, type ExtensionMessage } from '@doc-assistant/shared';
+import { createLogger, MessageType, setLogPersistor, type ExtensionMessage } from '@doc-assistant/shared';
 import {
   ensureOffscreenAlive,
   installMemoryRpcHook,
   installOffscreenStorageBridge,
   verifyOffscreenAlive,
 } from './memory-handler';
+import { createRemoteLogPersistor } from '../shared-logger-persistor';
 
 const logger = createLogger('extension:background');
+
+// v0.6.0:SW 日志通过 RPC 推给 offscreen 落盘(需 offscreen 已挂 log bridge)
+setLogPersistor(createRemoteLogPersistor('sw'));
 
 logger.info('service worker 启动');
 
