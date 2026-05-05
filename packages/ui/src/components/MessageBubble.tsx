@@ -22,6 +22,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import styled, { keyframes } from 'styled-components';
 import { tokens } from '../theme/tokens';
+import { CodeBlock } from './CodeBlock';
 
 export interface MessageBubbleProps {
   role: 'user' | 'assistant';
@@ -191,8 +192,48 @@ function MdLink({ children, href, ...rest }: ComponentPropsWithoutRef<'a'>): Rea
   );
 }
 
+/**
+ * react-markdown 里 <code> 渲染器被同时复用给 "行内 code" 和 "fenced code block" 两种
+ * 场景(block 外面还会包一层 <pre>)。这里按约定识别:
+ * - `node.tagName === 'code'` + 父节点 <pre> 或 className `language-xxx` → 走 <CodeBlock>
+ * - 其他 → 保留原生行内 <code>
+ *
+ * 为什么在 `code` 而不是 `pre` 上接管:fenced 的语言信息挂在 <code class="language-ts">
+ * 上,<pre> 拿不到。为了判断是"行内还是 block",我们检查 children 是否含换行或 className
+ * 是否命中 `language-xxx` —— 两者满足其一就走 CodeBlock。
+ * 对应的 <pre> 渲染器返回透明 fragment,避免双重 <pre>。
+ */
+function MdCode({ className, children, ...rest }: ComponentPropsWithoutRef<'code'>): ReactNode {
+  const match = /^language-(\S+)/.exec(className ?? '');
+  const raw = typeof children === 'string' ? children : String(children ?? '');
+  const isBlock = !!match || raw.includes('\n');
+  if (isBlock) {
+    // 末尾 react-markdown 常给一个多余的 \n —— 去掉避免 shiki 渲空行。
+    const code = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
+    const language = match?.[1];
+    return <CodeBlock {...(language ? { language } : {})} code={code} />;
+  }
+  // 行内 code —— 保持原生 <code>,样式在 Bubble 里。
+  return (
+    <code className={className} {...rest}>
+      {children}
+    </code>
+  );
+}
+
+/**
+ * react-markdown 默认把 fenced code 包成 <pre><code class="language-x">...</code></pre>。
+ * 我们在 <code> 层接管成 <CodeBlock>(自己有 <Pre> 包装),外层的 <pre> 会多一层。
+ * 这里让 <pre> 直接透出 children,避免双重 <pre>。
+ */
+function MdPre({ children }: ComponentPropsWithoutRef<'pre'>): ReactNode {
+  return <>{children}</>;
+}
+
 const markdownComponents = {
   a: MdLink,
+  code: MdCode,
+  pre: MdPre,
 } as const;
 
 export function MessageBubble({ role, content, streaming, error }: MessageBubbleProps) {
