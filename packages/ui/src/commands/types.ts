@@ -12,6 +12,12 @@
 export interface SlashCommandContext {
   /** 清空当前窗口的消息流与即将发给 LLM 的 messages */
   clearConversation: () => void;
+  /**
+   * v1.1 PR-4 C3:带确认的清空。宿主弹 ConfirmModal,返回用户选择(true=确认, false=取消)。
+   * 不可用(宿主未实现)时回退到同步 `clearConversation()` 语义 —— 此时由宿主决定是否
+   * 显示确认,默认 true 表示"已清"。
+   */
+  requestClearConversation?: () => Promise<boolean>;
   /** 关闭命令菜单 */
   closeMenu: () => void;
   /** 弹出 antd 轻提示（可选） */

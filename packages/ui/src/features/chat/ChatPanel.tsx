@@ -20,6 +20,7 @@ import type { ChatMessage } from '@doc-assistant/shared';
 import { tokens } from '../../theme/tokens';
 import { GlobalStyle } from '../../theme/GlobalStyle';
 import { CollapsiblePanel } from '../../components/CollapsiblePanel';
+import { ConfirmModal } from '../../components/ConfirmModal';
 import {
   IconMessageSquarePlus,
   IconPanelRightClose,
@@ -444,12 +445,76 @@ export function ChatPanel({
     }
   }, [getPendingPersonas]);
 
+  /**
+   * v1.1 PR-4 C3 · Confirm Modal 状态:
+   * - `confirmOpen` 控制 Modal 的可见;
+   * - `confirmResolveRef` 存一把 Promise resolve,`requestClearConversation()` 打开
+   *   Modal 时 new 一个 Promise,onConfirm/onCancel 时 resolve 对应 true/false。
+   *   两个入口(Header 按钮 / slash /new)都走同一把 Modal,避免"同时弹两个"的尴尬。
+   * - Modal 的 onConfirm 会**先执行清空动作**再 resolve(true),这样两个入口都不用各自
+   *   复制一遍 `chat.clear()` 逻辑;调用方只需要关心"用户是否同意"。
+   * - 已经有 Modal 打开时再次触发 → 静默返回 false(避免堆叠多个 Promise)。
+   */
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
+
+  const doClearConversation = useCallback(() => {
+    chat.clear();
+    inputActionsRef.current?.clear();
+    inputActionsRef.current?.focus();
+  }, [chat]);
+
+  const requestClearConversation = useCallback(() => {
+    if (confirmResolveRef.current) {
+      return Promise.resolve(false);
+    }
+    return new Promise<boolean>((resolve) => {
+      confirmResolveRef.current = resolve;
+      setConfirmOpen(true);
+    });
+  }, []);
+
+  const handleConfirmClear = useCallback(() => {
+    doClearConversation();
+    const resolve = confirmResolveRef.current;
+    confirmResolveRef.current = null;
+    setConfirmOpen(false);
+    resolve?.(true);
+  }, [doClearConversation]);
+
+  const handleCancelClear = useCallback(() => {
+    const resolve = confirmResolveRef.current;
+    confirmResolveRef.current = null;
+    setConfirmOpen(false);
+    resolve?.(false);
+  }, []);
+
+  /**
+   * v1.1 PR-4 C3 · Header "开启新对话"按钮:走同一套 /new 语义 —— 先弹 Confirm Modal,
+   * Modal 在 onConfirm 里直接把 UI 清掉并 resolve(true);这里只管收到 true 之后的
+   * startNewVisit。失败时 notify。
+   */
+  const handleClearRequest = useCallback(async () => {
+    const ok = await requestClearConversation();
+    if (!ok) return;
+    if (onStartNewVisit) {
+      try {
+        await onStartNewVisit();
+      } catch (err) {
+        messageApi.error(`开启新 visit 失败:${(err as Error).message}`);
+        return;
+      }
+    }
+    messageApi.success('已开启新的会话');
+  }, [messageApi, onStartNewVisit, requestClearConversation]);
+
   const slashCtx: SlashCommandContext = {
     clearConversation: () => {
       chat.clear();
       inputActionsRef.current?.clear();
       inputActionsRef.current?.focus();
     },
+    requestClearConversation,
     closeMenu: () => {},
     notify: (msg) => messageApi.success(msg),
     appendAssistantNote: (content) => chat.appendAssistantNote(content),
@@ -496,7 +561,9 @@ export function ChatPanel({
               type="button"
               title="开启新对话"
               aria-label="开启新对话"
-              onClick={slashCtx.clearConversation}
+              onClick={() => {
+                void handleClearRequest();
+              }}
             >
               <IconMessageSquarePlus />
             </IconButton>
@@ -581,6 +648,17 @@ export function ChatPanel({
           </ActionBar>
         </InputArea>
       </CollapsiblePanel>
+      <ConfirmModal
+        open={confirmOpen}
+        title="确定清空当前会话?"
+        description="清空后不可恢复。长期记忆(WorkingMemory / Persona / Episodic)不受影响。"
+        confirmLabel="清空"
+        cancelLabel="取消"
+        tone="danger"
+        initialFocus="cancel"
+        onConfirm={handleConfirmClear}
+        onCancel={handleCancelClear}
+      />
     </>
   );
 }

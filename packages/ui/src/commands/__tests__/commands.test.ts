@@ -29,13 +29,35 @@ function makeCtx(overrides: Partial<SlashCommandContext> = {}): SlashCommandCont
 /* ------------------------------------------------------------------ */
 
 describe('/new 命令', () => {
-  it('清 UI 并调用 startNewVisit', async () => {
+  it('无 requestClearConversation → 直接清 UI 并调用 startNewVisit', async () => {
     const startNewVisit = vi.fn().mockResolvedValue(undefined);
     const ctx = makeCtx({ startNewVisit });
     await newCommand.execute(ctx);
     expect(ctx.clearConversation).toHaveBeenCalledTimes(1);
     expect(startNewVisit).toHaveBeenCalledTimes(1);
     expect(ctx.notify).toHaveBeenCalledWith('已开启新的会话');
+    expect(ctx.closeMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it('requestClearConversation → true 时走 startNewVisit;clearConversation 由宿主在 modal onConfirm 里做', async () => {
+    const requestClearConversation = vi.fn().mockResolvedValue(true);
+    const startNewVisit = vi.fn().mockResolvedValue(undefined);
+    const ctx = makeCtx({ requestClearConversation, startNewVisit });
+    await newCommand.execute(ctx);
+    expect(requestClearConversation).toHaveBeenCalledTimes(1);
+    expect(ctx.clearConversation).not.toHaveBeenCalled();
+    expect(startNewVisit).toHaveBeenCalledTimes(1);
+    expect(ctx.notify).toHaveBeenCalledWith('已开启新的会话');
+  });
+
+  it('requestClearConversation → false(用户取消)时不触发 startNewVisit 也不 notify', async () => {
+    const requestClearConversation = vi.fn().mockResolvedValue(false);
+    const startNewVisit = vi.fn();
+    const ctx = makeCtx({ requestClearConversation, startNewVisit });
+    await newCommand.execute(ctx);
+    expect(requestClearConversation).toHaveBeenCalledTimes(1);
+    expect(startNewVisit).not.toHaveBeenCalled();
+    expect(ctx.notify).not.toHaveBeenCalled();
     expect(ctx.closeMenu).toHaveBeenCalledTimes(1);
   });
 
