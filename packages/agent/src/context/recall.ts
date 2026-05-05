@@ -114,11 +114,23 @@ export async function recallMemory(
   }
 
   // 1) 粗判（仅 auto 模式）
+  const recallStart = getNow ? getNow() : Date.now();
+  let keywordHit = 0;
+  let intentHit = 0;
+  let vectorHit = 0;
   if (mode === 'auto') {
     const trigger = detectRecallTrigger(trimmed);
     if (!trigger.hit) {
+      logger.info('recall miss', {
+        stage: 'keyword_miss',
+        keywordHit: 0,
+        intentHit: 0,
+        vectorHit: 0,
+        elapsedMs: (getNow ? getNow() : Date.now()) - recallStart,
+      });
       return { hit: false, stage: 'keyword_miss', matches: [] };
     }
+    keywordHit = 1;
     // 2) 精判（仅 auto 模式且有 aux）
     if (deps.aux) {
       const intent = await callAuxIntent(deps.aux, {
@@ -127,10 +139,21 @@ export async function recallMemory(
         ...(signal ? { signal } : {}),
       });
       if (intent.intent === 'no') {
-        logger.info('aux-intent 判定 no，跳过召回', { trigger: trigger.matchedText });
+        logger.info('recall miss', {
+          stage: 'intent_no',
+          keywordHit,
+          intentHit: 0,
+          vectorHit: 0,
+          trigger: trigger.matchedText,
+          elapsedMs: (getNow ? getNow() : Date.now()) - recallStart,
+        });
         return { hit: false, stage: 'intent_no', matches: [] };
       }
+      intentHit = 1;
     }
+  } else {
+    keywordHit = 1;
+    intentHit = 1;
   }
 
   // 3) 向量召回（走 MemoryStore.recall；其实现内部按 embedQuery 走向量，否则关键词兜底）
@@ -177,8 +200,16 @@ export async function recallMemory(
   }
 
   if (candidates.length === 0) {
+    logger.info('recall miss', {
+      stage: 'empty_result',
+      keywordHit,
+      intentHit,
+      vectorHit: 0,
+      elapsedMs: (getNow ? getNow() : Date.now()) - recallStart,
+    });
     return { hit: false, stage: 'empty_result', matches: [] };
   }
+  vectorHit = candidates.length;
 
   // 4) 为每条 summary 取邻居 episodes_msg
   const matches: RecallMatch[] = [];
@@ -188,6 +219,14 @@ export async function recallMemory(
       : [];
     matches.push({ summary, neighbors });
   }
+  logger.info('recall hit', {
+    stage: 'success',
+    keywordHit,
+    intentHit,
+    vectorHit,
+    matches: matches.length,
+    elapsedMs: (getNow ? getNow() : Date.now()) - recallStart,
+  });
   return { hit: true, stage: 'success', matches };
 }
 

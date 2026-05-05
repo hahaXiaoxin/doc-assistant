@@ -70,6 +70,10 @@ export class QwenProvider implements LLMProvider {
     const modelId = params.modelOverride ?? this.config.model;
     const coreMessages = this.toCoreMessages(params.messages);
     const tools = this.toAISDKTools(params.tools);
+    // v0.6.0 埋点:记录 provider 调用耗时 + 最终 finishReason
+    const startedAt = Date.now();
+    let finishReason: string | undefined;
+    let errored = false;
 
     try {
       const result = streamText({
@@ -94,21 +98,39 @@ export class QwenProvider implements LLMProvider {
 
       for await (const part of result.fullStream as AsyncIterable<UnknownStreamPart>) {
         for (const chunk of normalizeStreamPart(part)) {
+          if (chunk.type === 'finish') finishReason = chunk.finishReason;
           yield chunk;
         }
       }
     } catch (err) {
+      errored = true;
       // AbortError 单独归类
       if ((err as Error).name === 'AbortError') {
+        logger.info('provider call aborted', {
+          model: modelId,
+          elapsedMs: Date.now() - startedAt,
+        });
         yield { type: 'finish', finishReason: 'abort' };
         return;
       }
-      logger.error('Qwen chat 流式请求失败:', (err as Error).message);
+      logger.error('provider call failed', {
+        model: modelId,
+        elapsedMs: Date.now() - startedAt,
+        error: (err as Error).message,
+      });
       yield {
         type: 'error',
         error: err instanceof Error ? err : new Error(String(err)),
       };
       yield { type: 'finish', finishReason: 'error' };
+      return;
+    }
+    if (!errored) {
+      logger.info('provider call ok', {
+        model: modelId,
+        elapsedMs: Date.now() - startedAt,
+        finishReason: finishReason ?? 'unknown',
+      });
     }
   }
 

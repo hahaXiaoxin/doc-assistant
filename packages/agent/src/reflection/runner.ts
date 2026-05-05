@@ -62,19 +62,41 @@ export class ReflectionRunner {
 
   /** 按 taskType 分发 */
   async run(task: ReflectionTask): Promise<ReflectionRunOutcome> {
+    // v0.6.0 埋点:记录耗时 + 结果
+    const started = this.deps.getNow();
+    const finish = (outcome: ReflectionRunOutcome): ReflectionRunOutcome => {
+      const elapsed = this.deps.getNow() - started;
+      if (outcome.ok) {
+        logger.info('reflection ok', {
+          taskType: outcome.taskType,
+          visitId: task.visitId,
+          elapsedMs: elapsed,
+          ...(outcome.detail ?? {}),
+        });
+      } else {
+        logger.error('reflection failed', {
+          taskType: outcome.taskType,
+          visitId: task.visitId,
+          elapsedMs: elapsed,
+          error: outcome.error,
+        });
+      }
+      return outcome;
+    };
+
     switch (task.taskType) {
       case 'visit_summary':
-        return this.runVisitSummary(task);
+        return finish(await this.runVisitSummary(task));
       case 'persona_extraction':
-        return this.runPersonaExtraction(task);
+        return finish(await this.runPersonaExtraction(task));
       case 'persona_conflict_check':
-        return this.runPersonaConflictCheck(task);
+        return finish(await this.runPersonaConflictCheck(task));
       default:
-        return {
+        return finish({
           ok: false,
           taskType: task.taskType,
           error: `unknown taskType: ${task.taskType}`,
-        };
+        });
     }
   }
 

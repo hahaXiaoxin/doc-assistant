@@ -104,16 +104,36 @@ export class QwenEmbeddingProvider implements EmbeddingProvider {
 
     const batchSize = this.info.maxBatchSize;
     const results: Float32Array[] = new Array(texts.length);
+    // v0.6.0 埋点:embedding 调用耗时 + 批次数
+    const started = Date.now();
+    let batches = 0;
 
-    for (let start = 0; start < texts.length; start += batchSize) {
-      const batch = texts.slice(start, start + batchSize);
-      const vectors = await this.embedBatch(batch, signal);
-      for (let i = 0; i < vectors.length; i++) {
-        results[start + i] = vectors[i]!;
+    try {
+      for (let start = 0; start < texts.length; start += batchSize) {
+        const batch = texts.slice(start, start + batchSize);
+        const vectors = await this.embedBatch(batch, signal);
+        for (let i = 0; i < vectors.length; i++) {
+          results[start + i] = vectors[i]!;
+        }
+        batches += 1;
       }
+      logger.info('embedding call ok', {
+        model: this.config.model,
+        count: texts.length,
+        batches,
+        elapsedMs: Date.now() - started,
+      });
+      return results;
+    } catch (err) {
+      logger.error('embedding call failed', {
+        model: this.config.model,
+        count: texts.length,
+        batches,
+        elapsedMs: Date.now() - started,
+        error: (err as Error).message,
+      });
+      throw err;
     }
-
-    return results;
   }
 
   /**
