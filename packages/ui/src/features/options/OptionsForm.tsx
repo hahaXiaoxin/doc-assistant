@@ -250,7 +250,7 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
           {
             key: 'debug',
             label: '调试',
-            children: <DebugTab />,
+            children: <DebugTab memory={memory} storage={storage} />,
           },
         ]}
       />
