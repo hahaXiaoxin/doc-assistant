@@ -71,6 +71,21 @@ export const MessageType = {
   OFFSCREEN_STORAGE_READ_REQUEST: 'doc-assistant/offscreen-storage-read-request',
   /** v0.5.0 · hotfix：SW → offscreen 读取响应。 */
   OFFSCREEN_STORAGE_READ_RESPONSE: 'doc-assistant/offscreen-storage-read-response',
+  /**
+   * v0.6.0 · Debug 导出:其他上下文(sidebar / SW / options)批量 flush 日志
+   * entries 给 offscreen 写入本地 IDB。与 MEMORY_RPC_* 分开,避免污染
+   * MemoryRpcMethod 白名单。
+   */
+  LOG_PERSIST_REQUEST: 'doc-assistant/log-persist-request',
+  /** v0.6.0 · Debug 导出:offscreen 确认持久化结果。 */
+  LOG_PERSIST_RESPONSE: 'doc-assistant/log-persist-response',
+  /**
+   * v0.6.0 · Debug 导出:请求读取最近 N 条日志(默认 5000)。
+   * options 页导出 debug 包时向 offscreen 拉取。
+   */
+  LOG_EXPORT_REQUEST: 'doc-assistant/log-export-request',
+  /** v0.6.0 · Debug 导出:offscreen 返回历史日志数组。 */
+  LOG_EXPORT_RESPONSE: 'doc-assistant/log-export-response',
 } as const;
 
 export type MessageTypeValue = (typeof MessageType)[keyof typeof MessageType];
@@ -214,6 +229,58 @@ export interface MemoryRpcResponse {
   error?: MemoryRpcErrorPayload;
 }
 
+/* ------------------------------------------------------------------ */
+/* v0.6.0 · Debug 日志持久化 RPC envelope                                */
+/* ---                                                                  */
+/* 设计说明:                                                            */
+/* - LOG_PERSIST_* 批量 flush:其他上下文每 0.5s 把增量 entries 推给     */
+/*   offscreen,offscreen 写入 Dexie `logs` 表;响应只表示 offscreen     */
+/*   已接受(不等待 IDB 落盘)                                          */
+/* - LOG_EXPORT_*:options 导出 debug 包时一次性拉取最近 5000 条        */
+/* - 日志 entry 本身不应含敏感信息(logger 层已约束)                   */
+/* ------------------------------------------------------------------ */
+
+export interface LogRpcEntry {
+  ts: number;
+  level: 'debug' | 'info' | 'warn' | 'error';
+  module: string;
+  msg: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface LogPersistRequest {
+  type: typeof MessageType.LOG_PERSIST_REQUEST;
+  /** 调用侧生成的 uuid */
+  rpcId: string;
+  /** 一批增量 entries(<= 200,避免单次 sendMessage 超限) */
+  entries: LogRpcEntry[];
+  /** 来源上下文标识,便于排查(例如 "sidebar" / "sw" / "options") */
+  origin: string;
+}
+
+export interface LogPersistResponse {
+  type: typeof MessageType.LOG_PERSIST_RESPONSE;
+  rpcId: string;
+  ok: boolean;
+  accepted?: number;
+  error?: { message: string };
+}
+
+export interface LogExportRequest {
+  type: typeof MessageType.LOG_EXPORT_REQUEST;
+  rpcId: string;
+  /** 最多返回多少条;默认/上限 5000 */
+  limit?: number;
+}
+
+export interface LogExportResponse {
+  type: typeof MessageType.LOG_EXPORT_RESPONSE;
+  rpcId: string;
+  ok: boolean;
+  entries?: LogRpcEntry[];
+  error?: { message: string };
+}
+
 export type ExtensionMessage =
   | InsertReferenceMessage
   | ToggleSidebarMessage
@@ -225,7 +292,11 @@ export type ExtensionMessage =
   | OffscreenStorageReadRequest
   | OffscreenStorageReadResponse
   | MemoryRpcRequest
-  | MemoryRpcResponse;
+  | MemoryRpcResponse
+  | LogPersistRequest
+  | LogPersistResponse
+  | LogExportRequest
+  | LogExportResponse;
 
 /**
  * 同 tab 内 content ↔ sidebar 的 CustomEvent 名
