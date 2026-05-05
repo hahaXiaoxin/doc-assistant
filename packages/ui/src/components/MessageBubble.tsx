@@ -4,8 +4,22 @@
  * - 用户消息右对齐，浅蓝底
  * - 助手消息左对齐，浅灰底
  * - 流式未完成时末尾显示光标
- * - 代码块（\`\`\`）简单 mono 字体渲染；完整 markdown 留 PHASE2
+ *
+ * v1.1 PR-4 C1 · 引入 react-markdown:
+ * - 替换掉之前只处理 ``` 代码块的 renderBasicMarkdown(),改走 react-markdown + remark-gfm,
+ *   原生支持 GFM 表格 / 任务列表 / 删除线 / 自动链接 / 引用 / 标题 / 分隔线 等。
+ * - rehype-sanitize 默认白名单防止把 <script>/<iframe>/on* 等渲染出来,即便 LLM 返回
+ *   恶意 HTML 也不会在 shadow DOM 里执行。
+ * - 行内 <code> 继续用 Bubble 里定义的浅灰底样式;fenced code block 在 PR-4 C2 会走
+ *   专用的 <CodeBlock> 组件做 shiki 高亮,这里先给一个"无高亮纯文本 <pre>"的 fallback。
+ * - user 消息也走 markdown —— 代价很低(纯文本在 react-markdown 下就是 <p>),收益是
+ *   粘贴一段 MD 过来也能正确展示。`white-space` 由 react-markdown 自己管,外层 Bubble
+ *   不再 pre-wrap。
  */
+import type { ComponentPropsWithoutRef, ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import styled, { keyframes } from 'styled-components';
 import { tokens } from '../theme/tokens';
 
@@ -33,7 +47,6 @@ const Bubble = styled.div<{ $role: 'user' | 'assistant'; $error?: boolean }>`
   border-radius: ${tokens.radius.lg};
   font-size: ${tokens.font.sizeBody};
   line-height: 1.7;
-  white-space: pre-wrap;
   word-break: break-word;
   background: ${(p) =>
     p.$error
@@ -59,6 +72,70 @@ const Bubble = styled.div<{ $role: 'user' | 'assistant'; $error?: boolean }>`
           : tokens.color.border};
   box-shadow: ${tokens.shadow.card};
 
+  /*
+   * markdown 元素的视觉节奏:首段 / 末段贴紧气泡边,段间留 8px,标题上方略紧凑。
+   * 不做"压缩全部 margin 到 0"的粗暴处理,否则长答复会挤成一团。
+   */
+  & > :first-child { margin-top: 0; }
+  & > :last-child { margin-bottom: 0; }
+
+  p { margin: 0 0 8px; }
+  h1, h2, h3, h4, h5, h6 {
+    margin: 12px 0 6px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  h1 { font-size: 1.35em; }
+  h2 { font-size: 1.22em; }
+  h3 { font-size: 1.1em; }
+  h4, h5, h6 { font-size: 1em; }
+
+  ul, ol { margin: 0 0 8px; padding-left: 1.4em; }
+  li { margin: 2px 0; }
+  li > p { margin: 0; }
+
+  blockquote {
+    margin: 8px 0;
+    padding: 2px 12px;
+    border-left: 3px solid ${tokens.color.border};
+    color: ${tokens.color.textSecondary};
+    background: rgba(0, 0, 0, 0.02);
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid ${tokens.color.border};
+    margin: 12px 0;
+  }
+
+  a {
+    color: ${tokens.color.primary};
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  img {
+    max-width: 100%;
+    border-radius: ${tokens.radius.sm};
+  }
+
+  table {
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: ${tokens.font.sizeSmall};
+    display: block;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  th, td {
+    padding: 4px 8px;
+    border: 1px solid ${tokens.color.border};
+    text-align: left;
+  }
+  th { background: ${tokens.color.bgSoft}; font-weight: 600; }
+
+  /* 行内 code:浅灰圆角;代码块(<pre>)在 PR-4 C2 会被 <CodeBlock> 接管,
+     此处留一个"无语言的 fenced code"纯文本 fallback。 */
   code {
     font-family: ${tokens.font.mono};
     font-size: ${tokens.font.sizeCode};
@@ -68,14 +145,22 @@ const Bubble = styled.div<{ $role: 'user' | 'assistant'; $error?: boolean }>`
   }
 
   pre {
-    margin: 8px 0 0;
+    margin: 8px 0;
     padding: 10px 12px;
     border-radius: ${tokens.radius.sm};
-    background: #1f1f1f;
-    color: #eaeaea;
+    background: ${tokens.color.bgSoft};
+    color: ${tokens.color.textPrimary};
     font-family: ${tokens.font.mono};
     font-size: ${tokens.font.sizeCode};
     overflow-x: auto;
+    max-width: 100%;
+    border: 1px solid ${tokens.color.border};
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    font-size: inherit;
   }
 `;
 
@@ -89,32 +174,38 @@ const Cursor = styled.span`
   animation: ${blink} 1s step-end infinite;
 `;
 
-/** 极简 markdown 渲染：只处理 ``` 代码块，保留其余为纯文本 */
-function renderBasicMarkdown(text: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  const regex = /```(?:[a-zA-Z]*\n)?([\s\S]*?)```/g;
-  let last = 0;
-  let match: RegExpExecArray | null;
-  let i = 0;
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > last) {
-      parts.push(<span key={`t${i}`}>{text.slice(last, match.index)}</span>);
-    }
-    parts.push(<pre key={`c${i}`}>{match[1]}</pre>);
-    last = match.index + match[0].length;
-    i++;
+/** 外链统一加 noopener/noreferrer + 新标签打开 */
+function MdLink({ children, href, ...rest }: ComponentPropsWithoutRef<'a'>): ReactNode {
+  const isExternal = typeof href === 'string' && /^https?:\/\//i.test(href);
+  if (isExternal) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+        {children}
+      </a>
+    );
   }
-  if (last < text.length) {
-    parts.push(<span key={`t${i}`}>{text.slice(last)}</span>);
-  }
-  return parts;
+  return (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  );
 }
+
+const markdownComponents = {
+  a: MdLink,
+} as const;
 
 export function MessageBubble({ role, content, streaming, error }: MessageBubbleProps) {
   return (
     <Row $role={role}>
       <Bubble $role={role} {...(error ? { $error: true } : {})}>
-        {renderBasicMarkdown(content)}
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeSanitize]}
+          components={markdownComponents}
+        >
+          {content}
+        </ReactMarkdown>
         {streaming && <Cursor />}
       </Bubble>
     </Row>
