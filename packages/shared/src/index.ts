@@ -14,3 +14,4 @@ export * from './article';
 export * from './errors';
 export * from './url-normalize';
 export * from './sensitive-filter';
+export * from './sanitize-export';
