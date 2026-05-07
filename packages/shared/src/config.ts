@@ -44,7 +44,7 @@ export const QWEN_MODELS = ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen3-max'] 
 export type QwenModel = (typeof QWEN_MODELS)[number] | (string & {});
 
 /** DeepSeek 可选模型（仅 UI 建议值） */
-export const DEEPSEEK_MODELS_SUGGESTED = ['deepseek-chat', 'deepseek-reasoner'] as const;
+export const DEEPSEEK_MODELS_SUGGESTED = ['deepseek-v4-flash', 'deepseek-v4-pro'] as const;
 // eslint-disable-next-line @typescript-eslint/ban-types
 export type DeepSeekModel = (typeof DEEPSEEK_MODELS_SUGGESTED)[number] | (string & {});
 
@@ -113,13 +113,14 @@ export const DEFAULT_MAIN_PROVIDER_CONFIG: LLMProviderConfig = {
 /**
  * DeepSeek 主 Provider 默认值（v0.6.0-beta.2 新增）
  * ---------------------------------------------
- * UI 在用户把主 Provider 切到 DeepSeek 时使用。默认用 deepseek-chat；
- * 切到 deepseek-reasoner 由用户显式选择。`enableThinking` 默认 false（UI 展示层不强制 R1）。
+ * UI 在用户把主 Provider 切到 DeepSeek 时使用。默认用 `deepseek-v4-pro`（官方主力档）；
+ * `deepseek-v4-flash`（低成本档）由用户显式切。`enableThinking` 默认 false——
+ * 新模型不再区分"思考/非思考"路径，开关仅作 UI 展示偏好，不会被透传 extra_body。
  */
 export const DEFAULT_DEEPSEEK_PROVIDER_CONFIG: LLMProviderConfig = {
   kind: 'deepseek',
   baseURL: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
+  model: 'deepseek-v4-pro',
   apiKey: '',
   enableThinking: false,
 };

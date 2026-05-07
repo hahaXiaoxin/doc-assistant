@@ -343,7 +343,7 @@ export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabPro
 
           <Form.Item
             label="启用思考模式（reasoning_content）"
-            extra="开启后助手会流式返回思考过程；具体效果取决于所选模型是否支持（如 qwen3 系列 / deepseek-reasoner）。"
+            extra="开启后助手会流式返回思考过程；具体效果取决于所选模型是否支持（如 qwen3 系列）。DeepSeek 当前线上模型不会显式返回思考过程，该开关对其仅作 UI 展示偏好。"
           >
             <Switch
               checked={!!main.enableThinking}

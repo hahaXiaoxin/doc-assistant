@@ -3,11 +3,15 @@
  * ---------------------------------------------
  * 覆盖 AC-COMPAT-2 列出的场景：
  * - 配置校验（INVALID_CONFIG）
- * - getModelInfo 对 deepseek-chat / deepseek-reasoner 的返回
+ * - getModelInfo 对当前线上两款模型（deepseek-v4-flash / deepseek-v4-pro）的返回
  * - Chat stream mock（通过 mock streamText 的 fullStream 走 normalizer）：
  *   text-delta / tool-call / reasoning-delta / usage / finish
  *   这部分直接通过 normalizer 测试覆盖，不走真实 AI SDK（避免依赖网络）
  * - listDeepSeekModels：正常路径（所有条目都归类为 chat）+ 错误路径（401 / 429 / 500）
+ *
+ * 说明：reasoning-delta 链路保留（DeepSeek 官方 OpenAI 兼容协议仍可能在 `deepseek-v4-pro`
+ * 上返回 reasoning 字段），但测试断言**不再绑定特定模型名**——只要上游发出
+ * `reasoning` / `reasoning-delta` part，normalizer 就应正确归一化。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProviderError } from '@doc-assistant/shared';
@@ -22,7 +26,7 @@ import { normalizeStreamPart } from '../openai-compatible/normalizer';
 const VALID = {
   apiKey: 'sk-deepseek-test-123',
   baseURL: 'https://api.deepseek.com',
-  model: 'deepseek-chat',
+  model: 'deepseek-v4-pro',
   enableThinking: false,
 };
 
@@ -46,29 +50,34 @@ describe('DeepSeekProvider · config 校验', () => {
 });
 
 describe('DeepSeekProvider · getModelInfo', () => {
-  it('deepseek-chat → supportsReasoning=false, supportsTools=true', () => {
-    const p = new DeepSeekProvider({ ...VALID, model: 'deepseek-chat' });
+  it('deepseek-v4-flash → 命中能力表，supportsTools=true', () => {
+    const p = new DeepSeekProvider({ ...VALID, model: 'deepseek-v4-flash' });
     const info = p.getModelInfo();
-    expect(info.id).toBe('deepseek-chat');
-    expect(info.supportsReasoning).toBe(false);
+    expect(info.id).toBe('deepseek-v4-flash');
     expect(info.supportsTools).toBe(true);
-    expect(info.contextWindow).toBe(DEEPSEEK_MODEL_CAPABILITIES['deepseek-chat']!.contextWindow);
+    expect(info.contextWindow).toBe(
+      DEEPSEEK_MODEL_CAPABILITIES['deepseek-v4-flash']!.contextWindow,
+    );
   });
 
-  it('deepseek-reasoner → supportsReasoning=true（不受 enableThinking 开关影响）', () => {
+  it('deepseek-v4-pro → 命中能力表，enableThinking 开关不改变 ModelInfo', () => {
     const p1 = new DeepSeekProvider({
       ...VALID,
-      model: 'deepseek-reasoner',
+      model: 'deepseek-v4-pro',
       enableThinking: false,
     });
-    expect(p1.getModelInfo().supportsReasoning).toBe(true);
-
     const p2 = new DeepSeekProvider({
       ...VALID,
-      model: 'deepseek-reasoner',
+      model: 'deepseek-v4-pro',
       enableThinking: true,
     });
-    expect(p2.getModelInfo().supportsReasoning).toBe(true);
+    expect(p1.getModelInfo().id).toBe('deepseek-v4-pro');
+    expect(p2.getModelInfo().id).toBe('deepseek-v4-pro');
+    // 两个开关态下 supportsReasoning 保持一致（不受 UI 意图影响）
+    expect(p1.getModelInfo().supportsReasoning).toBe(p2.getModelInfo().supportsReasoning);
+    expect(p1.getModelInfo().contextWindow).toBe(
+      DEEPSEEK_MODEL_CAPABILITIES['deepseek-v4-pro']!.contextWindow,
+    );
   });
 
   it('未知模型走 DEFAULT capability（保守假设）', () => {
@@ -94,7 +103,10 @@ describe('DeepSeekProvider · 流式归一化覆盖（AC-MAIN-1/-3/-4）', () =>
     expect(text).toBe('你好世界');
   });
 
-  it('reasoning-delta（deepseek-reasoner 的 reasoning_content）逐字拼接', () => {
+  it('上游发出 reasoning / reasoning-delta 分支时正确归一化（不依赖具体模型名）', () => {
+    // DeepSeek 官方 OpenAI 兼容协议仍可能返回 reasoning_content；
+    // 只要 AI SDK 把它翻译成 reasoning / reasoning-delta part，normalizer 就得归一化为
+    // ChatChunk.reasoning-delta。此断言不再绑定特定模型（v4 两档均未强制声明 reasoning 能力）。
     const chunks = [
       ...normalizeStreamPart({ type: 'reasoning', textDelta: '让我先分析' }),
       ...normalizeStreamPart({ type: 'reasoning-delta', textDelta: '这道题的结构' }),
@@ -172,9 +184,8 @@ describe('listDeepSeekModels', () => {
 
   it('正常路径：全部归类为 chat（DeepSeek 官方无 embedding）', async () => {
     globalThis.fetch = mockOk([
-      'deepseek-chat',
-      'deepseek-reasoner',
-      'deepseek-coder-v2',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
     ]) as unknown as typeof globalThis.fetch;
 
     const items = await listDeepSeekModels({
@@ -182,22 +193,18 @@ describe('listDeepSeekModels', () => {
       baseURL: 'https://api.deepseek.com',
     });
 
-    expect(items).toHaveLength(3);
+    expect(items).toHaveLength(2);
     for (const i of items) {
       expect(i.kind).toBe('chat');
     }
     // 字典序
-    expect(items.map((i) => i.id)).toEqual([
-      'deepseek-chat',
-      'deepseek-coder-v2',
-      'deepseek-reasoner',
-    ]);
+    expect(items.map((i) => i.id)).toEqual(['deepseek-v4-flash', 'deepseek-v4-pro']);
   });
 
   it('命中能力表的模型有 capability 填充', async () => {
     globalThis.fetch = mockOk([
-      'deepseek-chat',
-      'deepseek-reasoner',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
       'deepseek-custom-finetune',
     ]) as unknown as typeof globalThis.fetch;
 
@@ -206,14 +213,15 @@ describe('listDeepSeekModels', () => {
       baseURL: 'https://api.deepseek.com',
     });
     const byId = Object.fromEntries(items.map((i) => [i.id, i]));
-    expect(byId['deepseek-chat']?.capability).toBeDefined();
-    expect(byId['deepseek-reasoner']?.capability?.supportsReasoning).toBe(true);
+    expect(byId['deepseek-v4-flash']?.capability).toBeDefined();
+    expect(byId['deepseek-v4-pro']?.capability).toBeDefined();
+    expect(byId['deepseek-v4-pro']?.capability?.supportsTools).toBe(true);
     expect(byId['deepseek-custom-finetune']?.capability).toBeUndefined();
   });
 
   it('classifyDeepSeekModel 返回 chat（所有情况）', () => {
-    expect(classifyDeepSeekModel('deepseek-chat')).toBe('chat');
-    expect(classifyDeepSeekModel('deepseek-reasoner')).toBe('chat');
+    expect(classifyDeepSeekModel('deepseek-v4-flash')).toBe('chat');
+    expect(classifyDeepSeekModel('deepseek-v4-pro')).toBe('chat');
     expect(classifyDeepSeekModel('anything-else')).toBe('chat');
   });
 

@@ -333,7 +333,7 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
       {mode === 'llm' && (
         <Form.Item
           label="启用思考模式（reasoning_content）"
-          extra="仅部分模型支持（如 qwen3 系列 / deepseek-reasoner）。开启后将流式展示思考过程折叠块。"
+          extra="仅部分模型支持（如 qwen3 系列）。开启后会流式展示模型自发返回的思考过程折叠块；DeepSeek 当前线上模型不会显式返回思考过程，该开关对其仅作 UI 展示偏好。"
         >
           <Switch
             checked={!!(concrete as LLMProviderConfig).enableThinking}

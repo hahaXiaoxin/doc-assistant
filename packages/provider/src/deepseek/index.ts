@@ -5,11 +5,11 @@
  * 在 chat / tools / reasoning / usage 四条路径上完全兼容 OpenAI 协议。
  *
  * 特化：
- * - `getModelInfo()` 按 DEEPSEEK_MODEL_CAPABILITIES 表填充；reasoner 的 supportsReasoning
- *   始终为 true（enableThinking 仅作用户意图信号，不改变能力）
- * - `getProviderOptions()` 默认返回 undefined：DeepSeek 不需要像 Qwen 那样显式透传
- *   enable_thinking；reasoner 的思考能力由模型本身决定，`reasoning_content` 由
- *   AI SDK 自动识别为 reasoning part → normalizer 走 `reasoning-delta` 分支
+ * - `getModelInfo()` 按 DEEPSEEK_MODEL_CAPABILITIES 表填充（当前覆盖 `deepseek-v4-flash`
+ *   与 `deepseek-v4-pro`；未命中走保守 DEFAULT）
+ * - `getProviderOptions()` 默认返回 undefined：DeepSeek 新模型不再区分"思考/非思考"
+ *   显式透传；若上游自发返回 `reasoning_content`，AI SDK 会将其识别为 reasoning part →
+ *   normalizer 走 `reasoning-delta` 分支。`enableThinking` 仅作 UI 层面的展示偏好，不改 payload。
  */
 import { ProviderError } from '@doc-assistant/shared';
 import type { ModelInfo } from '../interface';
@@ -51,7 +51,8 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
     return {
       id: this.deepSeekConfig.model,
       contextWindow: cap.contextWindow,
-      // DeepSeek-R1 的思考能力由模型绑定；enableThinking 只作 UI 层面的"是否展示折叠思维链"语义提示
+      // DeepSeek 当前线上模型（v4-flash / v4-pro）均未声明 reasoning 能力；
+      // 若上游真吐 reasoning_content，normalizer 仍会归一化，但不在 ModelInfo 里乐观声明。
       supportsReasoning: cap.supportsReasoning,
       supportsTools: cap.supportsTools,
     };

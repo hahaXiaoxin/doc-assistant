@@ -15,8 +15,9 @@
 ### Added
 
 - **DeepSeek Provider**（`packages/provider/src/deepseek/`）：官方端点 `https://api.deepseek.com`
-  - `deepseek-chat`（V3 非思考路径）与 `deepseek-reasoner`（R1 思考模型，`reasoning_content`
-    通过 `ChatChunk.reasoning-delta` 流出 → UI `ThinkingBlock` 折叠展示）
+  - 当前线上两款模型：`deepseek-v4-flash`（低成本快响应档）与 `deepseek-v4-pro`（主力档）。
+    若上游自发返回 `reasoning_content`，经 `ChatChunk.reasoning-delta` 流出 → UI
+    `ThinkingBlock` 折叠展示（链路保留，未与具体模型名绑定）
   - 完整 chat / stream / tool call / usage / error 五条路径
 - **OpenAICompatible 基类**（`packages/provider/src/openai-compatible/`）：
   - `OpenAICompatibleProvider` · chat 流式 + tool call + ChatMessage→CoreMessage + jsonSchemaToZod

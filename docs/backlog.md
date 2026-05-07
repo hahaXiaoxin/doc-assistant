@@ -43,7 +43,7 @@
 ### 初步验收标准
 
 - [ ] 配置页 `main` / `auxiliary` / `embedding` 三套 Provider 下拉里**新增 "DeepSeek" 选项**，与 Qwen 并列。
-- [ ] 用户填入 DeepSeek 的 `apiKey` + `baseUrl`（留默认值）+ `model id`（如 `deepseek-chat` / `deepseek-reasoner`）后，**主对话、辅助任务、embedding 三条链路分别可用**（embedding 如 DeepSeek 无官方 embedding，此项可标"不适用"并在 UI 上明确）。
+- [ ] 用户填入 DeepSeek 的 `apiKey` + `baseUrl`（留默认值）+ `model id`（如 `deepseek-v4-flash` / `deepseek-v4-pro`）后，**主对话、辅助任务、embedding 三条链路分别可用**（embedding 如 DeepSeek 无官方 embedding，此项可标"不适用"并在 UI 上明确）。
 - [ ] 流式输出、tool calling、usage 统计字段均能正确归一化到现有 `ChatChunk` 契约（即 sidebar / RelevantMemorySource / ReflectionRunner 等所有消费方无感）。
 - [ ] 新增 ≥ 1 组端到端回归：`packages/provider/src/__tests__/deepseek.test.ts` 覆盖 normal / tool-call / error 三条路径。
 - [ ] 文档同步：README "支持的模型" 章节、ROADMAP · §6 把该条目勾掉。

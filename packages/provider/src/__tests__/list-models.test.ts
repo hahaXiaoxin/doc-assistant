@@ -62,8 +62,8 @@ describe('classifyQwenModel', () => {
     ['qwen-omni-turbo', 'chat'], // 全模态但能走 chat
     ['qwq-32b-preview', 'chat'],
     // ---- chat：其它厂商 ----
-    ['deepseek-r1', 'chat'],
-    ['deepseek-v3', 'chat'],
+    ['deepseek-v4-pro', 'chat'],
+    ['deepseek-v4-flash', 'chat'],
     ['llama3.1-70b-instruct', 'chat'],
     ['baichuan2-turbo', 'chat'],
     ['chatglm3-6b', 'chat'],

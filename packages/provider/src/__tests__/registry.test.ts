@@ -75,10 +75,11 @@ describe('PROVIDER_REGISTRY', () => {
       kind: 'deepseek',
       apiKey: 'sk-test',
       baseURL: 'https://api.deepseek.com',
-      model: 'deepseek-reasoner',
+      model: 'deepseek-v4-pro',
     });
     const info = llm.getModelInfo();
-    expect(info.id).toBe('deepseek-reasoner');
-    expect(info.supportsReasoning).toBe(true);
+    expect(info.id).toBe('deepseek-v4-pro');
+    // DeepSeek 当前线上模型不强制声明 reasoning 能力；这里只做 supportsTools 断言
+    expect(info.supportsTools).toBe(true);
   });
 });

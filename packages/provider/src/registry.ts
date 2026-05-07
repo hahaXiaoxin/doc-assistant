@@ -138,7 +138,7 @@ export const PROVIDER_REGISTRY: Record<ProviderKind, ProviderRegistryEntry> = {
     kind: 'deepseek',
     displayName: 'DeepSeek',
     description:
-      'DeepSeek 官方端点，支持 deepseek-chat（V3 非思考）/ deepseek-reasoner（R1 思考，走 reasoning-delta）。官方暂无 embedding 服务。',
+      'DeepSeek 官方端点，当前线上仅两款 chat 模型：deepseek-v4-flash（低成本快响应）/ deepseek-v4-pro（主力档）。官方暂无 embedding 服务。',
     defaultConfig: DEFAULT_DEEPSEEK_PROVIDER_CONFIG,
     createLLM: (config) =>
       new DeepSeekProvider({

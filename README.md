@@ -59,7 +59,7 @@ Doc Assistant 是一款浏览器扩展（Chrome / Edge，Manifest V3），在任
 | Provider | 主对话 | 辅助 | Embedding | 亮点 |
 | --- | --- | --- | --- | --- |
 | **千问 Qwen**（阿里云百炼 OpenAI 兼容端点） | ✅ | ✅ | ✅ `text-embedding-v3`/`v2` | chat / tool call / reasoning（qwen3 系列）/ embedding / rerank 全能 |
-| **DeepSeek**（`https://api.deepseek.com`） | ✅ | ✅ | — | `deepseek-chat`（V3）/ `deepseek-reasoner`（R1，思考过程折叠展示）。官方无 embedding 服务 |
+| **DeepSeek**（`https://api.deepseek.com`） | ✅ | ✅ | — | `deepseek-v4-flash`（低成本快响应）/ `deepseek-v4-pro`（主力档）。若上游自发返回 `reasoning_content`，UI 仍走 `ThinkingBlock` 折叠展示；官方无 embedding 服务 |
 
 **推荐组合**：主对话 + 辅助 = DeepSeek（性价比最优的中文模型之一） / Embedding = Qwen `text-embedding-v3`。配置页会在检测到"主 Provider 为 DeepSeek 且 embedding 仍复用主 Provider"时给出一键切换按钮。
 

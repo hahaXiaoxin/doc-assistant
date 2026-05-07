@@ -73,7 +73,7 @@ export function normalizeStreamPart(part: UnknownStreamPart): ChatChunk[] {
       return delta ? [{ type: 'text-delta', delta }] : [];
     }
 
-    // AI SDK v4 的 reasoning part（对应 qwen/deepseek-reasoner 的 reasoning_content）
+    // AI SDK v4 的 reasoning part（对应 qwen 思考模型 / DeepSeek 在返回 reasoning_content 时的分支）
     case 'reasoning':
     case 'reasoning-delta': {
       const delta = typeof part.textDelta === 'string' ? part.textDelta : '';

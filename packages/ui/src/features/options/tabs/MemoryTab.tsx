@@ -102,7 +102,7 @@ export function MemoryTab(props: MemoryTabProps) {
             value={aux}
             onChange={onAuxChange}
             fallback={auxFallback}
-            hint="辅助模型的调用次数较高，建议选择便宜的模型（如 qwen-turbo / deepseek-chat）。"
+            hint="辅助模型的调用次数较高，建议选择便宜的模型（如 qwen-turbo / deepseek-v4-flash）。"
           />
         </Form>
       </Card>

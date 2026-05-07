@@ -1,9 +1,13 @@
 /**
  * DeepSeek 可用模型列表拉取
  * ---------------------------------------------
- * v0.6.0-beta.2 新增。DeepSeek 官方 `GET https://api.deepseek.com/models` 返回 OpenAI 格式。
- * 目前 DeepSeek 仅对外提供 chat 类模型（`deepseek-chat` / `deepseek-reasoner` 及未来变种），
- * **不提供 embedding / rerank**；所以分类函数固定返回 `chat`。
+ * v0.6.0-beta.2 新增。DeepSeek 官方 `GET https://api.deepseek.com/models` 返回 OpenAI 格式：
+ *
+ *   { "object": "list", "data": [ { "id": "string", "object": "model", "owned_by": "string" }, ... ] }
+ *
+ * 响应体**没有** category/capability 字段——`id` 就是模型名。
+ * DeepSeek 官方目前只有两款 chat 模型（`deepseek-v4-flash` / `deepseek-v4-pro`），
+ * 无 embedding / rerank；因此分类函数固定返回 `chat`，capability 由本地能力表兜底填充。
  */
 
 import {
@@ -57,8 +61,8 @@ export async function listDeepSeekModels(
 /**
  * DeepSeek 模型分类
  *
- * DeepSeek 目前全部是 chat 类模型（deepseek-chat / deepseek-reasoner / deepseek-coder 等），
- * **官方无 embedding / rerank 模型**；统一归类为 `chat`。
+ * 官方 `/models` 响应没有 category 字段；DeepSeek 目前全部是 chat 类模型
+ * （`deepseek-v4-flash` / `deepseek-v4-pro`），无 embedding / rerank；统一归类为 `chat`。
  * 保留 `other` 以防未来官方上线新种类。
  */
 export function classifyDeepSeekModel(_id: string): DeepSeekModelKind {
