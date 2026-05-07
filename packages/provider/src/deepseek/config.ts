@@ -29,19 +29,36 @@ export type DeepSeekProviderConfig = z.infer<typeof deepSeekProviderConfigSchema
 
 export interface DeepSeekModelCapability {
   contextWindow: number;
+  /**
+   * 官方声明的单次请求最大输出 token 数上限（可选）
+   * ---------------------------------------------
+   * DeepSeek v4 档两款模型均声明 384K（384,000）的最大输出能力。
+   * 仅作为"能力声明"供上层参考，不改运行时默认 `max_tokens` —— 后者仍由 Provider /
+   * Agent 层保守决定（避免单次请求把配额打爆）。未设置时表示未知。
+   */
+  maxOutputTokens?: number;
   supportsReasoning: boolean;
   supportsTools: boolean;
 }
 
-/** DeepSeek 内置模型能力表（以官方最新文档为准；未命中时走 DEFAULT） */
+/**
+ * DeepSeek 内置模型能力表（以官方最新文档为准；未命中时走 DEFAULT）
+ *
+ * 规格（2026-05-07 官方文档）：
+ * - 上下文窗口：1,000,000 tokens（1M）
+ * - 单次最大输出：384,000 tokens（384K）
+ * 这里登记的是**能力上限**，运行时默认 `max_tokens` 仍由上层保守决定。
+ */
 export const DEEPSEEK_MODEL_CAPABILITIES: Record<string, DeepSeekModelCapability> = {
   'deepseek-v4-flash': {
-    contextWindow: 65536,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 384_000,
     supportsReasoning: false,
     supportsTools: true,
   },
   'deepseek-v4-pro': {
-    contextWindow: 65536,
+    contextWindow: 1_000_000,
+    maxOutputTokens: 384_000,
     // 新模型官方未再暴露"reasoning 模式"标识；保守置 false。
     // normalizer 仍保留 reasoning-delta 分支，若上游返回 reasoning_content 会照常归一化。
     supportsReasoning: false,

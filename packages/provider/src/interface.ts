@@ -37,6 +37,15 @@ export interface ModelInfo {
   id: string;
   /** 粗略的上下文窗口 token 数（用于上层做截断决策） */
   contextWindow: number;
+  /**
+   * 模型声明的单次请求最大输出 token 数上限（可选）
+   * ---------------------------------------------
+   * 仅作为"能力声明"供上层参考（例如计价估算 / 预算 / 警告），
+   * 不影响运行时默认 `max_tokens`——后者仍由 Provider / Agent 层保守决定，
+   * 不会自动撑到此上限（避免单次请求把配额打爆）。
+   * 未设置时表示未知（不代表 0），上层应当按"不做上限假设"处理。
+   */
+  maxOutputTokens?: number;
   /** 是否支持 reasoning_content */
   supportsReasoning: boolean;
   /** 是否支持 tool calling */

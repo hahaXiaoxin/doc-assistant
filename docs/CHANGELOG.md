@@ -15,7 +15,9 @@
 ### Added
 
 - **DeepSeek Provider**（`packages/provider/src/deepseek/`）：官方端点 `https://api.deepseek.com`
-  - 当前线上两款模型：`deepseek-v4-flash`（低成本快响应档）与 `deepseek-v4-pro`（主力档）。
+  - 当前线上两款模型：`deepseek-v4-flash`（低成本快响应档）与 `deepseek-v4-pro`（主力档），
+    官方规格均为 **1,000,000 tokens 上下文 / 384,000 tokens 单次最大输出**（能力表已声明；
+    运行时默认 `max_tokens` 仍由上层保守决定，不自动撑到此上限）。
     若上游自发返回 `reasoning_content`，经 `ChatChunk.reasoning-delta` 流出 → UI
     `ThinkingBlock` 折叠展示（链路保留，未与具体模型名绑定）
   - 完整 chat / stream / tool call / usage / error 五条路径
@@ -33,6 +35,10 @@
 - **保存前软校验**（`OptionsForm`）：同上组合下弹 `Modal.confirm`，用户可选"继续保存"
   或"改成推荐配置"。
 - **DeepSeek 默认配置** `DEFAULT_DEEPSEEK_PROVIDER_CONFIG`（`packages/shared/src/config.ts`）。
+- **`ModelInfo.maxOutputTokens?: number` 可选字段**（`packages/provider/src/interface.ts`）：
+  能力表首次登记"单次最大输出 token 上限"。DeepSeek 两款均填 `384_000`；Qwen 暂不强制
+  回填，字段可选不破坏旧代码。UI 下拉 tooltip（`BasicTab` / `ProviderConfigForm`）
+  检测到该字段后追加 "· max_out ≈ N tokens" 展示。
 - 新增 29 个单测覆盖 DeepSeek（chat / tool call / reasoning-delta / usage / error 路径）
   与 Provider Registry。
 

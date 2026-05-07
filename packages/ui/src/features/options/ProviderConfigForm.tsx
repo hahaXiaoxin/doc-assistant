@@ -206,7 +206,7 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
             <Space size={6}>
               <span>{m.id}</span>
               <Tooltip
-                title={`context ≈ ${m.capability.contextWindow} tokens${m.capability.supportsReasoning ? ' · 支持思考' : ''}${m.capability.supportsTools ? ' · 支持工具' : ''}`}
+                title={`context ≈ ${m.capability.contextWindow} tokens${typeof m.capability.maxOutputTokens === 'number' ? ` · max_out ≈ ${m.capability.maxOutputTokens} tokens` : ''}${m.capability.supportsReasoning ? ' · 支持思考' : ''}${m.capability.supportsTools ? ' · 支持工具' : ''}`}
               >
                 <Tag color="blue" style={{ marginInlineEnd: 0 }}>
                   已知能力

@@ -58,6 +58,9 @@ describe('DeepSeekProvider · getModelInfo', () => {
     expect(info.contextWindow).toBe(
       DEEPSEEK_MODEL_CAPABILITIES['deepseek-v4-flash']!.contextWindow,
     );
+    // 规格登记（2026-05-07）：1M 上下文 / 384K 最大输出
+    expect(info.contextWindow).toBe(1_000_000);
+    expect(info.maxOutputTokens).toBe(384_000);
   });
 
   it('deepseek-v4-pro → 命中能力表，enableThinking 开关不改变 ModelInfo', () => {
@@ -78,6 +81,16 @@ describe('DeepSeekProvider · getModelInfo', () => {
     expect(p1.getModelInfo().contextWindow).toBe(
       DEEPSEEK_MODEL_CAPABILITIES['deepseek-v4-pro']!.contextWindow,
     );
+    // 规格登记：1M / 384K
+    expect(p1.getModelInfo().contextWindow).toBe(1_000_000);
+    expect(p1.getModelInfo().maxOutputTokens).toBe(384_000);
+  });
+
+  it('能力表直接断言：v4-flash / v4-pro 都声明 1M 上下文 + 384K 最大输出', () => {
+    expect(DEEPSEEK_MODEL_CAPABILITIES['deepseek-v4-flash']!.contextWindow).toBe(1_000_000);
+    expect(DEEPSEEK_MODEL_CAPABILITIES['deepseek-v4-flash']!.maxOutputTokens).toBe(384_000);
+    expect(DEEPSEEK_MODEL_CAPABILITIES['deepseek-v4-pro']!.contextWindow).toBe(1_000_000);
+    expect(DEEPSEEK_MODEL_CAPABILITIES['deepseek-v4-pro']!.maxOutputTokens).toBe(384_000);
   });
 
   it('未知模型走 DEFAULT capability（保守假设）', () => {
@@ -87,6 +100,8 @@ describe('DeepSeekProvider · getModelInfo', () => {
     expect(info.contextWindow).toBeGreaterThan(0);
     expect(info.supportsTools).toBe(true);
     expect(info.supportsReasoning).toBe(false);
+    // DEFAULT 能力表不声明 maxOutputTokens（未知模型不做乐观假设）
+    expect(info.maxOutputTokens).toBeUndefined();
   });
 });
 

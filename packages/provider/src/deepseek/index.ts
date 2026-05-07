@@ -51,6 +51,9 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
     return {
       id: this.deepSeekConfig.model,
       contextWindow: cap.contextWindow,
+      ...(typeof cap.maxOutputTokens === 'number'
+        ? { maxOutputTokens: cap.maxOutputTokens }
+        : {}),
       // DeepSeek 当前线上模型（v4-flash / v4-pro）均未声明 reasoning 能力；
       // 若上游真吐 reasoning_content，normalizer 仍会归一化，但不在 ModelInfo 里乐观声明。
       supportsReasoning: cap.supportsReasoning,

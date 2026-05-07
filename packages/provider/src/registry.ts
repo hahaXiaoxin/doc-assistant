@@ -49,6 +49,8 @@ export interface GenericModelListItem {
   /** 本地能力命中时填充（仅 chat） */
   capability?: {
     contextWindow: number;
+    /** 单次最大输出 token 能力上限；未设置=未知（见 ModelInfo.maxOutputTokens） */
+    maxOutputTokens?: number;
     supportsReasoning: boolean;
     supportsTools: boolean;
   };
