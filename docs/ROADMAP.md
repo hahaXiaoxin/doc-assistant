@@ -19,10 +19,12 @@
 | **v0.3.0** | 移除 v0.1 兼容代码（Breaking Change） | ✅ 已发布 |
 | **v0.4.0** | 可见且可按时间检索的记忆系统（Persona 双主体 / Chronological Index / 记忆浏览器 Tab / 话题漂移关键词触发 / host_permissions 放开） | ✅ 已发布 |
 | **v0.5.0** | 统一记忆 · Offscreen Document 架构（所有域名共用一套 DB，§8 绕路删除，反思 Job 迁到 offscreen） | ✅ 已发布 |
-| **v0.6（Phase2-b）** | 域名级 DSL 自学习文章提取器（见 §1） | 规划中 |
+| **v0.6（Phase2-b）** | 域名级 DSL 自学习文章提取器（见 §1） | 规划中[^manifest-0.6-beta]（待确认） |
 | **v0.7（Phase3-a）** | OCR 策略 · 截图工具（见 §3） | 规划中 |
-| **v0.8（Phase3-b）** | CheckerAgent · 实时提醒（见 §4） | 规划中 |
+| **v0.8（Phase3-b）** | CheckerAgent · 实时提醒（见 §4；框架承接 [`backlog.md#B-002`](./backlog.md#b-002--自定义智能体领域专家)） | 规划中 |
 | **v0.9（Phase4）** | 云端同步（选配，E2EE）（见 §5） | 规划中 |
+
+[^manifest-0.6-beta]: 2026-05-06 归档登记矛盾：`apps/extension/manifest.json` 当前版本号为 `0.6.0-beta.1`，ROADMAP 显示 v0.6 仍在规划中、最近已发版是 v0.5.0；两处不一致，**需核实是发版抢号还是文档未同步** —— 留待 developer / 维护者确认。本次归档**不擅自改 manifest，也不擅自宣告 v0.6 发版**，只是登记矛盾。
 
 ---
 
@@ -187,7 +189,9 @@
 ### v0.2.5+（未来方向，未排期）
 
 #### 记忆层完善
-- [ ] `persona_conflict_check` 实装（检测长期指令矛盾并合并/裁决）
+- [ ] 🚧 `persona_conflict_check` 实装（检测长期指令矛盾并合并/裁决）—— **骨架已落，完整逻辑待实装**[^pcc-skeleton]
+
+[^pcc-skeleton]: 2026-05-06 归档勘误：代码 `packages/agent/src/reflection/runner.ts` 中已存在对应的 no-op 骨架分支（任务类型识别 + 占位返回），只是 prompt + 落库写入逻辑尚未实装；因此状态从 🔲 未实装 调整为 🚧 在建。
 - [ ] PersonaReviewList：配置页长期指令 Tab 的批量审核视图（支持编辑）
 - [ ] `/forget` 命令：主动从记忆层删除
 - [ ] 会话导入 / 导出（JSON）
@@ -257,7 +261,7 @@
   - 工作量估计：A=0.5h，C3=1.5h（含缓存 + 单测）
   - 验证办法：收集 50-100 条真机 query，人工标注 should_recall 真值，对比粗判判定，统计漏报率与误报率
 
-- [ ] **跨 visit 时间维记忆检索 · Chronological Index**（用户反馈 2026-04-24）
+- [x] **跨 visit 时间维记忆检索 · Chronological Index**（用户反馈 2026-04-24 · **已随 v0.4.0 完成**[^chrono-v040]）
   - 动机：当前 `recall_memory` 基于语义向量，无法处理"今天看了哪些文章"、"本周读了什么"这类**元查询**——embedding 基于内容编码，时间维根本不在语义空间里。用户在新域名下问这类问题会拿到"未找到"，体验差。
   - v0.2.3 的小修补：`recall_memory` 已能识别这类时间维元查询并返回 `reason='time_query_unsupported'` 的明确提示（避免假阴性），主 LLM 坦诚告诉用户"这类查询暂不支持"。完整方案见下。
   - 目标设计：
@@ -266,6 +270,8 @@
     - **主 system prompt 提示**：加一条"对'今天/本周看了什么'这类时间维元查询用 `list_recent_visits`，而非 `recall_memory`"的行为守则。
     - **自动路由（可选）**：`RelevantMemorySource` 在识别到时间维查询时，跳过向量召回，直接调用 `list_recent_visits`——让用户感知不到 tool 边界。
   - 产品哲学：这是"**助手在某项特定工作 / session 之外的记忆**"——不被 canonicalUrl / visitId 限制，类似人类的"时序自传式记忆"。
+
+[^chrono-v040]: 2026-05-06 归档勘误：本条实际已随 v0.4.0 落盘，代码位于 `packages/tools/src/definitions/list-recent-visits.ts`（新 tool 实装）+ `packages/agent/src/context/time-query.ts`（时间维查询识别与自动路由）。ROADMAP 历史上误留在 `v0.2.5+（未来方向）`，此处补勾。
 - [ ] **记忆浏览器 Tab**（配套上一条）
   - 配置页新增"记忆浏览器" Tab，让用户**自己**能按时间/域名浏览自己沉淀的 visit_summary（类似浏览历史，但含 AI 归纳的摘要）。
   - 视图：按日期分组 → 每组内按域名聚合 → 点开看 summary + tags。支持"删除单条"、"导出"。
@@ -497,6 +503,8 @@ type Selector = string;
 
 ## §4 · Phase 3-b：CheckerAgent 与实时提醒
 
+> **治理注脚（2026-05-06）**：CheckerAgent 的**实现路径**已确定复用 `docs/backlog.md` · [B-002 · 自定义智能体](./backlog.md#b-002--自定义智能体领域专家) 的通用框架——作为 B-002 下的一个"内置 background 型智能体"实例落地，不单独演化一套机制。本节的设计目标、触发机制、架构约束、禁止事项均保持权威；具体工程实装承接在 B-002 的"智能体类型 / 触发方式 / 输出通道"三项 schema 扩展之上。版本主题（v0.8 · CheckerAgent · 实时提醒）不变。
+
 ### 设计目标
 
 用户阅读到某段内容时，CheckerAgent 基于上下文检测**与历史记忆的关联点、潜在错误信息**，主动推送小提示（不打断阅读）。
@@ -514,6 +522,8 @@ type Selector = string;
 - 通过 `AgentOrchestrator.register(checkerAgent)` 注册
 - **独立 ContextSource**：SystemPrompt（Checker 专属）+ PageContext（仅新增段）+ RelevantMemory；**不使用** ChatHistory
 - 输出走**旁路流**（Toast / 右上角轻提示，不进主消息流）
+
+> 承接 [B-002](./backlog.md#b-002--自定义智能体领域专家)：上述四项（独立 Context 组装 / 旁路输出通道 / 默认关闭 / 页面事件触发）在 B-002 框架下对应 `type='background'` + `outputChannel='side-channel'` + `defaultEnabled=false` + `trigger.kind='dom-event'` 四个 schema 字段的组合配置——**不新造架构**。
 
 ### 禁止事项
 
