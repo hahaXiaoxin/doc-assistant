@@ -55,4 +55,5 @@ export function getDeepSeekCapability(model: string): DeepSeekModelCapability {
 
 /** UI 推荐模型列表（下拉建议值，API 失败时的兜底） */
 export const DEEPSEEK_MODELS = ['deepseek-chat', 'deepseek-reasoner'] as const;
+// eslint-disable-next-line @typescript-eslint/ban-types
 export type DeepSeekModel = (typeof DEEPSEEK_MODELS)[number] | (string & {});

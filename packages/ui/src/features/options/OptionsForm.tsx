@@ -5,13 +5,19 @@
  * - 加载 STORAGE_KEYS
  * - 将各段配置（main / aux / embedding / chat / memorySettings）分发给对应 Tab
  * - 统一的 Save / Reset 底部吸附栏
+ *
+ * v0.6.0-beta.2：
+ * - zod schema 改为 `z.discriminatedUnion('kind', [...])`，每个 registry kind
+ *   一个子 schema，消除硬编码 `kind: z.literal('qwen')`
+ * - 保存前软校验：main=DeepSeek + embedding useMain=true 时弹 Modal.confirm
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Space, Tabs, Typography, message } from 'antd';
+import { Button, Modal, Space, Tabs, Typography, message } from 'antd';
 import {
   DEFAULT_AUX_PROVIDER_CONFIG,
   DEFAULT_CHAT_SETTINGS,
   DEFAULT_EMBEDDING_PROVIDER_CONFIG,
+  DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   DEFAULT_MAIN_PROVIDER_CONFIG,
   DEFAULT_MEMORY_SETTINGS,
   STORAGE_KEYS,
@@ -26,6 +32,7 @@ import {
   type StorageSchema,
   type TypedStorage,
 } from '@doc-assistant/shared';
+import { PROVIDER_REGISTRY } from '@doc-assistant/provider';
 import { z } from 'zod';
 import { BasicTab } from './tabs/BasicTab';
 import { MemoryTab } from './tabs/MemoryTab';
@@ -36,23 +43,39 @@ import type { MemoryStore } from '@doc-assistant/memory';
 
 const logger = createLogger('ui:options');
 
-const mainProviderSchema = z.object({
-  kind: z.literal('qwen'),
+/** 基础 LLM 字段（每个 kind 的子 schema 在此之上扩展 discriminator） */
+const baseLLMSchemaShape = {
   apiKey: z.string().trim().min(1, '请填写主 Provider 的 API Key'),
   baseURL: z.string().trim().url('主 Provider 的 Base URL 不合法'),
   model: z.string().trim().min(1, '请选择主 Provider 模型'),
   enableThinking: z.boolean().optional(),
+};
+
+const qwenMainSchema = z.object({
+  kind: z.literal('qwen'),
+  ...baseLLMSchemaShape,
 });
+
+const deepseekMainSchema = z.object({
+  kind: z.literal('deepseek'),
+  ...baseLLMSchemaShape,
+});
+
+const mainProviderSchema = z.discriminatedUnion('kind', [qwenMainSchema, deepseekMainSchema]);
+
+const auxLLMSchemaShape = {
+  apiKey: z.string().trim().min(1, '辅助 Provider 的 API Key 不能为空'),
+  baseURL: z.string().trim().url(),
+  model: z.string().trim().min(1),
+  enableThinking: z.boolean().optional(),
+};
 
 const llmProviderOrRefSchema = z.union([
   z.object({ useMain: z.literal(true) }),
-  z.object({
-    kind: z.literal('qwen'),
-    apiKey: z.string().trim().min(1, '辅助 Provider 的 API Key 不能为空'),
-    baseURL: z.string().trim().url(),
-    model: z.string().trim().min(1),
-    enableThinking: z.boolean().optional(),
-  }),
+  z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('qwen'), ...auxLLMSchemaShape }),
+    z.object({ kind: z.literal('deepseek'), ...auxLLMSchemaShape }),
+  ]),
 ]);
 
 const embeddingProviderOrRefSchema = z.union([
@@ -85,6 +108,10 @@ export interface OptionsFormProps {
   memory?: MemoryStore | null;
 }
 
+function isUseMainRef(v: unknown): boolean {
+  return !!v && typeof v === 'object' && (v as { useMain?: boolean }).useMain === true;
+}
+
 export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
   const [main, setMain] = useState<LLMProviderConfig>(DEFAULT_MAIN_PROVIDER_CONFIG);
   const [aux, setAux] =
@@ -96,6 +123,7 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [modal, modalContextHolder] = Modal.useModal();
 
   const keyMask = useMemo(() => maskSecret(main.apiKey), [main.apiKey]);
 
@@ -111,7 +139,13 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
         ]);
 
       if (mainStored) {
-        setMain({ ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored });
+        // 兜底：脏数据中 kind 缺失时落回 qwen（见 PRD §8 R-6）
+        const normalized: LLMProviderConfig = {
+          ...DEFAULT_MAIN_PROVIDER_CONFIG,
+          ...mainStored,
+          kind: mainStored.kind ?? DEFAULT_MAIN_PROVIDER_CONFIG.kind,
+        };
+        setMain(normalized);
       }
 
       if (auxStored) setAux(auxStored);
@@ -133,6 +167,34 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
       setLoading(false);
     })();
   }, [storage]);
+
+  const persistAll = async () => {
+    setSaving(true);
+    try {
+      await storage.setMany({
+        [STORAGE_KEYS.ACTIVE_PROVIDER]: main.kind,
+        [STORAGE_KEYS.MAIN_PROVIDER_CONFIG]: main,
+        [STORAGE_KEYS.AUX_PROVIDER_CONFIG]: aux,
+        [STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG]: embedding,
+        [STORAGE_KEYS.CHAT_SETTINGS]: chat,
+        [STORAGE_KEYS.MEMORY_SETTINGS]: memorySettings,
+      });
+      logger.info('配置已保存', {
+        provider: main.kind,
+        model: main.model,
+        apiKey: keyMask,
+        auxUseMain: isUseMainRef(aux),
+        embUseMain: isUseMainRef(embedding),
+        maxTurns: chat.maxTurns,
+      });
+      message.success('配置已保存');
+    } catch (err) {
+      logger.error('保存失败', (err as Error).message);
+      message.error(`保存失败：${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleSave = async () => {
     const mainResult = mainProviderSchema.safeParse(main);
@@ -161,31 +223,42 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
       return;
     }
 
-    setSaving(true);
-    try {
-      await storage.setMany({
-        [STORAGE_KEYS.ACTIVE_PROVIDER]: main.kind,
-        [STORAGE_KEYS.MAIN_PROVIDER_CONFIG]: main,
-        [STORAGE_KEYS.AUX_PROVIDER_CONFIG]: aux,
-        [STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG]: embedding,
-        [STORAGE_KEYS.CHAT_SETTINGS]: chat,
-        [STORAGE_KEYS.MEMORY_SETTINGS]: memorySettings,
+    // 软校验：主 Provider 无 embedding 能力 + embedding useMain=true → Modal 二次确认
+    const mainEntry = PROVIDER_REGISTRY[main.kind];
+    if (mainEntry && mainEntry.embedding === null && isUseMainRef(embedding)) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        modal.confirm({
+          title: '⚠️ 向量召回可能不可用',
+          content: (
+            <div>
+              <p>
+                当前主 Provider 为 <strong>{mainEntry.displayName}</strong>
+                ，其未提供 embedding 服务，而 Embedding Provider 选择了
+                <strong>「复用主 Provider」</strong>。保存后记忆召回可能不工作（自动降级到关键词召回）。
+              </p>
+              <p>建议切换到 Qwen text-embedding-v3 作为向量模型。</p>
+            </div>
+          ),
+          okText: '改成推荐配置',
+          cancelText: '继续保存',
+          onOk: () => {
+            setEmbedding({
+              kind: 'qwen-embedding',
+              baseURL: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL,
+              model: 'text-embedding-v3',
+              dimension: 1024,
+              apiKey: '',
+            });
+            message.info('已切换到 Qwen text-embedding-v3，请在 Memory Tab 填入 API Key 后重新保存');
+            resolve(false);
+          },
+          onCancel: () => resolve(true),
+        });
       });
-      logger.info('配置已保存', {
-        provider: main.kind,
-        model: main.model,
-        apiKey: keyMask,
-        auxUseMain: isUseMainRef(aux),
-        embUseMain: isUseMainRef(embedding),
-        maxTurns: chat.maxTurns,
-      });
-      message.success('配置已保存');
-    } catch (err) {
-      logger.error('保存失败', (err as Error).message);
-      message.error(`保存失败：${(err as Error).message}`);
-    } finally {
-      setSaving(false);
+      if (!confirmed) return;
     }
+
+    await persistAll();
   };
 
   const handleReset = () => {
@@ -205,6 +278,7 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
 
   return (
     <div style={{ maxWidth: 880, margin: '0 auto', padding: '24px 24px 96px' }}>
+      {modalContextHolder}
       <Typography.Title level={3} style={{ marginTop: 0 }}>
         Doc Assistant · 配置
       </Typography.Title>
@@ -280,8 +354,4 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
       </div>
     </div>
   );
-}
-
-function isUseMainRef(v: unknown): boolean {
-  return !!v && typeof v === 'object' && (v as { useMain?: boolean }).useMain === true;
 }

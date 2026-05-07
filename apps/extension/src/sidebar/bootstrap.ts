@@ -30,7 +30,7 @@ import {
   type ProviderConfigOrRef,
   type StorageSchema,
 } from '@doc-assistant/shared';
-import { QwenProvider } from '@doc-assistant/provider';
+import { PROVIDER_REGISTRY } from '@doc-assistant/provider';
 import type { LLMProvider } from '@doc-assistant/provider';
 import {
   RemoteMemoryStore,
@@ -96,8 +96,13 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     mainProvider = { ...mainProvider, apiKey: 'placeholder' };
   }
 
-  // 构造主 LLM
-  const mainLLM: LLMProvider = new QwenProvider({
+  // 构造主 LLM（通过 registry 反射到对应 Provider 类）
+  const mainEntry = PROVIDER_REGISTRY[mainProvider.kind];
+  if (!mainEntry) {
+    throw new Error(`Unknown provider kind: ${mainProvider.kind}`);
+  }
+  const mainLLM: LLMProvider = mainEntry.createLLM({
+    kind: mainProvider.kind,
     apiKey: mainProvider.apiKey,
     baseURL: mainProvider.baseURL,
     model: mainProvider.model,
@@ -108,7 +113,12 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
   let auxLLM: LLMProvider = mainLLM;
   if (!isUseMain(auxConfig)) {
     try {
-      auxLLM = new QwenProvider({
+      const auxEntry = PROVIDER_REGISTRY[auxConfig.kind];
+      if (!auxEntry) {
+        throw new Error(`Unknown aux provider kind: ${auxConfig.kind}`);
+      }
+      auxLLM = auxEntry.createLLM({
+        kind: auxConfig.kind,
         apiKey: auxConfig.apiKey,
         baseURL: auxConfig.baseURL,
         model: auxConfig.model,

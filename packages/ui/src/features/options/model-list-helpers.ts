@@ -8,7 +8,7 @@
  * 纯展示层逻辑，不下沉到 provider 包（provider 包应保持"业务无关"）。
  */
 
-import type { QwenModelListItem } from '@doc-assistant/provider';
+import type { GenericModelListItem } from '@doc-assistant/provider';
 
 /**
  * 判断是否是"快照"版本
@@ -31,18 +31,18 @@ export function isSnapshotId(id: string): boolean {
  *
  * 孤儿快照（主干不在列表）会被当作 primary 展示，避免整组被吞掉。
  */
-export function splitSnapshots(models: QwenModelListItem[]): {
-  primary: QwenModelListItem[];
+export function splitSnapshots(models: GenericModelListItem[]): {
+  primary: GenericModelListItem[];
   snapshotCount: number;
 } {
-  const primary: QwenModelListItem[] = [];
-  const snapshots: QwenModelListItem[] = [];
+  const primary: GenericModelListItem[] = [];
+  const snapshots: GenericModelListItem[] = [];
   for (const m of models) {
     if (isSnapshotId(m.id)) snapshots.push(m);
     else primary.push(m);
   }
   const primaryIds = new Set(primary.map((m) => m.id));
-  const orphans: QwenModelListItem[] = [];
+  const orphans: GenericModelListItem[] = [];
   let realSnapshotCount = 0;
   for (const s of snapshots) {
     const trunk = s.id.replace(/-\d{4}-\d{2}-\d{2}$/, '').replace(/-latest$/, '');

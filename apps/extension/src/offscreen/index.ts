@@ -34,7 +34,7 @@ import {
   type OffscreenStorageReadResponse,
   type ProviderConfigOrRef,
 } from '@doc-assistant/shared';
-import { QwenEmbeddingProvider, QwenProvider } from '@doc-assistant/provider';
+import { PROVIDER_REGISTRY, QwenEmbeddingProvider } from '@doc-assistant/provider';
 import type { EmbeddingProvider, LLMProvider } from '@doc-assistant/provider';
 import {
   DexieMemoryStore,
@@ -151,20 +151,29 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
   const memorySettings = { ...DEFAULT_MEMORY_SETTINGS, ...(memStored ?? {}) };
 
   /* ---- Embedding Provider（失败不阻塞；memory 降级到关键词召回） ---- */
+  // v0.6.0-beta.2：主 Provider 可能是 DeepSeek（无 embedding），此时 useMain=true 时不能
+  // 复用——走 registry 查询主 Provider 的 embedding 能力；无则跳过（memory 降级关键词召回）。
   let embeddingProvider: EmbeddingProvider | null = null;
   try {
     if (isUseMain(embConfig)) {
-      if (mainProvider.apiKey.trim()) {
-        embeddingProvider = new QwenEmbeddingProvider({
+      const mainEntry = PROVIDER_REGISTRY[mainProvider.kind];
+      if (mainEntry?.embedding && mainProvider.apiKey.trim()) {
+        // 主 Provider 自身有 embedding 能力：复用主 Provider 的 baseURL + apiKey
+        embeddingProvider = mainEntry.embedding.createEmbedding({
           apiKey: mainProvider.apiKey,
           baseURL: mainProvider.baseURL,
           model: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.model,
           dimension: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.dimension,
         });
+      } else if (!mainEntry?.embedding) {
+        logger.warn(
+          `主 Provider (${mainProvider.kind}) 无 embedding 能力且 embedding useMain=true，向量召回降级到关键词`,
+        );
       } else {
         logger.warn('主 Provider 未配置 apiKey，embedding 暂不可用（召回降级关键词）');
       }
     } else {
+      // 用户显式配置 embedding（kind 目前只有 qwen-embedding）
       embeddingProvider = new QwenEmbeddingProvider({
         apiKey: embConfig.apiKey,
         baseURL: embConfig.baseURL,
@@ -195,19 +204,25 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
   });
 
   /* ---- Aux LLM（反思 Job 专用；useMain 则复用主 Provider 配置） ---- */
-  // 注意：即使 mainProvider.apiKey 为空，此处仍构造 provider 占位——反思 Job
-  // 触发时再实际 fetch，若 key 缺失则 runner 内部 catch 并返回 ok=false（降级）。
+  // v0.6.0-beta.2：kind 通过 registry 反射，支持 Qwen / DeepSeek 组合。
   let auxLLM: LLMProvider | null = null;
   try {
+    const effectiveKind = isUseMain(auxConfig) ? mainProvider.kind : auxConfig.kind;
+    const entry = PROVIDER_REGISTRY[effectiveKind];
+    if (!entry) {
+      throw new Error(`Unknown aux provider kind: ${effectiveKind}`);
+    }
     if (isUseMain(auxConfig)) {
-      auxLLM = new QwenProvider({
+      auxLLM = entry.createLLM({
+        kind: effectiveKind,
         apiKey: mainProvider.apiKey || 'placeholder',
         baseURL: mainProvider.baseURL,
         model: mainProvider.model,
         enableThinking: mainProvider.enableThinking ?? false,
       });
     } else {
-      auxLLM = new QwenProvider({
+      auxLLM = entry.createLLM({
+        kind: effectiveKind,
         apiKey: auxConfig.apiKey,
         baseURL: auxConfig.baseURL,
         model: auxConfig.model,

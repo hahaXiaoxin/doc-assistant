@@ -10,8 +10,14 @@
  *
  * v0.4.0：原"长期指令审核"占位 Card 已删除——审核入口统一走 sidebar 的
  * PersonaReviewBanner；浏览/编辑/清理入口走新的"记忆浏览器" Tab。
+ *
+ * v0.6.0-beta.2：
+ * - 当主 Provider 为 DeepSeek 且 embedding 仍 useMain=true 时，顶部警告 +
+ *   "一键使用推荐配置（Qwen text-embedding-v3）"按钮
+ * - Embedding Provider 下拉彻底屏蔽 DeepSeek（走 ProviderConfigForm 的 embedding
+ *   mode，该 mode 不展示 Provider 下拉、kind 固定为 qwen-embedding）
  */
-import { Alert, Card, Form, InputNumber, Switch } from 'antd';
+import { Alert, Button, Card, Form, InputNumber, Switch } from 'antd';
 import {
   DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   type EmbeddingProviderConfig,
@@ -19,6 +25,7 @@ import {
   type MemorySettings,
   type ProviderConfigOrRef,
 } from '@doc-assistant/shared';
+import { PROVIDER_REGISTRY } from '@doc-assistant/provider';
 import { ProviderConfigForm } from '../ProviderConfigForm';
 
 export interface MemoryTabProps {
@@ -31,8 +38,13 @@ export interface MemoryTabProps {
   onSettingsChange: (next: MemorySettings) => void;
 }
 
+function isUseMainRef(v: unknown): v is { useMain: true } {
+  return !!v && typeof v === 'object' && (v as { useMain?: boolean }).useMain === true;
+}
+
 export function MemoryTab(props: MemoryTabProps) {
-  const { main, aux, onAuxChange, embedding, onEmbeddingChange, settings, onSettingsChange } = props;
+  const { main, aux, onAuxChange, embedding, onEmbeddingChange, settings, onSettingsChange } =
+    props;
 
   // aux 的 fallback：继承主 Provider 的结构（kind/baseURL/model/apiKey），enableThinking 可保持或清零
   const auxFallback: LLMProviderConfig = { ...main };
@@ -40,8 +52,31 @@ export function MemoryTab(props: MemoryTabProps) {
   // embedding fallback：优先用主 Provider 的 baseURL+apiKey + 标准 embedding model
   const embeddingFallback: EmbeddingProviderConfig = {
     ...DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
-    baseURL: main.baseURL || DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL,
-    apiKey: main.apiKey || DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.apiKey,
+    baseURL:
+      main.kind === 'qwen'
+        ? main.baseURL || DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL
+        : DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL,
+    apiKey:
+      main.kind === 'qwen'
+        ? main.apiKey || DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.apiKey
+        : DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.apiKey,
+  };
+
+  /** 主 Provider 是否无 embedding 能力（如 DeepSeek）且用户仍 useMain */
+  const mainEntry = PROVIDER_REGISTRY[main.kind];
+  const mainLacksEmbedding = mainEntry?.embedding === null;
+  const embeddingUseMain = isUseMainRef(embedding);
+  const showComboWarning = mainLacksEmbedding && embeddingUseMain;
+
+  const handleApplyRecommendedEmbedding = () => {
+    // 推荐：Qwen text-embedding-v3 / 1024 维，apiKey 留空等待用户填
+    onEmbeddingChange({
+      kind: 'qwen-embedding',
+      baseURL: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL,
+      model: 'text-embedding-v3',
+      dimension: 1024,
+      apiKey: '',
+    });
   };
 
   return (
@@ -67,19 +102,38 @@ export function MemoryTab(props: MemoryTabProps) {
             value={aux}
             onChange={onAuxChange}
             fallback={auxFallback}
-            hint="辅助模型的调用次数较高，建议选择便宜的模型（如 qwen-turbo）。"
+            hint="辅助模型的调用次数较高，建议选择便宜的模型（如 qwen-turbo / deepseek-chat）。"
           />
         </Form>
       </Card>
 
       <Card title="Embedding Provider（向量召回）" style={{ marginBottom: 16 }}>
+        {showComboWarning ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`当前主 Provider 为 ${mainEntry?.displayName ?? main.kind}，其未提供 embedding 服务`}
+            description={
+              <>
+                向量召回依赖 embedding，推荐切换到 <strong>Qwen text-embedding-v3</strong>
+                （与主对话解耦，不影响聊天质量；老用户的历史记忆索引也由 Qwen 建成，可无缝继续使用）。
+                <div style={{ marginTop: 8 }}>
+                  <Button size="small" type="primary" onClick={handleApplyRecommendedEmbedding}>
+                    一键使用推荐配置
+                  </Button>
+                </div>
+              </>
+            }
+          />
+        ) : null}
         <Form layout="vertical" requiredMark={false}>
           <ProviderConfigForm<EmbeddingProviderConfig>
             mode="embedding"
             value={embedding}
             onChange={onEmbeddingChange}
             fallback={embeddingFallback}
-            hint="向量模型维度与模型绑定；切换后必须清库重建。"
+            hint="向量模型维度与模型绑定；切换后必须清库重建。Embedding 暂仅支持 Qwen（DeepSeek 官方无 embedding 服务）。"
           />
         </Form>
       </Card>

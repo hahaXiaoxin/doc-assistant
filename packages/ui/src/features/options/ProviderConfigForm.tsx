@@ -3,21 +3,18 @@
  * ---------------------------------------------
  * v0.2 · 用于"辅助 Provider"与"Embedding Provider"的配置（两者都支持"复用主 Provider"开关）
  *
- * 主 Provider 的表单字段有专属的 Options 约束（model 下拉 / enableThinking 等），
- * 所以主 Provider 不走这个组件，由 BasicTab 单独维护。
- *
- * 这里支持两种 mode：
- * - 'llm'：baseURL + model + apiKey [+ 可选 enableThinking]
- * - 'embedding'：baseURL + model + apiKey + dimension
+ * 支持两种 mode：
+ * - 'llm'：kind 下拉 + baseURL + model + apiKey [+ 可选 enableThinking]
+ * - 'embedding'：baseURL + model + apiKey + dimension（kind 固定为 'qwen-embedding'）
  *
  * 值结构：ProviderConfigOrRef<T>
  *   - { useMain: true } → 禁用字段，仅显示"复用主 Provider"勾选
  *   - 完整对象     → 展开字段
  *
- * v0.2.1 新增：拉取可用模型
- * - 调用 listQwenModels 拉完整列表，按 mode 过滤 kind（llm→chat / embedding→embedding）
- * - 失败不阻塞；结果仅本次会话有效，不持久化
- * - useMain=true 时按钮禁用（应去 BasicTab 主 Provider 里拉）
+ * v0.6.0-beta.2：
+ * - llm mode 的 Provider 下拉来自 `PROVIDER_REGISTRY`，支持 Qwen / DeepSeek
+ * - embedding mode 不展示 Provider 下拉（本期只有 Qwen 一家；后续扩展再加）
+ * - 拉取模型按 kind 路由到对应 `entry.listModels`
  */
 import {
   Alert,
@@ -26,6 +23,7 @@ import {
   Form,
   Input,
   InputNumber,
+  Select,
   Space,
   Switch,
   Tag,
@@ -35,15 +33,18 @@ import {
 } from 'antd';
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  QWEN_EMBEDDING_MODELS,
-  QWEN_MODELS,
   createLogger,
   maskSecret,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
   type ProviderConfigOrRef,
+  type ProviderKind,
 } from '@doc-assistant/shared';
-import { listQwenModels, type QwenModelListItem } from '@doc-assistant/provider';
+import {
+  PROVIDER_REGISTRY,
+  listProviderEntries,
+  type GenericModelListItem,
+} from '@doc-assistant/provider';
 import { splitSnapshots } from './model-list-helpers';
 
 const logger = createLogger('ui:options:provider-config');
@@ -71,11 +72,8 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
   const useMain = isUseMainRef(value);
 
   const [fetchingModels, setFetchingModels] = useState(false);
-  /** 拉取到的模型（已按 mode 过滤）。null = 尚未拉过，走固定建议值 */
-  const [fetchedModels, setFetchedModels] = useState<QwenModelListItem[] | null>(null);
-  /** 是否显示历史快照版本（-YYYY-MM-DD / -latest） */
+  const [fetchedModels, setFetchedModels] = useState<GenericModelListItem[] | null>(null);
   const [showSnapshots, setShowSnapshots] = useState(false);
-  /** AutoComplete 搜索词（受控；避免 value 被当搜索词） */
   const [searchText, setSearchText] = useState('');
 
   const toggleUseMain = (checked: boolean) => {
@@ -83,6 +81,8 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
       onChange({ useMain: true });
     } else {
       onChange(fallback);
+      // 切换回自定义模式时重置拉取缓存
+      setFetchedModels(null);
     }
   };
 
@@ -90,8 +90,27 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
   const keyMask = maskSecret(concrete.apiKey);
 
   const update = (patch: Partial<T>) => {
-    if (useMain) return; // useMain 时字段禁用
+    if (useMain) return;
     onChange({ ...(concrete as T), ...patch } as ProviderConfigOrRef<T>);
+  };
+
+  /** llm mode 的 kind 切换 */
+  const handleKindChange = (nextKind: ProviderKind) => {
+    if (mode !== 'llm' || useMain) return;
+    const current = concrete as LLMProviderConfig;
+    const currentEntry = PROVIDER_REGISTRY[current.kind];
+    const nextEntry = PROVIDER_REGISTRY[nextKind];
+    if (!nextEntry) return;
+    const replaceBaseURL =
+      currentEntry && current.baseURL === currentEntry.defaultConfig.baseURL;
+    update({
+      kind: nextKind,
+      ...(replaceBaseURL ? { baseURL: nextEntry.defaultConfig.baseURL } : {}),
+      model: nextEntry.defaultConfig.model,
+      enableThinking: nextEntry.defaultConfig.enableThinking ?? current.enableThinking,
+    } as unknown as Partial<T>);
+    setFetchedModels(null);
+    setSearchText('');
   };
 
   const handleFetchModels = async () => {
@@ -101,10 +120,25 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
     }
     setFetchingModels(true);
     try {
-      const all = await listQwenModels({
-        apiKey: concrete.apiKey,
-        baseURL: concrete.baseURL,
-      });
+      let all: GenericModelListItem[];
+      if (mode === 'llm') {
+        const kind = (concrete as LLMProviderConfig).kind;
+        const entry = PROVIDER_REGISTRY[kind];
+        if (!entry) {
+          message.error(`未知的 Provider kind: ${kind}`);
+          return;
+        }
+        all = await entry.listModels({
+          apiKey: concrete.apiKey,
+          baseURL: concrete.baseURL,
+        });
+      } else {
+        // embedding mode：目前只支持 qwen-embedding，走 Qwen registry 拉列表
+        all = await PROVIDER_REGISTRY.qwen.listModels({
+          apiKey: concrete.apiKey,
+          baseURL: concrete.baseURL,
+        });
+      }
       const wantedKind: 'chat' | 'embedding' = mode === 'llm' ? 'chat' : 'embedding';
       const filtered = all.filter((m) => m.kind === wantedKind);
       setFetchedModels(filtered);
@@ -125,19 +159,39 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
     }
   };
 
+  const providerEntry = useMemo(() => {
+    if (mode === 'llm' && !useMain) {
+      return PROVIDER_REGISTRY[(concrete as LLMProviderConfig).kind];
+    }
+    return undefined;
+  }, [mode, useMain, concrete]);
+
+  const providerOptions = useMemo(
+    () =>
+      listProviderEntries().map((e) => ({
+        label: e.displayName,
+        value: e.kind,
+      })),
+    [],
+  );
+
   const { options: modelOptions, stats } = useMemo<{
     options: Array<{ value: string; label: ReactNode }>;
     stats: { total: number; snapshotHidden: number };
   }>(() => {
     if (!fetchedModels || fetchedModels.length === 0) {
-      const fallbackList = mode === 'llm' ? QWEN_MODELS : QWEN_EMBEDDING_MODELS;
+      const fallbackList: readonly string[] =
+        mode === 'llm' && providerEntry
+          ? providerEntry.suggestedModels
+          : mode === 'embedding'
+            ? ['text-embedding-v3', 'text-embedding-v2']
+            : [];
       return {
         options: fallbackList.map((m) => ({ value: m, label: m })),
         stats: { total: 0, snapshotHidden: 0 },
       };
     }
 
-    // 快照折叠 + 搜索过滤
     const { primary, snapshotCount } = splitSnapshots(fetchedModels);
     const base = showSnapshots ? fetchedModels : primary;
 
@@ -168,7 +222,9 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
         snapshotHidden: snapshotCount,
       },
     };
-  }, [fetchedModels, mode, showSnapshots, searchText]);
+  }, [fetchedModels, mode, providerEntry, showSnapshots, searchText]);
+
+  const currentKind = mode === 'llm' ? (concrete as LLMProviderConfig).kind : undefined;
 
   return (
     <>
@@ -184,6 +240,21 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
           }
         >
           <Switch checked={useMain} onChange={toggleUseMain} />
+        </Form.Item>
+      ) : null}
+
+      {mode === 'llm' && !useMain && currentKind ? (
+        <Form.Item label="Provider">
+          <Select
+            value={currentKind}
+            onChange={(v: ProviderKind) => handleKindChange(v)}
+            options={providerOptions}
+          />
+          {providerEntry?.description ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {providerEntry.description}
+            </Typography.Text>
+          ) : null}
         </Form.Item>
       ) : null}
 
@@ -231,7 +302,6 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
             options={modelOptions}
             placeholder="选择或输入模型名"
             style={{ flex: 1 }}
-            // 过滤完全交给 useMemo 里的 searchText，关掉 AutoComplete 内置 filterOption
             filterOption={false}
             allowClear
             disabled={useMain}
@@ -263,7 +333,7 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
       {mode === 'llm' && (
         <Form.Item
           label="启用思考模式（reasoning_content）"
-          extra="仅 qwen3 系列等支持思考的模型有效。"
+          extra="仅部分模型支持（如 qwen3 系列 / deepseek-reasoner）。开启后将流式展示思考过程折叠块。"
         >
           <Switch
             checked={!!(concrete as LLMProviderConfig).enableThinking}
@@ -291,4 +361,3 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
     </>
   );
 }
-
