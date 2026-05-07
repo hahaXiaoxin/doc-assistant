@@ -5,6 +5,68 @@
 
 ---
 
+## [0.6.0-beta.2] · DeepSeek Provider + OpenAICompatible 基类抽离
+
+> 第二家 Provider 接入 + 顺手做最小代价的 OpenAI 兼容基类抽象；从此再接第三家（OpenAI /
+> Moonshot / 自托管）只需"填表"，不必每家重写 250 行。
+>
+> 详细设计见 [`docs/requirements/v0.6.0-beta.2-deepseek-provider.md`](./requirements/v0.6.0-beta.2-deepseek-provider.md)。
+
+### Added
+
+- **DeepSeek Provider**（`packages/provider/src/deepseek/`）：官方端点 `https://api.deepseek.com`
+  - `deepseek-chat`（V3 非思考路径）与 `deepseek-reasoner`（R1 思考模型，`reasoning_content`
+    通过 `ChatChunk.reasoning-delta` 流出 → UI `ThinkingBlock` 折叠展示）
+  - 完整 chat / stream / tool call / usage / error 五条路径
+- **OpenAICompatible 基类**（`packages/provider/src/openai-compatible/`）：
+  - `OpenAICompatibleProvider` · chat 流式 + tool call + ChatMessage→CoreMessage + jsonSchemaToZod
+  - `OpenAICompatibleEmbeddingProvider` · /embeddings 分批 + 维度校验
+  - `listOpenAICompatibleModels` · /models 骨架
+  - `normalizeStreamPart` · AI SDK → ChatChunk 归一化
+  - 错误归一化工具（`mapHttpErrorToProviderError` 等）
+- **Provider Registry**（`packages/provider/src/registry.ts`）：声明式 `kind → {LLM 工厂 /
+  embedding 能力 / listModels / 默认配置 / 推荐组合}` 映射。新增 OpenAI 兼容 Provider 只需
+  一行登记 + 一个目录。
+- **组合渠道推荐按钮**（`MemoryTab`）：主 Provider 为 DeepSeek（无 embedding）且 embedding
+  仍 `useMain=true` 时，顶部黄色警告 + "一键使用推荐配置（Qwen text-embedding-v3）"按钮。
+- **保存前软校验**（`OptionsForm`）：同上组合下弹 `Modal.confirm`，用户可选"继续保存"
+  或"改成推荐配置"。
+- **DeepSeek 默认配置** `DEFAULT_DEEPSEEK_PROVIDER_CONFIG`（`packages/shared/src/config.ts`）。
+- 新增 29 个单测覆盖 DeepSeek（chat / tool call / reasoning-delta / usage / error 路径）
+  与 Provider Registry。
+
+### Changed
+
+- **Qwen Provider 瘦身**：`QwenProvider` / `QwenEmbeddingProvider` / `listQwenModels` 继承
+  或复用 OpenAICompatible 基类；千问特化只保留 `enable_thinking` 透传 extra_body 与
+  `CAPABILITY_TABLE` 分类规则。`qwen/normalizer.ts` 降为 re-export 壳（向后兼容）。
+- **UI 改为 Registry 驱动**：`BasicTab` / `ProviderConfigForm` / `MemoryTab` 的 Provider
+  下拉、默认 baseURL、拉模型函数、zod 校验（改用 `z.discriminatedUnion('kind', ...)`）
+  全部读 `PROVIDER_REGISTRY`，不再出现 `kind === 'qwen' ? ...` 硬编码分支。
+- **装配层 Registry 化**：`sidebar/bootstrap.ts` / `offscreen/index.ts` 从 `new QwenProvider(...)`
+  改为 `PROVIDER_REGISTRY[kind].createLLM(...)`；支持 main=DeepSeek / aux=Qwen /
+  embedding=Qwen 等任意跨 Provider 组合。
+- **Offscreen embedding 降级更聪明**：主 Provider 无 embedding 能力且 `embedding.useMain=true`
+  时不再盲目尝试（DeepSeek 下会 404），直接降级到关键词召回，主对话完全正常。
+- **`ProviderKind` 联合扩展**为 `'qwen' | 'deepseek'`（纯加法，老 Qwen 配置原样工作）。
+
+### Notes
+
+- **Embedding 下拉直接屏蔽 DeepSeek**（相较 v0.5.1 历史 PRD 口径调整）：官方无 embedding
+  服务，保留选项只会制造支持工单。`ProviderConfigForm` 的 embedding mode 不展示
+  Provider 下拉，kind 固定为 `qwen-embedding`。未来若需暴露"自托管 OpenAI 兼容 embedding"
+  作为独立 kind，单独立项。
+- `ChatChunk.reasoning-delta` 契约**未改**（v0.5.x 已就位），DeepSeek-R1 直接复用现有链路。
+- 老 Qwen 用户升级**无需任何操作**；新安装用户默认主 Provider 仍为 Qwen。
+
+### Version
+
+- `apps/extension/manifest.json` `version_name`：0.6.0-beta.1 → 0.6.0-beta.2
+- 根 `package.json` + 所有 workspace 子包 + `apps/extension` 的 `version` 统一为 `0.6.0-beta.2`
+
+---
+
+
 ## [v0.5.0] · 统一记忆 · Offscreen Document 架构
 
 > v0.4.0 真机测试暴露架构级问题：sidebar 跑在 content script 里，IndexedDB 按宿主域名

@@ -1,6 +1,6 @@
 {
   "name": "@doc-assistant/provider",
-  "version": "0.6.0-beta.1",
+  "version": "0.6.0-beta.2",
   "private": true,
   "description": "Doc Assistant · Provider 层（LLM 协议适配）",
   "type": "module",

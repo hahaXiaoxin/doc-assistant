@@ -52,7 +52,18 @@ Doc Assistant 是一款浏览器扩展（Chrome / Edge，Manifest V3），在任
 
 ### 🧩 三套 Provider 独立配置
 
-主对话 / 辅助任务（主题识别 · 召回精判 · 反思）/ Embedding 三套 Provider 独立配置，支持"复用主 Provider"；当前主对话已落地千问 (Qwen) 全家桶，更多 Provider（DeepSeek 等）见[路线图](#路线图)。
+主对话 / 辅助任务（主题识别 · 召回精判 · 反思）/ Embedding 三套 Provider 独立配置，支持"复用主 Provider"。
+
+**已支持的 Provider**（v0.6.0-beta.2）：
+
+| Provider | 主对话 | 辅助 | Embedding | 亮点 |
+| --- | --- | --- | --- | --- |
+| **千问 Qwen**（阿里云百炼 OpenAI 兼容端点） | ✅ | ✅ | ✅ `text-embedding-v3`/`v2` | chat / tool call / reasoning（qwen3 系列）/ embedding / rerank 全能 |
+| **DeepSeek**（`https://api.deepseek.com`） | ✅ | ✅ | — | `deepseek-chat`（V3）/ `deepseek-reasoner`（R1，思考过程折叠展示）。官方无 embedding 服务 |
+
+**推荐组合**：主对话 + 辅助 = DeepSeek（性价比最优的中文模型之一） / Embedding = Qwen `text-embedding-v3`。配置页会在检测到"主 Provider 为 DeepSeek 且 embedding 仍复用主 Provider"时给出一键切换按钮。
+
+更多 Provider（OpenAI / Moonshot / Anthropic / Ollama）见[路线图](#路线图)。
 
 ### 🛠️ 主 LLM 可调用的记忆工具
 
@@ -129,7 +140,7 @@ apps/
 packages/
   ui/              视图层：React + Ant Design + styled-components + Lexical 编辑器
   agent/           Agent 层：Agent Loop、ContextSource 组装、反思 Runner、PageVisit 管理
-  provider/        Provider 层：LLMProvider / EmbeddingProvider 接口 + Qwen 实现
+  provider/        Provider 层：LLMProvider / EmbeddingProvider 接口 + OpenAICompatible 基类 + Qwen / DeepSeek 实现 + Provider Registry
   tools/           Tools 层：页面提取、记忆相关 tool、时间维查询等
   memory/          记忆层：四层记忆 schema + DexieMemoryStore + RemoteMemoryStore 消息代理
   shared/          公共类型与工具（URL 归一化 / 敏感信息过滤等）

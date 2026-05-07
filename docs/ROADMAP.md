@@ -19,6 +19,7 @@
 | **v0.3.0** | 移除 v0.1 兼容代码（Breaking Change） | ✅ 已发布 |
 | **v0.4.0** | 可见且可按时间检索的记忆系统（Persona 双主体 / Chronological Index / 记忆浏览器 Tab / 话题漂移关键词触发 / host_permissions 放开） | ✅ 已发布 |
 | **v0.5.0** | 统一记忆 · Offscreen Document 架构（所有域名共用一套 DB，§8 绕路删除，反思 Job 迁到 offscreen） | ✅ 已发布 |
+| **v0.6.0-beta.2** | DeepSeek Provider 接入 + OpenAI 兼容基类轻量抽离 + Provider Registry（见 §6） | ✅ 已发布 |
 | **v0.6（Phase2-b）** | 域名级 DSL 自学习文章提取器（见 §1） | 规划中[^manifest-0.6-beta]（待确认） |
 | **v0.7（Phase3-a）** | OCR 策略 · 截图工具（见 §3） | 规划中 |
 | **v0.8（Phase3-b）** | CheckerAgent · 实时提醒（见 §4；框架承接 [`backlog.md#B-002`](./backlog.md#b-002--自定义智能体领域专家)） | 规划中 |
@@ -568,7 +569,7 @@ v0.2 范围聚焦"记忆层 + Agent Loop 兜底"，以下项目**明确延后到
 - [ ] **Provider baseURL 自定义时的 `host_permissions` 动态申请**（v0.1.1 §4 遗留）
 - [ ] **SPA 场景页面摘要过期**的主动刷新策略
 - [ ] **流式响应中 tool 执行的可视化状态**（长 tool 执行时的"思考中/调用中"指示）
-- [ ] **Provider 层抽象**以支持 OpenAI / Anthropic / Ollama 等（目前仅 Qwen）
+- [ ] **Provider 层抽象**以支持 OpenAI / Anthropic / Ollama 等（轻量基类 `OpenAICompatibleProvider` 已随 v0.6.0-beta.2 抽离并承载了 Qwen + DeepSeek 两家实现；OpenAI / Moonshot / Anthropic / Ollama 仍延后）
 - [ ] **WorkingMemory 归档到 Episodic**的具体内容格式（v0.2.1 填充时完善）
 - [ ] **域名级 DSL 自学习提取器**（§1）
 - [ ] **OCR / 多模态识图**（§3）
