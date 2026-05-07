@@ -3,13 +3,13 @@
  * ---------------------------------------------
  * 这里的 schema 与 shared/config.ts 中的 LLMProviderConfig 对齐；本文件只负责 Provider
  * 运行时校验，不负责 UI 表单校验（表单校验在 ui/features/options）。
+ *
+ * v0.6.0-beta.2：基于共享 `openAICompatibleBaseConfigSchema` 扩展 `enableThinking`。
  */
 import { z } from 'zod';
+import { openAICompatibleBaseConfigSchema } from '../openai-compatible/config';
 
-export const qwenProviderConfigSchema = z.object({
-  apiKey: z.string().trim().min(1),
-  baseURL: z.string().trim().url(),
-  model: z.string().trim().min(1),
+export const qwenProviderConfigSchema = openAICompatibleBaseConfigSchema.extend({
   enableThinking: z.boolean(),
 });
 

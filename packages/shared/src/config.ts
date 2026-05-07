@@ -35,13 +35,18 @@ export const STORAGE_KEYS = {
 /* LLM Provider 配置（主 / 辅助通用结构）                              */
 /* ------------------------------------------------------------------ */
 
-/** LLM Provider 种类；未来扩展此联合即可 */
-export type ProviderKind = 'qwen';
+/** LLM Provider 种类；未来扩展此联合即可（v0.6.0-beta.2 新增 deepseek） */
+export type ProviderKind = 'qwen' | 'deepseek';
 
 /** 千问可选模型（仅 UI 建议值，baseURL 允许任意字符串） */
 export const QWEN_MODELS = ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen3-max'] as const;
 // eslint-disable-next-line @typescript-eslint/ban-types
 export type QwenModel = (typeof QWEN_MODELS)[number] | (string & {});
+
+/** DeepSeek 可选模型（仅 UI 建议值） */
+export const DEEPSEEK_MODELS_SUGGESTED = ['deepseek-chat', 'deepseek-reasoner'] as const;
+// eslint-disable-next-line @typescript-eslint/ban-types
+export type DeepSeekModel = (typeof DEEPSEEK_MODELS_SUGGESTED)[number] | (string & {});
 
 /**
  * 通用 LLM Provider 配置
@@ -103,6 +108,20 @@ export const DEFAULT_MAIN_PROVIDER_CONFIG: LLMProviderConfig = {
   model: 'qwen-plus',
   apiKey: '',
   enableThinking: true,
+};
+
+/**
+ * DeepSeek 主 Provider 默认值（v0.6.0-beta.2 新增）
+ * ---------------------------------------------
+ * UI 在用户把主 Provider 切到 DeepSeek 时使用。默认用 deepseek-chat；
+ * 切到 deepseek-reasoner 由用户显式选择。`enableThinking` 默认 false（UI 展示层不强制 R1）。
+ */
+export const DEFAULT_DEEPSEEK_PROVIDER_CONFIG: LLMProviderConfig = {
+  kind: 'deepseek',
+  baseURL: 'https://api.deepseek.com',
+  model: 'deepseek-chat',
+  apiKey: '',
+  enableThinking: false,
 };
 
 /** 默认辅助 Provider 配置：默认"复用主 Provider" */
