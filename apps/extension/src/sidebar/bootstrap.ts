@@ -19,15 +19,19 @@ import {
   DEFAULT_CHAT_SETTINGS,
   DEFAULT_MAIN_PROVIDER_CONFIG,
   DEFAULT_MEMORY_SETTINGS,
+  DEFAULT_PROVIDER_CREDENTIALS,
   STORAGE_KEYS,
   clampMaxTurns,
   createLogger,
   createTypedStorage,
   isUseMain,
+  migrateProviderCredentials,
+  resolveCredentialFor,
   type ChatSettings,
   type LLMProviderConfig,
   type MemorySettings,
   type ProviderConfigOrRef,
+  type ProviderCredentialsMap,
   type StorageSchema,
 } from '@doc-assistant/shared';
 import { PROVIDER_REGISTRY } from '@doc-assistant/provider';
@@ -64,9 +68,10 @@ export interface BootstrapResult {
 export async function bootstrapAgent(): Promise<BootstrapResult> {
   const storage = createTypedStorage<StorageSchema>();
 
-  const [mainStored, auxStored, chatStored, memStored] = await Promise.all([
+  const [mainStored, auxStored, credsStored, chatStored, memStored] = await Promise.all([
     storage.get(STORAGE_KEYS.MAIN_PROVIDER_CONFIG),
     storage.get(STORAGE_KEYS.AUX_PROVIDER_CONFIG),
+    storage.get(STORAGE_KEYS.PROVIDER_CREDENTIALS),
     storage.get(STORAGE_KEYS.CHAT_SETTINGS),
     storage.get(STORAGE_KEYS.MEMORY_SETTINGS),
   ]);
@@ -78,6 +83,44 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
 
   const auxConfig: ProviderConfigOrRef<LLMProviderConfig> =
     auxStored ?? DEFAULT_AUX_PROVIDER_CONFIG;
+
+  /* ---- v0.6.0-beta.2：按 Provider 分桶凭证 + 幂等迁移 ---- */
+  // 迁移入参：从老 main/aux 字段把 apiKey/baseURL 折叠进桶；桶里已有则不覆盖（幂等）。
+  const legacyForMigration: Array<
+    { kind: 'qwen' | 'deepseek'; apiKey?: string; baseURL?: string } | undefined
+  > = [
+    { kind: mainProvider.kind, apiKey: mainProvider.apiKey, baseURL: mainProvider.baseURL },
+    !isUseMain(auxConfig)
+      ? { kind: auxConfig.kind, apiKey: auxConfig.apiKey, baseURL: auxConfig.baseURL }
+      : undefined,
+  ];
+  const defaultBaseURLOf = (k: 'qwen' | 'deepseek'): string | undefined =>
+    PROVIDER_REGISTRY[k]?.defaultConfig.baseURL;
+  const migratedCreds: ProviderCredentialsMap = migrateProviderCredentials(
+    credsStored ?? DEFAULT_PROVIDER_CREDENTIALS,
+    legacyForMigration,
+    defaultBaseURLOf,
+  );
+  // 桶内容变了才写回，避免无意义写
+  if (migratedCreds !== (credsStored ?? DEFAULT_PROVIDER_CREDENTIALS)) {
+    try {
+      await storage.set(STORAGE_KEYS.PROVIDER_CREDENTIALS, migratedCreds);
+      logger.info('providerCredentials 迁移完成', {
+        kinds: Object.keys(migratedCreds),
+      });
+    } catch (err) {
+      logger.warn('providerCredentials 写回失败（不阻塞启动）', (err as Error).message);
+    }
+  }
+
+  // 从桶取主 Provider 的 apiKey/baseURL；若桶为空 → 回落到老字段
+  {
+    const resolved = resolveCredentialFor(migratedCreds, mainProvider.kind, {
+      apiKey: mainProvider.apiKey,
+      baseURL: mainProvider.baseURL,
+    });
+    mainProvider = { ...mainProvider, apiKey: resolved.apiKey, baseURL: resolved.baseURL };
+  }
 
   const chatSettings: ChatSettings = {
     ...DEFAULT_CHAT_SETTINGS,
@@ -117,10 +160,15 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
       if (!auxEntry) {
         throw new Error(`Unknown aux provider kind: ${auxConfig.kind}`);
       }
-      auxLLM = auxEntry.createLLM({
-        kind: auxConfig.kind,
+      // 同样从桶取 aux 的 apiKey/baseURL
+      const auxResolved = resolveCredentialFor(migratedCreds, auxConfig.kind, {
         apiKey: auxConfig.apiKey,
         baseURL: auxConfig.baseURL,
+      });
+      auxLLM = auxEntry.createLLM({
+        kind: auxConfig.kind,
+        apiKey: auxResolved.apiKey,
+        baseURL: auxResolved.baseURL,
         model: auxConfig.model,
         enableThinking: auxConfig.enableThinking ?? false,
       });

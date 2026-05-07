@@ -24,6 +24,16 @@ export const STORAGE_KEYS = {
   /** Embedding Provider 配置（向量化；可复用主 Provider） */
   EMBEDDING_PROVIDER_CONFIG: 'doc-assistant.embedding-provider-config',
 
+  /**
+   * v0.6.0-beta.2：按 Provider 分桶的凭证存储
+   * --------------------------------------------------
+   * 形如 `{ qwen: { apiKey, baseURL? }, deepseek: { apiKey, baseURL? } }`。
+   * 加载时 main/aux/embedding 的 apiKey/baseURL 优先从此桶按 kind 读取，
+   * 保存时把当前 kind 的凭证写回对应桶。
+   * 旧字段 `main/aux/embedding.apiKey/baseURL` 仍然保留以便向后兼容读。
+   */
+  PROVIDER_CREDENTIALS: 'doc-assistant.provider-credentials',
+
   /** 通用对话设置（maxTurns 等） */
   CHAT_SETTINGS: 'doc-assistant.chat-settings',
 
@@ -239,12 +249,95 @@ export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
 /* chrome.storage.local 的强类型 schema                                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * v0.6.0-beta.2 · 按 Provider 分桶的凭证
+ * ---------------------------------------------
+ * 每个 Provider kind 各自保留一份 `{ apiKey, baseURL? }`，切换 Provider 时
+ * 自动从桶里带出对应值，避免"切 Provider 要重填 Key"的坏体验。
+ *
+ * 设计要点：
+ * - baseURL 可选：老用户若没改过默认值，不写入桶里，避免无谓的数据膨胀；
+ *   读时回落到 registry.defaultConfig.baseURL。
+ * - Embedding 与 LLM 公用一个 Provider 的凭证桶（例如 Qwen 的 apiKey 对
+ *   LLM / embedding 共用）——这也和 UI 层"embedding useMain=true 复用主
+ *   Provider 凭证"的语义一致。
+ */
+export interface ProviderCredential {
+  apiKey: string;
+  baseURL?: string;
+}
+
+export type ProviderCredentialsMap = Partial<Record<ProviderKind, ProviderCredential>>;
+
+export const DEFAULT_PROVIDER_CREDENTIALS: ProviderCredentialsMap = {};
+
+/**
+ * 幂等迁移：把旧 `main/aux/embedding` 里的 apiKey/baseURL 折叠进 providerCredentials 桶。
+ *
+ * 规则（与 PRD 一致）：
+ * - 只要桶里**已经有某 kind 的 apiKey（非空）**，就不覆盖——用户新填的值绝对优先；
+ * - 主/辅配置里读到的 apiKey 非空 → 迁入对应 kind 的桶；baseURL 与对应 Provider
+ *   registry 默认 baseURL **不同**时才记录（避免污染）。
+ * - 多次执行结果一致（幂等）。
+ *
+ * @param existing 当前桶（可为 undefined）
+ * @param legacy   旧字段候选
+ * @param defaultBaseURLOf 给定 kind 的默认 baseURL（由 registry 注入，避免本包反向依赖）
+ * @returns 迁移后的桶（新对象；若无需改动则返回原引用以便调用者短路）
+ */
+export function migrateProviderCredentials(
+  existing: ProviderCredentialsMap | undefined,
+  legacy: Array<{ kind: ProviderKind; apiKey?: string; baseURL?: string } | undefined>,
+  defaultBaseURLOf: (kind: ProviderKind) => string | undefined,
+): ProviderCredentialsMap {
+  const next: ProviderCredentialsMap = { ...(existing ?? {}) };
+  let touched = false;
+  for (const item of legacy) {
+    if (!item) continue;
+    const { kind, apiKey, baseURL } = item;
+    if (!kind) continue;
+    const slot = next[kind];
+    // 已经有非空 apiKey 就不动（幂等 + 保护用户新值）
+    const slotHasKey = !!slot && slot.apiKey.trim().length > 0;
+    if (slotHasKey) continue;
+    const legacyKey = (apiKey ?? '').trim();
+    if (!legacyKey) continue;
+    const defaultBase = defaultBaseURLOf(kind);
+    const nextSlot: ProviderCredential = { apiKey: legacyKey };
+    if (baseURL && baseURL.trim() && baseURL !== defaultBase) {
+      nextSlot.baseURL = baseURL;
+    }
+    next[kind] = nextSlot;
+    touched = true;
+  }
+  return touched ? next : (existing ?? next);
+}
+
+/**
+ * 基于 providerCredentials 桶取出指定 kind 的 { apiKey, baseURL }。
+ * 桶内无记录时回落到 `fallback`（通常是调用方自己持有的旧字段）。
+ *
+ * 注意：本函数不 mask apiKey —— mask 由日志层 `maskSecret` 负责，这里只取值。
+ */
+export function resolveCredentialFor(
+  credentials: ProviderCredentialsMap | undefined,
+  kind: ProviderKind,
+  fallback: { apiKey: string; baseURL: string },
+): { apiKey: string; baseURL: string } {
+  const slot = credentials?.[kind];
+  return {
+    apiKey: slot?.apiKey?.trim() ? slot.apiKey : fallback.apiKey,
+    baseURL: slot?.baseURL?.trim() ? slot.baseURL : fallback.baseURL,
+  };
+}
+
 /** chrome.storage.local 的强类型 schema 映射 */
 export interface StorageSchema extends Record<string, unknown> {
   [STORAGE_KEYS.ACTIVE_PROVIDER]: ProviderKind;
   [STORAGE_KEYS.MAIN_PROVIDER_CONFIG]: LLMProviderConfig;
   [STORAGE_KEYS.AUX_PROVIDER_CONFIG]: ProviderConfigOrRef<LLMProviderConfig>;
   [STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG]: ProviderConfigOrRef<EmbeddingProviderConfig>;
+  [STORAGE_KEYS.PROVIDER_CREDENTIALS]: ProviderCredentialsMap;
   [STORAGE_KEYS.CHAT_SETTINGS]: ChatSettings;
   [STORAGE_KEYS.MEMORY_SETTINGS]: MemorySettings;
 }

@@ -261,7 +261,7 @@ export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabPro
             label="API Key"
             extra={
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                存储位置：chrome.storage.local（仅本机）。日志中将脱敏显示为
+                存储位置：chrome.storage.local（仅本机，按 Provider 分桶保存；切换 Provider 会自动带出对应 Key）。日志中将脱敏显示为
                 <code style={{ marginLeft: 4 }}>{keyMask || '****'}</code>。
               </Typography.Text>
             }

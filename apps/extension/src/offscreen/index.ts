@@ -20,10 +20,12 @@ import {
   DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   DEFAULT_MAIN_PROVIDER_CONFIG,
   DEFAULT_MEMORY_SETTINGS,
+  DEFAULT_PROVIDER_CREDENTIALS,
   MessageType,
   STORAGE_KEYS,
   createLogger,
   isUseMain,
+  resolveCredentialFor,
   setLogPersistor,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
@@ -33,6 +35,7 @@ import {
   type OffscreenStorageReadRequest,
   type OffscreenStorageReadResponse,
   type ProviderConfigOrRef,
+  type ProviderCredentialsMap,
 } from '@doc-assistant/shared';
 import { PROVIDER_REGISTRY, QwenEmbeddingProvider } from '@doc-assistant/provider';
 import type { EmbeddingProvider, LLMProvider } from '@doc-assistant/provider';
@@ -126,6 +129,7 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
     STORAGE_KEYS.MAIN_PROVIDER_CONFIG,
     STORAGE_KEYS.AUX_PROVIDER_CONFIG,
     STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG,
+    STORAGE_KEYS.PROVIDER_CREDENTIALS,
     STORAGE_KEYS.MEMORY_SETTINGS,
   ]);
   const mainStored = storageValues[STORAGE_KEYS.MAIN_PROVIDER_CONFIG] as
@@ -137,11 +141,14 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
   const embStored = storageValues[STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG] as
     | ProviderConfigOrRef<EmbeddingProviderConfig>
     | undefined;
+  const credsStored = storageValues[STORAGE_KEYS.PROVIDER_CREDENTIALS] as
+    | ProviderCredentialsMap
+    | undefined;
   const memStored = storageValues[STORAGE_KEYS.MEMORY_SETTINGS] as
     | Partial<MemorySettings>
     | undefined;
 
-  const mainProvider: LLMProviderConfig = mainStored
+  let mainProvider: LLMProviderConfig = mainStored
     ? { ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored }
     : DEFAULT_MAIN_PROVIDER_CONFIG;
   const auxConfig: ProviderConfigOrRef<LLMProviderConfig> =
@@ -149,6 +156,17 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
   const embConfig: ProviderConfigOrRef<EmbeddingProviderConfig> =
     embStored ?? DEFAULT_EMBEDDING_PROVIDER_CONFIG;
   const memorySettings = { ...DEFAULT_MEMORY_SETTINGS, ...(memStored ?? {}) };
+
+  // v0.6.0-beta.2：从 providerCredentials 桶取 main 的 apiKey/baseURL（桶为空则回落）。
+  // offscreen 不写回迁移——sidebar 和 options 任一先加载都会把桶写好；offscreen 只读。
+  const credentials = credsStored ?? DEFAULT_PROVIDER_CREDENTIALS;
+  {
+    const resolved = resolveCredentialFor(credentials, mainProvider.kind, {
+      apiKey: mainProvider.apiKey,
+      baseURL: mainProvider.baseURL,
+    });
+    mainProvider = { ...mainProvider, apiKey: resolved.apiKey, baseURL: resolved.baseURL };
+  }
 
   /* ---- Embedding Provider（失败不阻塞；memory 降级到关键词召回） ---- */
   // v0.6.0-beta.2：主 Provider 可能是 DeepSeek（无 embedding），此时 useMain=true 时不能
@@ -174,9 +192,14 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
       }
     } else {
       // 用户显式配置 embedding（kind 目前只有 qwen-embedding）
-      embeddingProvider = new QwenEmbeddingProvider({
+      // embedding 的 apiKey 复用 qwen 桶里的凭证——embedding 与 LLM 共享同一 Provider 的 key
+      const embResolved = resolveCredentialFor(credentials, 'qwen', {
         apiKey: embConfig.apiKey,
         baseURL: embConfig.baseURL,
+      });
+      embeddingProvider = new QwenEmbeddingProvider({
+        apiKey: embResolved.apiKey,
+        baseURL: embResolved.baseURL,
         model: embConfig.model,
         dimension: embConfig.dimension,
       });
@@ -221,10 +244,14 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
         enableThinking: mainProvider.enableThinking ?? false,
       });
     } else {
-      auxLLM = entry.createLLM({
-        kind: effectiveKind,
+      const auxResolved = resolveCredentialFor(credentials, auxConfig.kind, {
         apiKey: auxConfig.apiKey,
         baseURL: auxConfig.baseURL,
+      });
+      auxLLM = entry.createLLM({
+        kind: effectiveKind,
+        apiKey: auxResolved.apiKey,
+        baseURL: auxResolved.baseURL,
         model: auxConfig.model,
         enableThinking: auxConfig.enableThinking ?? false,
       });

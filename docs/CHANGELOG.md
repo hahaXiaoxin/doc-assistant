@@ -56,6 +56,12 @@
 - **Offscreen embedding 降级更聪明**：主 Provider 无 embedding 能力且 `embedding.useMain=true`
   时不再盲目尝试（DeepSeek 下会 404），直接降级到关键词召回，主对话完全正常。
 - **`ProviderKind` 联合扩展**为 `'qwen' | 'deepseek'`（纯加法，老 Qwen 配置原样工作）。
+- **API Key 改为按 Provider 分桶存储**（`STORAGE_KEYS.PROVIDER_CREDENTIALS`）：
+  新增独立的凭证子树 `{ qwen: { apiKey, baseURL? }, deepseek: {...} }`。UI 切换
+  Provider 时自动从桶里带出对应 Key，不再出现"换 Provider 要重填 Key"。main /
+  aux / embedding 三套 Provider 配置共享同一套桶——main=DeepSeek 填过 Key 后，
+  aux 切到 DeepSeek 会自动带出。旧用户首次加载时幂等迁移旧字段到桶；多次加载
+  不会覆盖用户新填的值（迁移函数 `migrateProviderCredentials`）。
 
 ### Notes
 

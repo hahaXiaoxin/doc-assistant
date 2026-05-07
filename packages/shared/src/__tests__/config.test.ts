@@ -7,10 +7,13 @@ import {
   DEFAULT_EMBEDDING_PROVIDER_CONFIG,
   DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   DEFAULT_MEMORY_SETTINGS,
+  DEFAULT_PROVIDER_CREDENTIALS,
   MAX_TURNS_MIN,
   MAX_TURNS_MAX,
   clampMaxTurns,
   isUseMain,
+  migrateProviderCredentials,
+  resolveCredentialFor,
 } from '../config';
 
 describe('STORAGE_KEYS', () => {
@@ -21,6 +24,7 @@ describe('STORAGE_KEYS', () => {
     expect(STORAGE_KEYS.MEMORY_SETTINGS).toBe('doc-assistant.memory-settings');
     expect(STORAGE_KEYS.CHAT_SETTINGS).toBe('doc-assistant.chat-settings');
     expect(STORAGE_KEYS.ACTIVE_PROVIDER).toBe('doc-assistant.active-provider');
+    expect(STORAGE_KEYS.PROVIDER_CREDENTIALS).toBe('doc-assistant.provider-credentials');
   });
 
   it('所有 key 都以 doc-assistant. 开头，避免与宿主页面 storage 冲突（chrome.storage.local 无冲突但保持约定）', () => {
@@ -115,5 +119,118 @@ describe('clampMaxTurns', () => {
 
   it('小数向下取整', () => {
     expect(clampMaxTurns(8.9)).toBe(8);
+  });
+});
+
+describe('providerCredentials · migrateProviderCredentials', () => {
+  const defaultBaseURLOf = (k: 'qwen' | 'deepseek'): string | undefined =>
+    k === 'qwen'
+      ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+      : k === 'deepseek'
+        ? 'https://api.deepseek.com'
+        : undefined;
+
+  it('空桶 + 老配置 main.apiKey → 迁入该 kind', () => {
+    const baseURL = defaultBaseURLOf('qwen');
+    const out = migrateProviderCredentials(
+      undefined,
+      [{ kind: 'qwen', apiKey: 'sk-qwen-xxx', ...(baseURL ? { baseURL } : {}) }],
+      defaultBaseURLOf,
+    );
+    expect(out.qwen?.apiKey).toBe('sk-qwen-xxx');
+    // baseURL 等于默认值 → 不写入桶
+    expect(out.qwen?.baseURL).toBeUndefined();
+  });
+
+  it('老配置 baseURL 是用户自定义（非默认）→ 写入桶', () => {
+    const out = migrateProviderCredentials(
+      undefined,
+      [{ kind: 'qwen', apiKey: 'sk', baseURL: 'https://my-proxy.example.com/v1' }],
+      defaultBaseURLOf,
+    );
+    expect(out.qwen?.baseURL).toBe('https://my-proxy.example.com/v1');
+  });
+
+  it('桶内已有 apiKey → 不覆盖（幂等保护用户新值）', () => {
+    const existing = { qwen: { apiKey: 'user-typed-new' } };
+    const out = migrateProviderCredentials(
+      existing,
+      [{ kind: 'qwen', apiKey: 'old-legacy-key' }],
+      defaultBaseURLOf,
+    );
+    expect(out.qwen?.apiKey).toBe('user-typed-new');
+    // 没有变化时可直接返回原引用（短路）
+    expect(out).toBe(existing);
+  });
+
+  it('幂等：多次运行结果一致', () => {
+    const legacy = [{ kind: 'deepseek' as const, apiKey: 'sk-ds' }];
+    const pass1 = migrateProviderCredentials(undefined, legacy, defaultBaseURLOf);
+    const pass2 = migrateProviderCredentials(pass1, legacy, defaultBaseURLOf);
+    expect(pass2).toEqual(pass1);
+  });
+
+  it('老 apiKey 为空串 → 不写入', () => {
+    const out = migrateProviderCredentials(
+      undefined,
+      [{ kind: 'qwen', apiKey: '' }],
+      defaultBaseURLOf,
+    );
+    expect(out.qwen).toBeUndefined();
+  });
+
+  it('多套 kind 并存（main=qwen, aux=deepseek）→ 各自入桶', () => {
+    const out = migrateProviderCredentials(
+      undefined,
+      [
+        { kind: 'qwen', apiKey: 'sk-q' },
+        { kind: 'deepseek', apiKey: 'sk-d' },
+      ],
+      defaultBaseURLOf,
+    );
+    expect(out.qwen?.apiKey).toBe('sk-q');
+    expect(out.deepseek?.apiKey).toBe('sk-d');
+  });
+
+  it('DEFAULT_PROVIDER_CREDENTIALS 为空对象', () => {
+    expect(DEFAULT_PROVIDER_CREDENTIALS).toEqual({});
+  });
+});
+
+describe('providerCredentials · resolveCredentialFor', () => {
+  it('桶里有 apiKey → 用桶里的', () => {
+    const resolved = resolveCredentialFor(
+      { qwen: { apiKey: 'sk-bucket' } },
+      'qwen',
+      { apiKey: 'sk-fallback', baseURL: 'https://default' },
+    );
+    expect(resolved.apiKey).toBe('sk-bucket');
+    expect(resolved.baseURL).toBe('https://default');
+  });
+
+  it('桶里没有 → 回落到 fallback', () => {
+    const resolved = resolveCredentialFor(undefined, 'qwen', {
+      apiKey: 'sk-fallback',
+      baseURL: 'https://default',
+    });
+    expect(resolved.apiKey).toBe('sk-fallback');
+  });
+
+  it('桶里 apiKey 为空串 → 回落到 fallback', () => {
+    const resolved = resolveCredentialFor(
+      { qwen: { apiKey: '   ' } },
+      'qwen',
+      { apiKey: 'sk-fallback', baseURL: 'https://default' },
+    );
+    expect(resolved.apiKey).toBe('sk-fallback');
+  });
+
+  it('桶里有 baseURL 非空 → 用桶里的', () => {
+    const resolved = resolveCredentialFor(
+      { qwen: { apiKey: 'sk', baseURL: 'https://proxy' } },
+      'qwen',
+      { apiKey: 'sk-fallback', baseURL: 'https://default' },
+    );
+    expect(resolved.baseURL).toBe('https://proxy');
   });
 });
