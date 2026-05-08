@@ -27,7 +27,7 @@ const VALID = {
   apiKey: 'sk-deepseek-test-123',
   baseURL: 'https://api.deepseek.com',
   model: 'deepseek-v4-pro',
-  enableThinking: false,
+  thinking: 'disabled' as const,
 };
 
 describe('DeepSeekProvider · config 校验', () => {
@@ -63,16 +63,16 @@ describe('DeepSeekProvider · getModelInfo', () => {
     expect(info.maxOutputTokens).toBe(384_000);
   });
 
-  it('deepseek-v4-pro → 命中能力表，enableThinking 开关不改变 ModelInfo', () => {
+  it('deepseek-v4-pro → 命中能力表，thinking 开关不改变 ModelInfo', () => {
     const p1 = new DeepSeekProvider({
       ...VALID,
       model: 'deepseek-v4-pro',
-      enableThinking: false,
+      thinking: 'disabled',
     });
     const p2 = new DeepSeekProvider({
       ...VALID,
       model: 'deepseek-v4-pro',
-      enableThinking: true,
+      thinking: 'enabled',
     });
     expect(p1.getModelInfo().id).toBe('deepseek-v4-pro');
     expect(p2.getModelInfo().id).toBe('deepseek-v4-pro');
@@ -102,6 +102,35 @@ describe('DeepSeekProvider · getModelInfo', () => {
     expect(info.supportsReasoning).toBe(false);
     // DEFAULT 能力表不声明 maxOutputTokens（未知模型不做乐观假设）
     expect(info.maxOutputTokens).toBeUndefined();
+  });
+});
+
+describe('DeepSeekProvider · getProviderOptions 透传 thinking 字段', () => {
+  /** 访问 protected getProviderOptions 做断言用的窄接口 */
+  type OptionsReader = {
+    getProviderOptions: (p: unknown) => Record<string, unknown> | undefined;
+  };
+
+  it('thinking=enabled → providerOptions.openai.thinking = { type: "enabled" }', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: 'enabled' });
+    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
+    // 官方 API: 请求体顶层 `thinking: { type }` 与 `model`/`messages` 同级；
+    // 通过 @ai-sdk/openai 的 providerOptions.openai 透传
+    expect(opts).toEqual({ openai: { thinking: { type: 'enabled' } } });
+  });
+
+  it('thinking=disabled → providerOptions.openai.thinking = { type: "disabled" }', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: 'disabled' });
+    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
+    expect(opts).toEqual({ openai: { thinking: { type: 'disabled' } } });
+  });
+
+  it('未显式传 thinking → schema default `enabled` 生效', () => {
+    // 构造时不传 thinking：zod `default('enabled')` 会自动填入
+    const cfg = { apiKey: VALID.apiKey, baseURL: VALID.baseURL, model: VALID.model };
+    const p = new DeepSeekProvider(cfg as never);
+    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
+    expect(opts).toEqual({ openai: { thinking: { type: 'enabled' } } });
   });
 });
 

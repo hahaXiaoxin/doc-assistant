@@ -59,7 +59,7 @@ const qwenMainSchema = z.object({
 const deepseekMainSchema = z.object({
   kind: z.literal('deepseek'),
   model: z.string().trim().min(1, '请选择主 Provider 模型'),
-  enableThinking: z.boolean().optional(),
+  thinking: z.enum(['enabled', 'disabled']).optional(),
 });
 
 const mainProviderSchema = z.discriminatedUnion('kind', [qwenMainSchema, deepseekMainSchema]);
@@ -75,7 +75,7 @@ const llmProviderOrRefSchema = z.union([
     z.object({
       kind: z.literal('deepseek'),
       model: z.string().trim().min(1),
-      enableThinking: z.boolean().optional(),
+      thinking: z.enum(['enabled', 'disabled']).optional(),
     }),
   ]),
 ]);

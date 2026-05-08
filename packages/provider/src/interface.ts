@@ -26,7 +26,7 @@ export interface ChatParams {
   tools?: ToolDefinition[];
   /** 外部取消 */
   signal?: AbortSignal;
-  /** 临时覆盖默认模型（如针对某个 Agent 单独选择 thinking/非 thinking 模型） */
+  /** 临时覆盖默认模型（如针对某个 Agent 单独选择更合适的模型档位） */
   modelOverride?: string;
   /** 临时覆盖温度等参数 */
   temperature?: number;

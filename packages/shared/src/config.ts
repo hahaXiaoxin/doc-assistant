@@ -63,13 +63,22 @@ export type DeepSeekModel = (typeof DEEPSEEK_MODELS_SUGGESTED)[number] | (string
  * 通用 LLM Provider 配置（仅 kind + model + 附加开关）
  * ---
  * apiKey/baseURL 不在此结构内 —— 统一从 `providerCredentials[kind]` 读取。
+ *
+ * 思考模式开关：两家 Provider 形态不同，这里把两个字段都放在基类里（均可选），
+ * 每家自己只使用对应的那一个字段：
+ * - **Qwen** 用 `enableThinking: boolean`（透传 extra_body `enable_thinking`）
+ * - **DeepSeek** 用 `thinking: 'enabled' | 'disabled'`（透传请求体顶层
+ *   `thinking: { type: 'enabled' | 'disabled' }`，与官方 `/chat/completions` API 对齐；
+ *   默认 `'enabled'`）
  */
 export interface LLMProviderConfig {
   kind: ProviderKind;
   /** 模型名称（自由文本，遵循具体 Provider 命名） */
   model: string;
-  /** 是否启用思考模式（qwen 特有，其它 Provider 忽略） */
+  /** 是否启用思考模式（Qwen 专属；DeepSeek 忽略此字段） */
   enableThinking?: boolean;
+  /** DeepSeek 思考模式开关（DeepSeek 专属；Qwen 忽略此字段）；默认 `'enabled'` */
+  thinking?: 'enabled' | 'disabled';
 }
 
 /**
@@ -121,13 +130,15 @@ export const DEFAULT_MAIN_PROVIDER_CONFIG: LLMProviderConfig = {
  * DeepSeek 主 Provider 默认值（v0.6.0-beta.2 新增）
  * ---------------------------------------------
  * UI 在用户把主 Provider 切到 DeepSeek 时使用。默认用 `deepseek-v4-pro`（官方主力档）；
- * `deepseek-v4-flash`（低成本档）由用户显式切。`enableThinking` 默认 false——
- * 新模型不再区分"思考/非思考"路径，开关仅作 UI 展示偏好，不会被透传 extra_body。
+ * `deepseek-v4-flash`（低成本档）由用户显式切。`thinking` 默认 `'enabled'`——
+ * 与 DeepSeek 官方 API 默认行为对齐（见 `deepSeekProviderConfigSchema`）；
+ * 运行时通过 `providerOptions.openai.thinking = { type }` 透传到 `/chat/completions`
+ * 请求体顶层字段 `thinking`。
  */
 export const DEFAULT_DEEPSEEK_PROVIDER_CONFIG: LLMProviderConfig = {
   kind: 'deepseek',
   model: 'deepseek-v4-pro',
-  enableThinking: false,
+  thinking: 'enabled',
 };
 
 /** 默认辅助 Provider 配置：默认"复用主 Provider" */

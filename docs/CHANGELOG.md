@@ -20,6 +20,9 @@
     运行时默认 `max_tokens` 仍由上层保守决定，不自动撑到此上限）。
     若上游自发返回 `reasoning_content`，经 `ChatChunk.reasoning-delta` 流出 → UI
     `ThinkingBlock` 折叠展示（链路保留，未与具体模型名绑定）
+  - 思考模式参数与官方 API 对齐：配置字段 `thinking: 'enabled' | 'disabled'`（默认
+    `'enabled'`），运行时通过 `providerOptions.openai.thinking = { type }` 透传到
+    `/chat/completions` 请求体顶层字段 `thinking: { type }`（与 `model` / `messages` 同级）
   - 完整 chat / stream / tool call / usage / error 五条路径
 - **OpenAICompatible 基类**（`packages/provider/src/openai-compatible/`）：
   - `OpenAICompatibleProvider` · chat 流式 + tool call + ChatMessage→CoreMessage + jsonSchemaToZod

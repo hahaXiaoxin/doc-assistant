@@ -7,12 +7,15 @@
  * 特化：
  * - `getModelInfo()` 按 DEEPSEEK_MODEL_CAPABILITIES 表填充（当前覆盖 `deepseek-v4-flash`
  *   与 `deepseek-v4-pro`；未命中走保守 DEFAULT）
- * - `getProviderOptions()` 默认返回 undefined：DeepSeek 新模型不再区分"思考/非思考"
- *   显式透传；若上游自发返回 `reasoning_content`，AI SDK 会将其识别为 reasoning part →
- *   normalizer 走 `reasoning-delta` 分支。`enableThinking` 仅作 UI 层面的展示偏好，不改 payload。
+ * - `getProviderOptions()` 把 `thinking: 'enabled' | 'disabled'` 透传为请求体顶层
+ *   `thinking: { type }`（DeepSeek 官方 API 规范，与 `/chat/completions` 的 `model` /
+ *   `messages` 同级；详见 https://api-docs.deepseek.com/api/create-chat-completion）。
+ *   通过 `@ai-sdk/openai` 的 `providerOptions.openai` 路径由 AI SDK 作为扩展字段发出；
+ *   若上游自发返回 `reasoning_content`，AI SDK 会将其识别为 reasoning part →
+ *   normalizer 走 `reasoning-delta` 分支。
  */
 import { ProviderError } from '@doc-assistant/shared';
-import type { ModelInfo } from '../interface';
+import type { ChatParams, ModelInfo } from '../interface';
 import { OpenAICompatibleProvider } from '../openai-compatible/provider';
 import {
   deepSeekProviderConfigSchema,
@@ -42,7 +45,7 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
     this.deepSeekConfig = parsed.data;
     this.logger.info('DeepSeekProvider 初始化特化', {
       model: this.deepSeekConfig.model,
-      enableThinking: this.deepSeekConfig.enableThinking ?? false,
+      thinking: this.deepSeekConfig.thinking,
     });
   }
 
@@ -58,6 +61,21 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
       // 若上游真吐 reasoning_content，normalizer 仍会归一化，但不在 ModelInfo 里乐观声明。
       supportsReasoning: cap.supportsReasoning,
       supportsTools: cap.supportsTools,
+    };
+  }
+
+  /**
+   * DeepSeek 特化：把 `thinking` 通过 `providerOptions.openai` 透传到
+   * `/chat/completions` 请求体顶层字段 `thinking: { type: 'enabled' | 'disabled' }`。
+   * （AI SDK v4 的 `@ai-sdk/openai` 会把 `providerOptions.openai` 的键合并进请求体。）
+   */
+  protected override getProviderOptions(
+    _params: ChatParams,
+  ): Record<string, unknown> | undefined {
+    return {
+      openai: {
+        thinking: { type: this.deepSeekConfig.thinking },
+      },
     };
   }
 }

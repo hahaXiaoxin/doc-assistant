@@ -18,11 +18,14 @@ import { openAICompatibleBaseConfigSchema } from '../openai-compatible/config';
 
 /**
  * DeepSeek 配置 schema
- * - `enableThinking` 仅作为用户意图信号（UI 开关），运行时不透传 extra_body；
- *   DeepSeek 新模型不再区分"思考/非思考"路径，是否输出 reasoning 字段由模型自行决定。
+ * - `thinking`: 'enabled' | 'disabled'（默认 `'enabled'`，与官方 API 默认行为对齐）。
+ *   在 `DeepSeekProvider.getProviderOptions()` 里被封装为
+ *   `providerOptions.openai.thinking = { type: <enabled|disabled> }`，
+ *   最终以请求体顶层字段 `thinking: { type }` 发给 `/chat/completions`
+ *   （见 https://api-docs.deepseek.com/api/create-chat-completion）。
  */
 export const deepSeekProviderConfigSchema = openAICompatibleBaseConfigSchema.extend({
-  enableThinking: z.boolean().optional(),
+  thinking: z.enum(['enabled', 'disabled']).default('enabled'),
 });
 
 export type DeepSeekProviderConfig = z.infer<typeof deepSeekProviderConfigSchema>;

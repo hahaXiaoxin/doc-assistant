@@ -44,7 +44,10 @@ export interface SanitizableProviderConfig {
   model?: string;
   apiKey?: string;
   dimension?: number;
+  /** Qwen 专属：思考模式开关（boolean） */
   enableThinking?: boolean;
+  /** DeepSeek 专属：思考模式开关（'enabled' | 'disabled'） */
+  thinking?: 'enabled' | 'disabled';
   /** aux / embedding 可能是 `{useMain: true}` */
   useMain?: true;
 }
@@ -185,6 +188,7 @@ export function sanitizeProviderConfig(
   if (cfg.model !== undefined) out.model = cfg.model;
   if (cfg.dimension !== undefined) out.dimension = cfg.dimension;
   if (cfg.enableThinking !== undefined) out.enableThinking = cfg.enableThinking;
+  if (cfg.thinking !== undefined) out.thinking = cfg.thinking;
   // API Key 永远替换成占位符,即便原值是空字符串
   out.apiKey = cfg.apiKey ? '[REDACTED:api_key]' : '';
   return out;

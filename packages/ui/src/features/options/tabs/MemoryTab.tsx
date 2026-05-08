@@ -67,11 +67,23 @@ export function MemoryTab(props: MemoryTabProps) {
   } = props;
 
   // aux 的 fallback：kind 继承主 Provider（方便"关掉 useMain 时自然回到主 kind"）
-  const auxFallback: LLMProviderConfig = {
-    kind: main.kind,
-    model: main.model,
-    ...(typeof main.enableThinking === 'boolean' ? { enableThinking: main.enableThinking } : {}),
-  };
+  // 两家思考开关形态不同，按 kind 分路透：
+  //  - qwen     → `enableThinking: boolean`
+  //  - deepseek → `thinking: 'enabled' | 'disabled'`
+  const auxFallback: LLMProviderConfig =
+    main.kind === 'qwen'
+      ? {
+          kind: 'qwen',
+          model: main.model,
+          ...(typeof main.enableThinking === 'boolean'
+            ? { enableThinking: main.enableThinking }
+            : {}),
+        }
+      : {
+          kind: 'deepseek',
+          model: main.model,
+          thinking: main.thinking ?? 'enabled',
+        };
 
   // embedding fallback：kind 固定 qwen-embedding
   const embeddingFallback: EmbeddingProviderConfig = {

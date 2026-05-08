@@ -4,7 +4,7 @@
  * 所有 OpenAI 兼容端点（Qwen / DeepSeek / 未来 OpenAI / Moonshot 等）共享的基础字段：
  * apiKey + baseURL + model。
  *
- * Provider 特有的字段（如 Qwen 的 `enableThinking` / DeepSeek 的 `enableThinking`）
+ * Provider 特有的字段（如 Qwen 的 `enableThinking` / DeepSeek 的 `thinking`）
  * 由各子 Provider 的 config.ts 在 `openAICompatibleBaseConfigSchema` 之上扩展。
  */
 import { z } from 'zod';

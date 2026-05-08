@@ -239,6 +239,7 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
 
   /* ---- Aux LLM（反思 Job 专用；useMain 则复用主 Provider 配置） ---- */
   // v0.6.0-beta.2：kind 通过 registry 反射，支持 Qwen / DeepSeek 组合。
+  // 两家思考开关形态不同：Qwen=enableThinking:boolean，DeepSeek=thinking:'enabled'|'disabled'。
   let auxLLM: LLMProvider | null = null;
   try {
     const effectiveKind = isUseMain(auxConfig) ? mainProvider.kind : auxConfig.kind;
@@ -252,7 +253,9 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
         apiKey: mainCred.apiKey || 'placeholder',
         baseURL: mainCred.baseURL,
         model: mainProvider.model,
-        enableThinking: mainProvider.enableThinking ?? false,
+        ...(effectiveKind === 'qwen'
+          ? { enableThinking: mainProvider.enableThinking ?? false }
+          : { thinking: mainProvider.thinking ?? 'enabled' }),
       });
     } else {
       const auxCred = readCredential(credentials, auxConfig.kind);
@@ -261,7 +264,9 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
         apiKey: auxCred.apiKey || 'placeholder',
         baseURL: auxCred.baseURL,
         model: auxConfig.model,
-        enableThinking: auxConfig.enableThinking ?? false,
+        ...(effectiveKind === 'qwen'
+          ? { enableThinking: auxConfig.enableThinking ?? false }
+          : { thinking: auxConfig.thinking ?? 'enabled' }),
       });
     }
   } catch (err) {

@@ -2,9 +2,11 @@
  * Provider Registry · kind → Provider class + 元数据 声明式映射
  * ---------------------------------------------
  * v0.6.0-beta.2：凭证与运行时参数分离。
- * - `defaultConfig`：存入 storage 的 `LLMProviderConfig`（只含 kind/model/enableThinking）
+ * - `defaultConfig`：存入 storage 的 `LLMProviderConfig`（只含 kind/model + 各家的"思考模式"字段）
  * - `defaultBaseURL`：切换 Provider 时给凭证桶的 baseURL 预填值（也是运行时若桶里未设置的回落值）
- * - `createLLM(runtime)`：接受运行时注入的 `{ apiKey, baseURL, model, enableThinking? }`
+ * - `createLLM(runtime)`：接受运行时注入的 `{ apiKey, baseURL, model, enableThinking? | thinking? }`
+ *   · Qwen 用 `enableThinking: boolean`（extra_body `enable_thinking`）
+ *   · DeepSeek 用 `thinking: 'enabled' | 'disabled'`（请求体顶层 `thinking: { type }`）
  *
  * 用法：
  * - 装配层（sidebar/bootstrap / offscreen/index）：合并 `mainConfig` + `credentials[kind]`
@@ -71,7 +73,10 @@ export interface LLMRuntimeConfig {
   apiKey: string;
   baseURL: string;
   model: string;
+  /** Qwen 专属：是否启用思考模式（透传 extra_body `enable_thinking`） */
   enableThinking?: boolean;
+  /** DeepSeek 专属：思考模式开关（透传请求体顶层 `thinking: { type }`） */
+  thinking?: 'enabled' | 'disabled';
 }
 
 /** Registry 中 LLM 工厂的统一签名 */
@@ -96,7 +101,7 @@ export interface ProviderRegistryEntry {
   displayName: string;
   /** 简短描述，UI 可选用作 tooltip */
   description?: string;
-  /** UI 切换 Provider 时的默认 LLMProviderConfig（kind/model/enableThinking） */
+  /** UI 切换 Provider 时的默认 LLMProviderConfig（kind/model + 各家思考开关） */
   defaultConfig: LLMProviderConfig;
   /** 切换 Provider 时给凭证桶预填的 baseURL；桶里没有设置时也作为运行时回落值 */
   defaultBaseURL: string;
@@ -162,9 +167,7 @@ export const PROVIDER_REGISTRY: Record<ProviderKind, ProviderRegistryEntry> = {
         apiKey: runtime.apiKey,
         baseURL: runtime.baseURL,
         model: runtime.model,
-        ...(typeof runtime.enableThinking === 'boolean'
-          ? { enableThinking: runtime.enableThinking }
-          : {}),
+        thinking: runtime.thinking ?? 'enabled',
       }),
     listModels: async (params) => {
       const items = await listDeepSeekModels(params);

@@ -45,10 +45,12 @@ describe('DEFAULT_* 默认值', () => {
     ).toBeUndefined();
   });
 
-  it('DeepSeek 默认只含 kind/model/enableThinking', () => {
+  it('DeepSeek 默认只含 kind/model/thinking', () => {
     expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.kind).toBe('deepseek');
     expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.model).toBe('deepseek-v4-pro');
-    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.enableThinking).toBe(false);
+    // DeepSeek 用 `thinking: 'enabled' | 'disabled'`（与官方 API 对齐），默认启用
+    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.thinking).toBe('enabled');
+    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.enableThinking).toBeUndefined();
     expect(
       (DEFAULT_DEEPSEEK_PROVIDER_CONFIG as unknown as { apiKey?: string }).apiKey,
     ).toBeUndefined();

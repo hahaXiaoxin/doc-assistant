@@ -112,11 +112,23 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
     const current = concrete as LLMProviderConfig;
     const nextEntry = PROVIDER_REGISTRY[nextKind];
     if (!nextEntry) return;
-    update({
-      kind: nextKind,
-      model: nextEntry.defaultConfig.model,
-      enableThinking: nextEntry.defaultConfig.enableThinking ?? current.enableThinking,
-    } as unknown as Partial<T>);
+    // 两家思考开关形态不同，按 kind 分路拼装：
+    //  - qwen     → `enableThinking: boolean`
+    //  - deepseek → `thinking: 'enabled' | 'disabled'`
+    const nextDefault = nextEntry.defaultConfig;
+    if (nextKind === 'qwen') {
+      update({
+        kind: 'qwen',
+        model: nextDefault.model,
+        enableThinking: nextDefault.enableThinking ?? current.enableThinking ?? false,
+      } as unknown as Partial<T>);
+    } else {
+      update({
+        kind: 'deepseek',
+        model: nextDefault.model,
+        thinking: nextDefault.thinking ?? current.thinking ?? 'enabled',
+      } as unknown as Partial<T>);
+    }
     setFetchedModels(null);
     setSearchText('');
   };
@@ -338,18 +350,45 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
         ) : null}
       </Form.Item>
 
-      {mode === 'llm' && (
-        <Form.Item
-          label="启用思考模式（reasoning_content）"
-          extra="仅部分模型支持（如 qwen3 系列）。开启后会流式展示模型自发返回的思考过程折叠块；DeepSeek 当前线上模型不会显式返回思考过程，该开关对其仅作 UI 展示偏好。"
-        >
-          <Switch
-            checked={!!(concrete as LLMProviderConfig).enableThinking}
-            onChange={(v) => update({ enableThinking: v } as unknown as Partial<T>)}
-            disabled={useMain}
-          />
-        </Form.Item>
-      )}
+      {mode === 'llm' && (() => {
+        const llm = concrete as LLMProviderConfig;
+        if (llm.kind === 'qwen') {
+          return (
+            <Form.Item
+              label="启用思考模式（reasoning_content）"
+              extra="仅部分模型支持（如 qwen3 系列）。开启后会流式展示模型自发返回的思考过程折叠块。"
+            >
+              <Switch
+                checked={!!llm.enableThinking}
+                onChange={(v) =>
+                  update({ enableThinking: v } as unknown as Partial<T>)
+                }
+                disabled={useMain}
+              />
+            </Form.Item>
+          );
+        }
+        // deepseek
+        return (
+          <Form.Item
+            label="思考模式"
+            extra="DeepSeek 官方 API 原生参数 `thinking`，控制是否启用思考模式；透传为请求体顶层 `thinking: { type }`，默认启用。"
+          >
+            <Select
+              value={llm.thinking ?? 'enabled'}
+              onChange={(v: 'enabled' | 'disabled') =>
+                update({ thinking: v } as unknown as Partial<T>)
+              }
+              options={[
+                { label: '启用思考（enabled）', value: 'enabled' },
+                { label: '关闭思考（disabled）', value: 'disabled' },
+              ]}
+              disabled={useMain}
+              style={{ width: 240 }}
+            />
+          </Form.Item>
+        );
+      })()}
 
       {mode === 'embedding' && (
         <Form.Item

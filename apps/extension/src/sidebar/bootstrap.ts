@@ -135,7 +135,10 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     apiKey: mainCred.apiKey || 'placeholder',
     baseURL: mainCred.baseURL,
     model: mainProvider.model,
-    enableThinking: mainProvider.enableThinking ?? true,
+    // 两家思考开关形态不同：Qwen=boolean，DeepSeek='enabled'|'disabled'；按 kind 分路传
+    ...(mainProvider.kind === 'qwen'
+      ? { enableThinking: mainProvider.enableThinking ?? true }
+      : { thinking: mainProvider.thinking ?? 'enabled' }),
   });
 
   // 构造辅助 LLM（若 useMain 或初始化失败则复用主 LLM）
@@ -152,7 +155,9 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
         apiKey: auxCred.apiKey || 'placeholder',
         baseURL: auxCred.baseURL,
         model: auxConfig.model,
-        enableThinking: auxConfig.enableThinking ?? false,
+        ...(auxConfig.kind === 'qwen'
+          ? { enableThinking: auxConfig.enableThinking ?? false }
+          : { thinking: auxConfig.thinking ?? 'enabled' }),
       });
     } catch (err) {
       logger.warn('辅助 Provider 初始化失败，退回到主 Provider', (err as Error).message);
