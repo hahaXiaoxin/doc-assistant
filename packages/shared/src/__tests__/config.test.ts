@@ -3,6 +3,7 @@ import {
   STORAGE_KEYS,
   DEFAULT_CHAT_SETTINGS,
   DEFAULT_MAIN_PROVIDER_CONFIG,
+  DEFAULT_DEEPSEEK_PROVIDER_CONFIG,
   DEFAULT_AUX_PROVIDER_CONFIG,
   DEFAULT_EMBEDDING_PROVIDER_CONFIG,
   DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
@@ -12,8 +13,6 @@ import {
   MAX_TURNS_MAX,
   clampMaxTurns,
   isUseMain,
-  migrateProviderCredentials,
-  resolveCredentialFor,
 } from '../config';
 
 describe('STORAGE_KEYS', () => {
@@ -27,7 +26,7 @@ describe('STORAGE_KEYS', () => {
     expect(STORAGE_KEYS.PROVIDER_CREDENTIALS).toBe('doc-assistant.provider-credentials');
   });
 
-  it('所有 key 都以 doc-assistant. 开头，避免与宿主页面 storage 冲突（chrome.storage.local 无冲突但保持约定）', () => {
+  it('所有 key 都以 doc-assistant. 开头，避免与宿主页面 storage 冲突', () => {
     for (const v of Object.values(STORAGE_KEYS)) {
       expect(v.startsWith('doc-assistant.')).toBe(true);
     }
@@ -35,14 +34,24 @@ describe('STORAGE_KEYS', () => {
 });
 
 describe('DEFAULT_* 默认值', () => {
-  it('主 Provider 默认指向 dashscope OpenAI 兼容端点', () => {
+  it('主 Provider 默认只含 kind/model/enableThinking（凭证走桶）', () => {
     expect(DEFAULT_MAIN_PROVIDER_CONFIG.kind).toBe('qwen');
-    expect(DEFAULT_MAIN_PROVIDER_CONFIG.baseURL).toBe(
-      'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    );
     expect(DEFAULT_MAIN_PROVIDER_CONFIG.model).toBe('qwen-plus');
-    expect(DEFAULT_MAIN_PROVIDER_CONFIG.apiKey).toBe('');
     expect(DEFAULT_MAIN_PROVIDER_CONFIG.enableThinking).toBe(true);
+    // 不应含 apiKey / baseURL（v0.6.0-beta.2 Breaking）
+    expect((DEFAULT_MAIN_PROVIDER_CONFIG as unknown as { apiKey?: string }).apiKey).toBeUndefined();
+    expect(
+      (DEFAULT_MAIN_PROVIDER_CONFIG as unknown as { baseURL?: string }).baseURL,
+    ).toBeUndefined();
+  });
+
+  it('DeepSeek 默认只含 kind/model/enableThinking', () => {
+    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.kind).toBe('deepseek');
+    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.model).toBe('deepseek-v4-pro');
+    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.enableThinking).toBe(false);
+    expect(
+      (DEFAULT_DEEPSEEK_PROVIDER_CONFIG as unknown as { apiKey?: string }).apiKey,
+    ).toBeUndefined();
   });
 
   it('辅助 Provider 默认 useMain=true', () => {
@@ -53,10 +62,13 @@ describe('DEFAULT_* 默认值', () => {
     expect(isUseMain(DEFAULT_EMBEDDING_PROVIDER_CONFIG)).toBe(true);
   });
 
-  it('Embedding fallback 指向 text-embedding-v2（1536 维）', () => {
+  it('Embedding fallback 指向 text-embedding-v2（1536 维，无 apiKey/baseURL）', () => {
     expect(DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.kind).toBe('qwen-embedding');
     expect(DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.model).toBe('text-embedding-v2');
     expect(DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.dimension).toBe(1536);
+    expect(
+      (DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK as unknown as { apiKey?: string }).apiKey,
+    ).toBeUndefined();
   });
 
   it('MemorySettings 默认：过滤开 / 反思开 / 30 天 TTL / 3 次自动确认', () => {
@@ -71,6 +83,10 @@ describe('DEFAULT_* 默认值', () => {
     expect(DEFAULT_CHAT_SETTINGS.maxTurns).toBeGreaterThanOrEqual(MAX_TURNS_MIN);
     expect(DEFAULT_CHAT_SETTINGS.maxTurns).toBeLessThanOrEqual(MAX_TURNS_MAX);
   });
+
+  it('DEFAULT_PROVIDER_CREDENTIALS 为空对象', () => {
+    expect(DEFAULT_PROVIDER_CREDENTIALS).toEqual({});
+  });
 });
 
 describe('isUseMain', () => {
@@ -82,9 +98,7 @@ describe('isUseMain', () => {
     expect(
       isUseMain({
         kind: 'qwen',
-        baseURL: 'x',
         model: 'y',
-        apiKey: 'z',
       }),
     ).toBe(false);
   });
@@ -119,118 +133,5 @@ describe('clampMaxTurns', () => {
 
   it('小数向下取整', () => {
     expect(clampMaxTurns(8.9)).toBe(8);
-  });
-});
-
-describe('providerCredentials · migrateProviderCredentials', () => {
-  const defaultBaseURLOf = (k: 'qwen' | 'deepseek'): string | undefined =>
-    k === 'qwen'
-      ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-      : k === 'deepseek'
-        ? 'https://api.deepseek.com'
-        : undefined;
-
-  it('空桶 + 老配置 main.apiKey → 迁入该 kind', () => {
-    const baseURL = defaultBaseURLOf('qwen');
-    const out = migrateProviderCredentials(
-      undefined,
-      [{ kind: 'qwen', apiKey: 'sk-qwen-xxx', ...(baseURL ? { baseURL } : {}) }],
-      defaultBaseURLOf,
-    );
-    expect(out.qwen?.apiKey).toBe('sk-qwen-xxx');
-    // baseURL 等于默认值 → 不写入桶
-    expect(out.qwen?.baseURL).toBeUndefined();
-  });
-
-  it('老配置 baseURL 是用户自定义（非默认）→ 写入桶', () => {
-    const out = migrateProviderCredentials(
-      undefined,
-      [{ kind: 'qwen', apiKey: 'sk', baseURL: 'https://my-proxy.example.com/v1' }],
-      defaultBaseURLOf,
-    );
-    expect(out.qwen?.baseURL).toBe('https://my-proxy.example.com/v1');
-  });
-
-  it('桶内已有 apiKey → 不覆盖（幂等保护用户新值）', () => {
-    const existing = { qwen: { apiKey: 'user-typed-new' } };
-    const out = migrateProviderCredentials(
-      existing,
-      [{ kind: 'qwen', apiKey: 'old-legacy-key' }],
-      defaultBaseURLOf,
-    );
-    expect(out.qwen?.apiKey).toBe('user-typed-new');
-    // 没有变化时可直接返回原引用（短路）
-    expect(out).toBe(existing);
-  });
-
-  it('幂等：多次运行结果一致', () => {
-    const legacy = [{ kind: 'deepseek' as const, apiKey: 'sk-ds' }];
-    const pass1 = migrateProviderCredentials(undefined, legacy, defaultBaseURLOf);
-    const pass2 = migrateProviderCredentials(pass1, legacy, defaultBaseURLOf);
-    expect(pass2).toEqual(pass1);
-  });
-
-  it('老 apiKey 为空串 → 不写入', () => {
-    const out = migrateProviderCredentials(
-      undefined,
-      [{ kind: 'qwen', apiKey: '' }],
-      defaultBaseURLOf,
-    );
-    expect(out.qwen).toBeUndefined();
-  });
-
-  it('多套 kind 并存（main=qwen, aux=deepseek）→ 各自入桶', () => {
-    const out = migrateProviderCredentials(
-      undefined,
-      [
-        { kind: 'qwen', apiKey: 'sk-q' },
-        { kind: 'deepseek', apiKey: 'sk-d' },
-      ],
-      defaultBaseURLOf,
-    );
-    expect(out.qwen?.apiKey).toBe('sk-q');
-    expect(out.deepseek?.apiKey).toBe('sk-d');
-  });
-
-  it('DEFAULT_PROVIDER_CREDENTIALS 为空对象', () => {
-    expect(DEFAULT_PROVIDER_CREDENTIALS).toEqual({});
-  });
-});
-
-describe('providerCredentials · resolveCredentialFor', () => {
-  it('桶里有 apiKey → 用桶里的', () => {
-    const resolved = resolveCredentialFor(
-      { qwen: { apiKey: 'sk-bucket' } },
-      'qwen',
-      { apiKey: 'sk-fallback', baseURL: 'https://default' },
-    );
-    expect(resolved.apiKey).toBe('sk-bucket');
-    expect(resolved.baseURL).toBe('https://default');
-  });
-
-  it('桶里没有 → 回落到 fallback', () => {
-    const resolved = resolveCredentialFor(undefined, 'qwen', {
-      apiKey: 'sk-fallback',
-      baseURL: 'https://default',
-    });
-    expect(resolved.apiKey).toBe('sk-fallback');
-  });
-
-  it('桶里 apiKey 为空串 → 回落到 fallback', () => {
-    const resolved = resolveCredentialFor(
-      { qwen: { apiKey: '   ' } },
-      'qwen',
-      { apiKey: 'sk-fallback', baseURL: 'https://default' },
-    );
-    expect(resolved.apiKey).toBe('sk-fallback');
-  });
-
-  it('桶里有 baseURL 非空 → 用桶里的', () => {
-    const resolved = resolveCredentialFor(
-      { qwen: { apiKey: 'sk', baseURL: 'https://proxy' } },
-      'qwen',
-      { apiKey: 'sk-fallback', baseURL: 'https://default' },
-    );
-    expect(resolved.baseURL).toBe('https://proxy');
   });
 });

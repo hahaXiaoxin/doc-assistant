@@ -1,5 +1,5 @@
 /**
- * Offscreen Document 入口（v0.5.0）
+ * Offscreen Document 入口（v0.5.0 / v0.6.0-beta.2）
  * ---------------------------------------------
  * 职责：
  * - 在扩展 origin 下持有 **唯一** 一份 DexieMemoryStore（所有域名共享）
@@ -13,11 +13,15 @@
  * 日志前缀：
  * - [extension:offscreen:memory]（RPC 路径）
  * - [extension:offscreen:reflection]（反思 Job 路径，方便真机调试）
+ *
+ * v0.6.0-beta.2：
+ * - main/aux/embedding 配置不再含 apiKey/baseURL；所有凭证从
+ *   `providerCredentials[kind]` 桶读取。桶里没有某 kind 的凭证时，对应
+ *   Provider 初始化失败（反思 Job / embedding 自动降级），用户去 Options 填 Key。
  */
 import {
   DEFAULT_AUX_PROVIDER_CONFIG,
   DEFAULT_EMBEDDING_PROVIDER_CONFIG,
-  DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   DEFAULT_MAIN_PROVIDER_CONFIG,
   DEFAULT_MEMORY_SETTINGS,
   DEFAULT_PROVIDER_CREDENTIALS,
@@ -25,7 +29,6 @@ import {
   STORAGE_KEYS,
   createLogger,
   isUseMain,
-  resolveCredentialFor,
   setLogPersistor,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
@@ -36,6 +39,7 @@ import {
   type OffscreenStorageReadResponse,
   type ProviderConfigOrRef,
   type ProviderCredentialsMap,
+  type ProviderKind,
 } from '@doc-assistant/shared';
 import { PROVIDER_REGISTRY, QwenEmbeddingProvider } from '@doc-assistant/provider';
 import type { EmbeddingProvider, LLMProvider } from '@doc-assistant/provider';
@@ -73,6 +77,19 @@ interface OffscreenRuntime {
   store: MemoryStore;
   /** 当反思开关关闭 / 初始化失败时为 null，不影响 RPC 路径 */
   scheduler: ReflectionScheduler | null;
+}
+
+/** 从凭证桶取指定 kind 的 `{ apiKey, baseURL }`；桶里缺失则回落到 registry 默认 baseURL */
+function readCredential(
+  credentials: ProviderCredentialsMap,
+  kind: ProviderKind,
+): { apiKey: string; baseURL: string } {
+  const slot = credentials[kind];
+  const defaultBaseURL = PROVIDER_REGISTRY[kind]?.defaultBaseURL ?? '';
+  return {
+    apiKey: slot?.apiKey?.trim() ? slot.apiKey : '',
+    baseURL: slot?.baseURL?.trim() ? slot.baseURL : defaultBaseURL,
+  };
 }
 
 /**
@@ -148,7 +165,7 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
     | Partial<MemorySettings>
     | undefined;
 
-  let mainProvider: LLMProviderConfig = mainStored
+  const mainProvider: LLMProviderConfig = mainStored
     ? { ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored }
     : DEFAULT_MAIN_PROVIDER_CONFIG;
   const auxConfig: ProviderConfigOrRef<LLMProviderConfig> =
@@ -157,31 +174,24 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
     embStored ?? DEFAULT_EMBEDDING_PROVIDER_CONFIG;
   const memorySettings = { ...DEFAULT_MEMORY_SETTINGS, ...(memStored ?? {}) };
 
-  // v0.6.0-beta.2：从 providerCredentials 桶取 main 的 apiKey/baseURL（桶为空则回落）。
-  // offscreen 不写回迁移——sidebar 和 options 任一先加载都会把桶写好；offscreen 只读。
-  const credentials = credsStored ?? DEFAULT_PROVIDER_CREDENTIALS;
-  {
-    const resolved = resolveCredentialFor(credentials, mainProvider.kind, {
-      apiKey: mainProvider.apiKey,
-      baseURL: mainProvider.baseURL,
-    });
-    mainProvider = { ...mainProvider, apiKey: resolved.apiKey, baseURL: resolved.baseURL };
-  }
+  const credentials: ProviderCredentialsMap = credsStored ?? DEFAULT_PROVIDER_CREDENTIALS;
+  const mainCred = readCredential(credentials, mainProvider.kind);
 
   /* ---- Embedding Provider（失败不阻塞；memory 降级到关键词召回） ---- */
-  // v0.6.0-beta.2：主 Provider 可能是 DeepSeek（无 embedding），此时 useMain=true 时不能
+  // 主 Provider 可能是 DeepSeek（无 embedding），此时 useMain=true 时不能
   // 复用——走 registry 查询主 Provider 的 embedding 能力；无则跳过（memory 降级关键词召回）。
   let embeddingProvider: EmbeddingProvider | null = null;
   try {
     if (isUseMain(embConfig)) {
       const mainEntry = PROVIDER_REGISTRY[mainProvider.kind];
-      if (mainEntry?.embedding && mainProvider.apiKey.trim()) {
+      if (mainEntry?.embedding && mainCred.apiKey.trim()) {
         // 主 Provider 自身有 embedding 能力：复用主 Provider 的 baseURL + apiKey
+        // embedding 模型与维度用当前 fallback 默认（UI 侧在切出 useMain 时会要求用户填具体 model）
         embeddingProvider = mainEntry.embedding.createEmbedding({
-          apiKey: mainProvider.apiKey,
-          baseURL: mainProvider.baseURL,
-          model: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.model,
-          dimension: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.dimension,
+          apiKey: mainCred.apiKey,
+          baseURL: mainCred.baseURL,
+          model: 'text-embedding-v2',
+          dimension: 1536,
         });
       } else if (!mainEntry?.embedding) {
         logger.warn(
@@ -192,17 +202,18 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
       }
     } else {
       // 用户显式配置 embedding（kind 目前只有 qwen-embedding）
-      // embedding 的 apiKey 复用 qwen 桶里的凭证——embedding 与 LLM 共享同一 Provider 的 key
-      const embResolved = resolveCredentialFor(credentials, 'qwen', {
-        apiKey: embConfig.apiKey,
-        baseURL: embConfig.baseURL,
-      });
-      embeddingProvider = new QwenEmbeddingProvider({
-        apiKey: embResolved.apiKey,
-        baseURL: embResolved.baseURL,
-        model: embConfig.model,
-        dimension: embConfig.dimension,
-      });
+      // embedding 与 LLM 共享同一 Provider 的凭证桶（qwen-embedding 对应 qwen）
+      const embCred = readCredential(credentials, 'qwen');
+      if (!embCred.apiKey.trim()) {
+        logger.warn('qwen 凭证桶为空，embedding 不可用（召回降级关键词）');
+      } else {
+        embeddingProvider = new QwenEmbeddingProvider({
+          apiKey: embCred.apiKey,
+          baseURL: embCred.baseURL,
+          model: embConfig.model,
+          dimension: embConfig.dimension,
+        });
+      }
     }
   } catch (err) {
     logger.warn('Embedding Provider 初始化失败（不阻塞）', (err as Error).message);
@@ -238,20 +249,17 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
     if (isUseMain(auxConfig)) {
       auxLLM = entry.createLLM({
         kind: effectiveKind,
-        apiKey: mainProvider.apiKey || 'placeholder',
-        baseURL: mainProvider.baseURL,
+        apiKey: mainCred.apiKey || 'placeholder',
+        baseURL: mainCred.baseURL,
         model: mainProvider.model,
         enableThinking: mainProvider.enableThinking ?? false,
       });
     } else {
-      const auxResolved = resolveCredentialFor(credentials, auxConfig.kind, {
-        apiKey: auxConfig.apiKey,
-        baseURL: auxConfig.baseURL,
-      });
+      const auxCred = readCredential(credentials, auxConfig.kind);
       auxLLM = entry.createLLM({
         kind: effectiveKind,
-        apiKey: auxResolved.apiKey,
-        baseURL: auxResolved.baseURL,
+        apiKey: auxCred.apiKey || 'placeholder',
+        baseURL: auxCred.baseURL,
         model: auxConfig.model,
         enableThinking: auxConfig.enableThinking ?? false,
       });

@@ -23,7 +23,7 @@ describe('PROVIDER_REGISTRY', () => {
     expect(PROVIDER_REGISTRY.deepseek.kind).toBe('deepseek');
   });
 
-  it('每条 entry 的 displayName / defaultConfig / listModels / createLLM 都存在', () => {
+  it('每条 entry 的 displayName / defaultConfig / listModels / createLLM / defaultBaseURL 都存在', () => {
     for (const entry of listProviderEntries()) {
       expect(entry.displayName).toBeTruthy();
       expect(entry.defaultConfig.kind).toBe(entry.kind);
@@ -31,6 +31,15 @@ describe('PROVIDER_REGISTRY', () => {
       expect(typeof entry.listModels).toBe('function');
       expect(Array.isArray(entry.suggestedModels)).toBe(true);
       expect(entry.suggestedModels.length).toBeGreaterThan(0);
+      // defaultBaseURL 是凭证桶里缺省时的回落值，必须是合法的 URL
+      expect(entry.defaultBaseURL).toMatch(/^https?:\/\//);
+      // v0.6.0-beta.2 Breaking：defaultConfig 不再持有 apiKey/baseURL
+      expect(
+        (entry.defaultConfig as unknown as { apiKey?: string }).apiKey,
+      ).toBeUndefined();
+      expect(
+        (entry.defaultConfig as unknown as { baseURL?: string }).baseURL,
+      ).toBeUndefined();
     }
   });
 

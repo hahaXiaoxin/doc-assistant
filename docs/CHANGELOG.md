@@ -56,12 +56,18 @@
 - **Offscreen embedding 降级更聪明**：主 Provider 无 embedding 能力且 `embedding.useMain=true`
   时不再盲目尝试（DeepSeek 下会 404），直接降级到关键词召回，主对话完全正常。
 - **`ProviderKind` 联合扩展**为 `'qwen' | 'deepseek'`（纯加法，老 Qwen 配置原样工作）。
-- **API Key 改为按 Provider 分桶存储**（`STORAGE_KEYS.PROVIDER_CREDENTIALS`）：
-  新增独立的凭证子树 `{ qwen: { apiKey, baseURL? }, deepseek: {...} }`。UI 切换
-  Provider 时自动从桶里带出对应 Key，不再出现"换 Provider 要重填 Key"。main /
-  aux / embedding 三套 Provider 配置共享同一套桶——main=DeepSeek 填过 Key 后，
-  aux 切到 DeepSeek 会自动带出。旧用户首次加载时幂等迁移旧字段到桶；多次加载
-  不会覆盖用户新填的值（迁移函数 `migrateProviderCredentials`）。
+- **API Key 改为按 Provider 分桶存储（Breaking）**：`STORAGE_KEYS.PROVIDER_CREDENTIALS`
+  为凭证的**唯一真源** `{ qwen: { apiKey, baseURL? }, deepseek: {...} }`。
+  `LLMProviderConfig` / `EmbeddingProviderConfig` 不再持有 `apiKey` / `baseURL`
+  —— 只保留 `{ kind, model, ... }`。装配层/运行时通过 `providerCredentials[kind]`
+  注入凭证。UI 切换 Provider 时自动从桶里带出对应 Key，不再出现"换 Provider 要
+  重填 Key"。main / aux / embedding 三套 Provider 配置共享同一套桶——main=DeepSeek
+  填过 Key 后，aux 切到 DeepSeek 会自动带出。
+- **Breaking · 凭证存储结构不再兼容旧版本**：本轮移除了全部"从旧 `main/aux/embedding.apiKey/baseURL`
+  字段迁移到凭证桶"的回落代码（`migrateProviderCredentials` / `resolveCredentialFor`
+  / bootstrap/offscreen 的 fallback 分支 / UI 里的双写逻辑全部删除）。0.6.0-beta.1
+  及更早版本的用户升级后需要**去 Options 页重新填写一次 API Key**，所有其他
+  配置（模型选择、chat 设置、记忆数据）照常保留。
 
 ### Notes
 
@@ -70,7 +76,8 @@
   Provider 下拉，kind 固定为 `qwen-embedding`。未来若需暴露"自托管 OpenAI 兼容 embedding"
   作为独立 kind，单独立项。
 - `ChatChunk.reasoning-delta` 契约**未改**（v0.5.x 已就位），DeepSeek-R1 直接复用现有链路。
-- 老 Qwen 用户升级**无需任何操作**；新安装用户默认主 Provider 仍为 Qwen。
+- 本期为 Breaking 版本：凭证存储结构重构，旧版本配置不再兼容，首次升级需重新填写
+  一次 API Key；其它配置照常保留。
 
 ### Version
 

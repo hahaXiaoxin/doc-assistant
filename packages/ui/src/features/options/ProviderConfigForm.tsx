@@ -1,20 +1,14 @@
 /**
  * ProviderConfigForm · 可复用的 Provider 配置表单
  * ---------------------------------------------
- * v0.2 · 用于"辅助 Provider"与"Embedding Provider"的配置（两者都支持"复用主 Provider"开关）
+ * 用于"辅助 Provider"与"Embedding Provider"的配置（两者都支持"复用主 Provider"开关）。
+ *
+ * v0.6.0-beta.2 · Breaking：apiKey/baseURL 不再在 `LLMProviderConfig` 内，
+ * 由父组件传入 `credential` 与 `onCredentialChange`，本组件只负责 UI 层的输入/显示。
  *
  * 支持两种 mode：
  * - 'llm'：kind 下拉 + baseURL + model + apiKey [+ 可选 enableThinking]
  * - 'embedding'：baseURL + model + apiKey + dimension（kind 固定为 'qwen-embedding'）
- *
- * 值结构：ProviderConfigOrRef<T>
- *   - { useMain: true } → 禁用字段，仅显示"复用主 Provider"勾选
- *   - 完整对象     → 展开字段
- *
- * v0.6.0-beta.2：
- * - llm mode 的 Provider 下拉来自 `PROVIDER_REGISTRY`，支持 Qwen / DeepSeek
- * - embedding mode 不展示 Provider 下拉（本期只有 Qwen 一家；后续扩展再加）
- * - 拉取模型按 kind 路由到对应 `entry.listModels`
  */
 import {
   Alert,
@@ -49,12 +43,21 @@ import { splitSnapshots } from './model-list-helpers';
 
 const logger = createLogger('ui:options:provider-config');
 
+export interface ProviderCredentialView {
+  apiKey: string;
+  baseURL: string;
+}
+
 export interface ProviderConfigFormProps<T extends LLMProviderConfig | EmbeddingProviderConfig> {
   mode: T extends LLMProviderConfig ? 'llm' : 'embedding';
   value: ProviderConfigOrRef<T>;
   onChange: (next: ProviderConfigOrRef<T>) => void;
-  /** 当取消"复用主 Provider"时用到的 fallback 值 */
+  /** 当取消"复用主 Provider"时用到的 fallback 值（不含 apiKey/baseURL） */
   fallback: T;
+  /** 当前 value 对应的凭证（来自桶）；useMain=true 时不展示 */
+  credential: ProviderCredentialView;
+  /** 凭证输入变更回调；写回凭证桶 */
+  onCredentialChange: (patch: Partial<{ apiKey: string; baseURL: string }>) => void;
   /** 是否允许"复用主 Provider"开关（默认 true） */
   useMainAllowed?: boolean;
   /** 额外顶部提示 */
@@ -68,7 +71,16 @@ function isUseMainRef(v: unknown): v is { useMain: true } {
 export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProviderConfig>(
   props: ProviderConfigFormProps<T>,
 ) {
-  const { mode, value, onChange, fallback, useMainAllowed = true, hint } = props;
+  const {
+    mode,
+    value,
+    onChange,
+    fallback,
+    credential,
+    onCredentialChange,
+    useMainAllowed = true,
+    hint,
+  } = props;
   const useMain = isUseMainRef(value);
 
   const [fetchingModels, setFetchingModels] = useState(false);
@@ -87,7 +99,7 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
   };
 
   const concrete = useMain ? fallback : (value as T);
-  const keyMask = maskSecret(concrete.apiKey);
+  const keyMask = maskSecret(credential.apiKey);
 
   const update = (patch: Partial<T>) => {
     if (useMain) return;
@@ -98,14 +110,10 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
   const handleKindChange = (nextKind: ProviderKind) => {
     if (mode !== 'llm' || useMain) return;
     const current = concrete as LLMProviderConfig;
-    const currentEntry = PROVIDER_REGISTRY[current.kind];
     const nextEntry = PROVIDER_REGISTRY[nextKind];
     if (!nextEntry) return;
-    const replaceBaseURL =
-      currentEntry && current.baseURL === currentEntry.defaultConfig.baseURL;
     update({
       kind: nextKind,
-      ...(replaceBaseURL ? { baseURL: nextEntry.defaultConfig.baseURL } : {}),
       model: nextEntry.defaultConfig.model,
       enableThinking: nextEntry.defaultConfig.enableThinking ?? current.enableThinking,
     } as unknown as Partial<T>);
@@ -114,7 +122,7 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
   };
 
   const handleFetchModels = async () => {
-    if (!concrete.apiKey || !concrete.baseURL) {
+    if (!credential.apiKey || !credential.baseURL) {
       message.error('请先填写 API Key 与 Base URL');
       return;
     }
@@ -129,14 +137,14 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
           return;
         }
         all = await entry.listModels({
-          apiKey: concrete.apiKey,
-          baseURL: concrete.baseURL,
+          apiKey: credential.apiKey,
+          baseURL: credential.baseURL,
         });
       } else {
         // embedding mode：目前只支持 qwen-embedding，走 Qwen registry 拉列表
         all = await PROVIDER_REGISTRY.qwen.listModels({
-          apiKey: concrete.apiKey,
-          baseURL: concrete.baseURL,
+          apiKey: credential.apiKey,
+          baseURL: credential.baseURL,
         });
       }
       const wantedKind: 'chat' | 'embedding' = mode === 'llm' ? 'chat' : 'embedding';
@@ -146,7 +154,7 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
         mode,
         total: all.length,
         matched: filtered.length,
-        apiKey: maskSecret(concrete.apiKey),
+        apiKey: maskSecret(credential.apiKey),
       });
       message.success(
         `已拉取 ${filtered.length} 个${wantedKind === 'chat' ? '对话' : '嵌入'}模型（总 ${all.length} 个）`,
@@ -268,8 +276,8 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
         }
       >
         <Input.Password
-          value={concrete.apiKey}
-          onChange={(e) => update({ apiKey: e.target.value } as Partial<T>)}
+          value={credential.apiKey}
+          onChange={(e) => onCredentialChange({ apiKey: e.target.value })}
           placeholder="sk-..."
           autoComplete="off"
           disabled={useMain}
@@ -278,8 +286,8 @@ export function ProviderConfigForm<T extends LLMProviderConfig | EmbeddingProvid
 
       <Form.Item label="Base URL">
         <Input
-          value={concrete.baseURL}
-          onChange={(e) => update({ baseURL: e.target.value } as Partial<T>)}
+          value={credential.baseURL}
+          onChange={(e) => onCredentialChange({ baseURL: e.target.value })}
           disabled={useMain}
         />
       </Form.Item>

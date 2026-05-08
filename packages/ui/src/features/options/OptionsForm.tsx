@@ -1,14 +1,15 @@
 /**
- * OptionsForm · Tabs 容器（v0.2 重构）
+ * OptionsForm · Tabs 容器
  * ---------------------------------------------
  * 职责：
  * - 加载 STORAGE_KEYS
  * - 将各段配置（main / aux / embedding / chat / memorySettings）分发给对应 Tab
  * - 统一的 Save / Reset 底部吸附栏
  *
- * v0.6.0-beta.2：
- * - zod schema 改为 `z.discriminatedUnion('kind', [...])`，每个 registry kind
- *   一个子 schema，消除硬编码 `kind: z.literal('qwen')`
+ * v0.6.0-beta.2 · Breaking：
+ * - zod schema 改为 `z.discriminatedUnion('kind', [...])`，每个 registry kind 一个子 schema
+ * - `LLMProviderConfig` / `EmbeddingProviderConfig` 里不再含 apiKey/baseURL
+ *   — 凭证统一走 `providerCredentials` 桶（唯一真源），不再提供迁移
  * - 保存前软校验：main=DeepSeek + embedding useMain=true 时弹 Modal.confirm
  */
 import { useEffect, useMemo, useState } from 'react';
@@ -17,7 +18,6 @@ import {
   DEFAULT_AUX_PROVIDER_CONFIG,
   DEFAULT_CHAT_SETTINGS,
   DEFAULT_EMBEDDING_PROVIDER_CONFIG,
-  DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   DEFAULT_MAIN_PROVIDER_CONFIG,
   DEFAULT_MEMORY_SETTINGS,
   DEFAULT_PROVIDER_CREDENTIALS,
@@ -25,8 +25,6 @@ import {
   clampMaxTurns,
   createLogger,
   maskSecret,
-  migrateProviderCredentials,
-  resolveCredentialFor,
   type ChatSettings,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
@@ -48,38 +46,37 @@ import type { MemoryStore } from '@doc-assistant/memory';
 
 const logger = createLogger('ui:options');
 
-/** 基础 LLM 字段（每个 kind 的子 schema 在此之上扩展 discriminator） */
-const baseLLMSchemaShape = {
-  apiKey: z.string().trim().min(1, '请填写主 Provider 的 API Key'),
-  baseURL: z.string().trim().url('主 Provider 的 Base URL 不合法'),
-  model: z.string().trim().min(1, '请选择主 Provider 模型'),
-  enableThinking: z.boolean().optional(),
-};
+/* ------------------------------------------------------------------ */
+/* zod schemas                                                         */
+/* ------------------------------------------------------------------ */
 
 const qwenMainSchema = z.object({
   kind: z.literal('qwen'),
-  ...baseLLMSchemaShape,
+  model: z.string().trim().min(1, '请选择主 Provider 模型'),
+  enableThinking: z.boolean().optional(),
 });
 
 const deepseekMainSchema = z.object({
   kind: z.literal('deepseek'),
-  ...baseLLMSchemaShape,
+  model: z.string().trim().min(1, '请选择主 Provider 模型'),
+  enableThinking: z.boolean().optional(),
 });
 
 const mainProviderSchema = z.discriminatedUnion('kind', [qwenMainSchema, deepseekMainSchema]);
 
-const auxLLMSchemaShape = {
-  apiKey: z.string().trim().min(1, '辅助 Provider 的 API Key 不能为空'),
-  baseURL: z.string().trim().url(),
-  model: z.string().trim().min(1),
-  enableThinking: z.boolean().optional(),
-};
-
 const llmProviderOrRefSchema = z.union([
   z.object({ useMain: z.literal(true) }),
   z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('qwen'), ...auxLLMSchemaShape }),
-    z.object({ kind: z.literal('deepseek'), ...auxLLMSchemaShape }),
+    z.object({
+      kind: z.literal('qwen'),
+      model: z.string().trim().min(1),
+      enableThinking: z.boolean().optional(),
+    }),
+    z.object({
+      kind: z.literal('deepseek'),
+      model: z.string().trim().min(1),
+      enableThinking: z.boolean().optional(),
+    }),
   ]),
 ]);
 
@@ -87,12 +84,33 @@ const embeddingProviderOrRefSchema = z.union([
   z.object({ useMain: z.literal(true) }),
   z.object({
     kind: z.literal('qwen-embedding'),
-    apiKey: z.string().trim().min(1, 'Embedding Provider 的 API Key 不能为空'),
-    baseURL: z.string().trim().url(),
     model: z.string().trim().min(1),
     dimension: z.number().int().positive(),
   }),
 ]);
+
+/** 凭证桶 schema（仅校验形状，不校验 apiKey/baseURL 的填值——那由主 Provider 的 missingConfig 覆盖） */
+const providerCredentialsSchema = z.record(
+  z.object({
+    apiKey: z.string(),
+    baseURL: z.string().optional(),
+  }),
+);
+
+/**
+ * 主 Provider 的凭证必须填 apiKey。这是 UI 层面的"最低门槛"校验，
+ * 让用户无法保存一个显然不能用的主 Provider。
+ */
+function validateMainCredential(
+  credentials: ProviderCredentialsMap,
+  kind: ProviderKind,
+): string | null {
+  const slot = credentials[kind];
+  if (!slot || !slot.apiKey.trim()) {
+    return `请填写主 Provider (${PROVIDER_REGISTRY[kind]?.displayName ?? kind}) 的 API Key`;
+  }
+  return null;
+}
 
 const chatSettingsSchema = z.object({
   systemPrompt: z.string().trim().min(1, '系统提示词不能为空'),
@@ -117,6 +135,19 @@ function isUseMainRef(v: unknown): boolean {
   return !!v && typeof v === 'object' && (v as { useMain?: boolean }).useMain === true;
 }
 
+/** 从桶取某 kind 的凭证视图（baseURL 回落到 registry 默认） */
+function viewCredential(
+  credentials: ProviderCredentialsMap,
+  kind: ProviderKind,
+): { apiKey: string; baseURL: string } {
+  const slot = credentials[kind];
+  const defaultBase = PROVIDER_REGISTRY[kind]?.defaultBaseURL ?? '';
+  return {
+    apiKey: slot?.apiKey ?? '',
+    baseURL: slot?.baseURL ?? defaultBase,
+  };
+}
+
 export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
   const [main, setMain] = useState<LLMProviderConfig>(DEFAULT_MAIN_PROVIDER_CONFIG);
   const [aux, setAux] =
@@ -125,15 +156,6 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
     useState<ProviderConfigOrRef<EmbeddingProviderConfig>>(DEFAULT_EMBEDDING_PROVIDER_CONFIG);
   const [chat, setChat] = useState<ChatSettings>(DEFAULT_CHAT_SETTINGS);
   const [memorySettings, setMemorySettings] = useState<MemorySettings>(DEFAULT_MEMORY_SETTINGS);
-
-  /**
-   * v0.6.0-beta.2：按 Provider 分桶的凭证（apiKey + 可选 baseURL）
-   * - 加载时：读取桶；若为空则从旧 main/aux 字段迁移
-   * - UI 交互：BasicTab / ProviderConfigForm 的 apiKey/baseURL 输入框透过
-   *   useMainProvider 的读写接口直接访问桶；main/aux/embedding 里残留的
-   *   apiKey/baseURL 字段仅作"旧版本向后兼容"
-   * - 保存时：桶与 main/aux/embedding 同步写回
-   */
   const [credentials, setCredentials] = useState<ProviderCredentialsMap>(
     DEFAULT_PROVIDER_CREDENTIALS,
   );
@@ -142,7 +164,8 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
   const [saving, setSaving] = useState(false);
   const [modal, modalContextHolder] = Modal.useModal();
 
-  const keyMask = useMemo(() => maskSecret(main.apiKey), [main.apiKey]);
+  const mainCredential = viewCredential(credentials, main.kind);
+  const keyMask = useMemo(() => maskSecret(mainCredential.apiKey), [mainCredential.apiKey]);
 
   useEffect(() => {
     void (async () => {
@@ -156,76 +179,21 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
           storage.get(STORAGE_KEYS.MEMORY_SETTINGS),
         ]);
 
-      // 先收集旧字段以便迁移
-      const defaultBaseURLOf = (k: ProviderKind): string | undefined =>
-        PROVIDER_REGISTRY[k]?.defaultConfig.baseURL;
-      const legacyForMigration: Array<
-        { kind: ProviderKind; apiKey?: string; baseURL?: string } | undefined
-      > = [
-        mainStored
-          ? {
-              kind: mainStored.kind ?? DEFAULT_MAIN_PROVIDER_CONFIG.kind,
-              apiKey: mainStored.apiKey,
-              baseURL: mainStored.baseURL,
-            }
-          : undefined,
-        auxStored && !(auxStored as { useMain?: boolean }).useMain
-          ? {
-              kind: (auxStored as LLMProviderConfig).kind,
-              apiKey: (auxStored as LLMProviderConfig).apiKey,
-              baseURL: (auxStored as LLMProviderConfig).baseURL,
-            }
-          : undefined,
-      ];
-      const migrated = migrateProviderCredentials(
-        credsStored ?? DEFAULT_PROVIDER_CREDENTIALS,
-        legacyForMigration,
-        defaultBaseURLOf,
-      );
-      setCredentials(migrated);
-      // 桶被迁移改动了 → 立刻写回 storage，以便 offscreen/sidebar 在下次冷启动读到
-      if (migrated !== (credsStored ?? DEFAULT_PROVIDER_CREDENTIALS)) {
-        try {
-          await storage.set(STORAGE_KEYS.PROVIDER_CREDENTIALS, migrated);
-          logger.info('providerCredentials 迁移已写入', {
-            kinds: Object.keys(migrated),
-          });
-        } catch (err) {
-          logger.warn('providerCredentials 迁移写回失败', (err as Error).message);
-        }
-      }
+      setCredentials(credsStored ?? DEFAULT_PROVIDER_CREDENTIALS);
 
       if (mainStored) {
-        // 兜底：脏数据中 kind 缺失时落回 qwen（见 PRD §8 R-6）
+        // 兜底：脏数据中 kind 缺失时落回 qwen
         const kind = mainStored.kind ?? DEFAULT_MAIN_PROVIDER_CONFIG.kind;
-        const normalized: LLMProviderConfig = {
+        setMain({
           ...DEFAULT_MAIN_PROVIDER_CONFIG,
           ...mainStored,
           kind,
-        };
-        // 从桶里取当前 kind 的 apiKey/baseURL 覆盖显示（桶里没有就回落旧值）
-        const resolved = resolveCredentialFor(migrated, kind, {
-          apiKey: normalized.apiKey,
-          baseURL: normalized.baseURL,
         });
-        setMain({ ...normalized, apiKey: resolved.apiKey, baseURL: resolved.baseURL });
       }
 
-      if (auxStored) {
-        if ((auxStored as { useMain?: boolean }).useMain) {
-          setAux(auxStored);
-        } else {
-          const auxCfg = auxStored as LLMProviderConfig;
-          const resolved = resolveCredentialFor(migrated, auxCfg.kind, {
-            apiKey: auxCfg.apiKey,
-            baseURL: auxCfg.baseURL,
-          });
-          setAux({ ...auxCfg, apiKey: resolved.apiKey, baseURL: resolved.baseURL });
-        }
-      }
+      if (auxStored) setAux(auxStored);
       if (embStored) setEmbedding(embStored);
 
-      // ChatSettings：合并默认 + 旧值（可能缺 maxTurns）
       if (chatStored) {
         setChat({
           ...DEFAULT_CHAT_SETTINGS,
@@ -278,6 +246,11 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
       message.error(mainResult.error.errors[0]?.message ?? '主 Provider 配置校验失败');
       return;
     }
+    const mainCredErr = validateMainCredential(credentials, main.kind);
+    if (mainCredErr) {
+      message.error(mainCredErr);
+      return;
+    }
     const auxResult = llmProviderOrRefSchema.safeParse(aux);
     if (!auxResult.success) {
       message.error(auxResult.error.errors[0]?.message ?? '辅助 Provider 配置校验失败');
@@ -286,6 +259,11 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
     const embResult = embeddingProviderOrRefSchema.safeParse(embedding);
     if (!embResult.success) {
       message.error(embResult.error.errors[0]?.message ?? 'Embedding Provider 配置校验失败');
+      return;
+    }
+    const credsResult = providerCredentialsSchema.safeParse(credentials);
+    if (!credsResult.success) {
+      message.error(credsResult.error.errors[0]?.message ?? 'Provider 凭证校验失败');
       return;
     }
     const chatResult = chatSettingsSchema.safeParse(chat);
@@ -320,10 +298,8 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
           onOk: () => {
             setEmbedding({
               kind: 'qwen-embedding',
-              baseURL: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL,
               model: 'text-embedding-v3',
               dimension: 1024,
-              apiKey: '',
             });
             message.info('已切换到 Qwen text-embedding-v3，请在 Memory Tab 填入 API Key 后重新保存');
             resolve(false);
@@ -348,9 +324,9 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
   };
 
   /**
-   * 写回凭证桶：给定 kind 更新其 apiKey/baseURL
-   * - apiKey 空串也要写（用户可能显式清空）
-   * - baseURL 若等于 registry 默认值则不入桶（避免无意义数据）
+   * 写回凭证桶：给定 kind 更新其 apiKey/baseURL。
+   * - apiKey 空串也写入（用户可能显式清空）
+   * - baseURL 若等于 registry 默认值则不入桶（避免无意义数据膨胀）
    */
   const updateCredential = (
     kind: ProviderKind,
@@ -359,9 +335,9 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
     setCredentials((prev) => {
       const prevSlot = prev[kind] ?? { apiKey: '' };
       const nextApiKey = patch.apiKey !== undefined ? patch.apiKey : prevSlot.apiKey;
-      const defaultBase = PROVIDER_REGISTRY[kind]?.defaultConfig.baseURL;
+      const defaultBase = PROVIDER_REGISTRY[kind]?.defaultBaseURL;
       const incomingBase = patch.baseURL !== undefined ? patch.baseURL : prevSlot.baseURL;
-      const nextSlot = {
+      const nextSlot: { apiKey: string; baseURL?: string } = {
         apiKey: nextApiKey,
         ...(incomingBase && incomingBase !== defaultBase ? { baseURL: incomingBase } : {}),
       };
@@ -369,102 +345,15 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
     });
   };
 
-  /**
-   * 主 Provider 修改的包装：
-   * - kind 切换 → 从桶读出新 kind 的凭证回填（保留 model/enableThinking 取决于调用方，
-   *   这里不做额外处理；BasicTab 的 handleKindChange 已经选好了默认 model）
-   * - apiKey/baseURL 修改 → 同步写回桶
-   */
-  const handleMainChange = (next: LLMProviderConfig) => {
-    const prev = main;
-    if (next.kind !== prev.kind) {
-      // kind 切换：把新 kind 的桶内凭证带出覆盖
-      const defaultBase = PROVIDER_REGISTRY[next.kind]?.defaultConfig.baseURL ?? next.baseURL;
-      const resolved = resolveCredentialFor(credentials, next.kind, {
-        apiKey: '', // 没有桶记录时 apiKey 留空，提醒用户填
-        baseURL: next.baseURL || defaultBase,
-      });
-      setMain({ ...next, apiKey: resolved.apiKey, baseURL: resolved.baseURL });
-      return;
-    }
-    // 非 kind 切换：常规更新 + 同步桶
-    setMain(next);
-    const patch: Partial<{ apiKey: string; baseURL: string }> = {};
-    if (next.apiKey !== prev.apiKey) patch.apiKey = next.apiKey;
-    if (next.baseURL !== prev.baseURL) patch.baseURL = next.baseURL;
-    if (patch.apiKey !== undefined || patch.baseURL !== undefined) {
-      updateCredential(next.kind, patch);
-    }
-  };
+  // aux Kind 对应的凭证（非 useMain 时展示）
+  const auxCredential = isUseMainRef(aux)
+    ? mainCredential
+    : viewCredential(credentials, (aux as LLMProviderConfig).kind);
 
-  /** 辅助 Provider 同理 */
-  const handleAuxChange = (next: ProviderConfigOrRef<LLMProviderConfig>) => {
-    const prev = aux;
-    // useMain 切换或保持 useMain：不涉及凭证桶更新
-    if (isUseMainRef(next)) {
-      setAux(next);
-      return;
-    }
-    // 关掉 useMain 或修改字段
-    const nextCfg = next as LLMProviderConfig;
-    if (isUseMainRef(prev)) {
-      // 从 useMain 切到自定义：带出桶里该 kind 的凭证
-      const resolved = resolveCredentialFor(credentials, nextCfg.kind, {
-        apiKey: nextCfg.apiKey,
-        baseURL: nextCfg.baseURL,
-      });
-      setAux({ ...nextCfg, apiKey: resolved.apiKey, baseURL: resolved.baseURL });
-      return;
-    }
-    const prevCfg = prev as LLMProviderConfig;
-    if (nextCfg.kind !== prevCfg.kind) {
-      // kind 切换：从桶带出
-      const resolved = resolveCredentialFor(credentials, nextCfg.kind, {
-        apiKey: '',
-        baseURL: nextCfg.baseURL,
-      });
-      setAux({ ...nextCfg, apiKey: resolved.apiKey, baseURL: resolved.baseURL });
-      return;
-    }
-    // 常规更新 + 同步桶
-    setAux(next);
-    const patch: Partial<{ apiKey: string; baseURL: string }> = {};
-    if (nextCfg.apiKey !== prevCfg.apiKey) patch.apiKey = nextCfg.apiKey;
-    if (nextCfg.baseURL !== prevCfg.baseURL) patch.baseURL = nextCfg.baseURL;
-    if (patch.apiKey !== undefined || patch.baseURL !== undefined) {
-      updateCredential(nextCfg.kind, patch);
-    }
-  };
-
-  /**
-   * Embedding Provider 的 apiKey 与 LLM 共享同一 Provider 桶
-   * 目前 embedding kind 固定为 'qwen-embedding'，对应 Provider kind 为 'qwen'
-   */
-  const handleEmbeddingChange = (next: ProviderConfigOrRef<EmbeddingProviderConfig>) => {
-    const prev = embedding;
-    if (isUseMainRef(next)) {
-      setEmbedding(next);
-      return;
-    }
-    const nextCfg = next as EmbeddingProviderConfig;
-    if (isUseMainRef(prev)) {
-      // 从 useMain 切到自定义：embedding 共享 qwen 桶
-      const resolved = resolveCredentialFor(credentials, 'qwen', {
-        apiKey: nextCfg.apiKey,
-        baseURL: nextCfg.baseURL,
-      });
-      setEmbedding({ ...nextCfg, apiKey: resolved.apiKey, baseURL: resolved.baseURL });
-      return;
-    }
-    const prevCfg = prev as EmbeddingProviderConfig;
-    setEmbedding(next);
-    const patch: Partial<{ apiKey: string; baseURL: string }> = {};
-    if (nextCfg.apiKey !== prevCfg.apiKey) patch.apiKey = nextCfg.apiKey;
-    if (nextCfg.baseURL !== prevCfg.baseURL) patch.baseURL = nextCfg.baseURL;
-    if (patch.apiKey !== undefined || patch.baseURL !== undefined) {
-      updateCredential('qwen', patch);
-    }
-  };
+  // embedding 共享 qwen 桶（kind 永远是 qwen-embedding）
+  const embeddingCredential = isUseMainRef(embedding)
+    ? mainCredential
+    : viewCredential(credentials, 'qwen');
 
   if (loading) {
     return (
@@ -489,7 +378,14 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
             key: 'basic',
             label: '基础',
             children: (
-              <BasicTab main={main} onMainChange={handleMainChange} chat={chat} onChatChange={setChat} />
+              <BasicTab
+                main={main}
+                onMainChange={setMain}
+                credential={mainCredential}
+                onCredentialChange={(patch) => updateCredential(main.kind, patch)}
+                chat={chat}
+                onChatChange={setChat}
+              />
             ),
           },
           {
@@ -498,10 +394,15 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
             children: (
               <MemoryTab
                 main={main}
+                mainCredential={mainCredential}
                 aux={aux}
-                onAuxChange={handleAuxChange}
+                onAuxChange={setAux}
+                auxCredential={auxCredential}
+                onAuxCredentialChange={(kind, patch) => updateCredential(kind, patch)}
                 embedding={embedding}
-                onEmbeddingChange={handleEmbeddingChange}
+                onEmbeddingChange={setEmbedding}
+                embeddingCredential={embeddingCredential}
+                onEmbeddingCredentialChange={(patch) => updateCredential('qwen', patch)}
                 settings={memorySettings}
                 onSettingsChange={setMemorySettings}
               />

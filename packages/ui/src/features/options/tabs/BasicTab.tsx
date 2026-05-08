@@ -2,16 +2,15 @@
  * BasicTab · 基础配置
  * ---------------------------------------------
  * 职责：
- * - 主 Provider 配置（kind 可选 qwen / deepseek / ...；baseURL + model + apiKey + enableThinking）
+ * - 主 Provider 配置（kind 可选；model + enableThinking，凭证走桶）
  * - 测试连接（轻量 fetch）
  * - 拉取账号可用模型列表（走 registry.listModels）
  * - 通用对话设置（systemPrompt + maxContextChars）
  *
  * v0.6.0-beta.2：
- * - Provider 下拉、默认 baseURL、listModels 函数全部从 `PROVIDER_REGISTRY` 读
- * - 切换 kind 时：apiKey 保留；baseURL 若等于旧 kind 的默认值则替换为新 kind 默认值，
- *   否则保留；model 替换为新 kind 的默认 model
- * - 拉取到的模型是 `GenericModelListItem`（跨 Provider 统一结构）
+ * - Provider 下拉 / listModels 函数全部从 `PROVIDER_REGISTRY` 读
+ * - apiKey / baseURL 由父组件传入 `credential`，本组件只负责 UI
+ * - 切换 kind 时：model 替换为新 kind 的默认 model；凭证由父组件根据桶自动带出
  */
 import {
   AutoComplete,
@@ -60,33 +59,38 @@ const KIND_TAG_COLOR: Record<GenericModelKind, string> = {
 export interface BasicTabProps {
   main: LLMProviderConfig;
   onMainChange: (next: LLMProviderConfig) => void;
+  /** 当前主 Provider kind 对应的凭证（来自桶；baseURL 若桶未设置则用 registry 默认） */
+  credential: { apiKey: string; baseURL: string };
+  onCredentialChange: (patch: Partial<{ apiKey: string; baseURL: string }>) => void;
   chat: ChatSettings;
   onChatChange: (next: ChatSettings) => void;
 }
 
-export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabProps) {
+export function BasicTab({
+  main,
+  onMainChange,
+  credential,
+  onCredentialChange,
+  chat,
+  onChatChange,
+}: BasicTabProps) {
   const [testing, setTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [fetchedModels, setFetchedModels] = useState<GenericModelListItem[] | null>(null);
   const [showAllKinds, setShowAllKinds] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const keyMask = useMemo(() => maskSecret(main.apiKey), [main.apiKey]);
+  const keyMask = useMemo(() => maskSecret(credential.apiKey), [credential.apiKey]);
 
-  /** 切换 Provider kind：按 registry 默认值替换 baseURL/model，保留 apiKey */
+  /** 切换 Provider kind：按 registry 默认值替换 model；凭证由父组件根据桶带出 */
   const handleKindChange = (nextKind: ProviderKind) => {
-    const currentEntry = PROVIDER_REGISTRY[main.kind];
     const nextEntry = PROVIDER_REGISTRY[nextKind];
     if (!nextEntry) return;
-    // 如果当前 baseURL 是旧 kind 的默认值，替换为新默认值；否则保留用户自定义
-    const replaceBaseURL =
-      currentEntry && main.baseURL === currentEntry.defaultConfig.baseURL;
     const nextThinking =
       nextEntry.defaultConfig.enableThinking ?? main.enableThinking ?? false;
     onMainChange({
       ...main,
       kind: nextKind,
-      ...(replaceBaseURL ? { baseURL: nextEntry.defaultConfig.baseURL } : {}),
       model: nextEntry.defaultConfig.model,
       enableThinking: nextThinking,
     });
@@ -96,23 +100,23 @@ export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabPro
   };
 
   const handleTestConnection = async () => {
-    if (!main.apiKey || !main.baseURL || !main.model) {
+    if (!credential.apiKey || !credential.baseURL || !main.model) {
       message.error('请先填写完整的 API Key / Base URL / 模型');
       return;
     }
     setTesting(true);
     logger.info('测试连接中', {
       kind: main.kind,
-      baseURL: main.baseURL,
+      baseURL: credential.baseURL,
       model: main.model,
       apiKey: keyMask,
     });
     try {
-      const resp = await fetch(`${main.baseURL.replace(/\/$/, '')}/chat/completions`, {
+      const resp = await fetch(`${credential.baseURL.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${main.apiKey}`,
+          Authorization: `Bearer ${credential.apiKey}`,
         },
         body: JSON.stringify({
           model: main.model,
@@ -136,7 +140,7 @@ export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabPro
   };
 
   const handleFetchModels = async () => {
-    if (!main.apiKey || !main.baseURL) {
+    if (!credential.apiKey || !credential.baseURL) {
       message.error('请先填写 API Key 与 Base URL');
       return;
     }
@@ -148,8 +152,8 @@ export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabPro
         return;
       }
       const all = await entry.listModels({
-        apiKey: main.apiKey,
-        baseURL: main.baseURL,
+        apiKey: credential.apiKey,
+        baseURL: credential.baseURL,
       });
       setFetchedModels(all);
       const chatCount = all.filter((m) => m.kind === 'chat').length;
@@ -267,8 +271,8 @@ export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabPro
             }
           >
             <Input.Password
-              value={main.apiKey}
-              onChange={(e) => onMainChange({ ...main, apiKey: e.target.value })}
+              value={credential.apiKey}
+              onChange={(e) => onCredentialChange({ apiKey: e.target.value })}
               placeholder="sk-..."
               autoComplete="off"
             />
@@ -287,8 +291,8 @@ export function BasicTab({ main, onMainChange, chat, onChatChange }: BasicTabPro
             }
           >
             <Input
-              value={main.baseURL}
-              onChange={(e) => onMainChange({ ...main, baseURL: e.target.value })}
+              value={credential.baseURL}
+              onChange={(e) => onCredentialChange({ baseURL: e.target.value })}
             />
           </Form.Item>
 

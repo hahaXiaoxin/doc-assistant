@@ -1,8 +1,8 @@
 /**
- * Sidebar 启动装配（v0.5.0 · 统一记忆）
+ * Sidebar 启动装配（v0.5.0 · 统一记忆 / v0.6.0-beta.2 · 凭证分桶重构）
  * ---------------------------------------------
  * 职责：
- * - 读取 STORAGE_KEYS（主/辅/embedding 三套 + MemorySettings）
+ * - 读取 STORAGE_KEYS（主/辅 LLMProviderConfig + providerCredentials 桶 + MemorySettings）
  * - 装配主 LLM + 辅助 LLM（sidebar 本地用，不再构造 embedding Provider）
  * - v0.5.0：**记忆层改为 `RemoteMemoryStore`**——sidebar 跑在 content-script
  *   origin，本身不再持 IndexedDB，所有 `memory.xxx()` 通过 RPC 转发到
@@ -13,6 +13,11 @@
  *   登记反思任务并跑 runPending（见 sidebar/index.tsx 的 pvm.subscribe）。
  * - 初始化 PageVisitManager（注入 memory 以登记 page_visits 表，所有 API 走 RPC）
  * - 构造 ChatAgent（组装 Persona/WorkingMemory/RelevantMemory 等 ContextSource）
+ *
+ * v0.6.0-beta.2：
+ * - main/aux LLMProviderConfig 不再含 apiKey/baseURL。凭证从
+ *   `providerCredentials[kind]` 读取；桶里没有则回落到 registry 默认 baseURL，
+ *   apiKey 用占位符撑住构造，真正调用时报错由用户去 Options 填 Key。
  */
 import {
   DEFAULT_AUX_PROVIDER_CONFIG,
@@ -25,13 +30,12 @@ import {
   createLogger,
   createTypedStorage,
   isUseMain,
-  migrateProviderCredentials,
-  resolveCredentialFor,
   type ChatSettings,
   type LLMProviderConfig,
   type MemorySettings,
   type ProviderConfigOrRef,
   type ProviderCredentialsMap,
+  type ProviderKind,
   type StorageSchema,
 } from '@doc-assistant/shared';
 import { PROVIDER_REGISTRY } from '@doc-assistant/provider';
@@ -65,6 +69,23 @@ export interface BootstrapResult {
   missingConfig: boolean;
 }
 
+/**
+ * 从凭证桶取出指定 kind 的 `{ apiKey, baseURL }`。
+ * 桶里 apiKey 为空串或 undefined 时 apiKey 返回空；baseURL 落空则回落到 registry 默认值。
+ */
+function readCredential(
+  credentials: ProviderCredentialsMap,
+  kind: ProviderKind,
+): { apiKey: string; baseURL: string } {
+  const slot = credentials[kind];
+  const entry = PROVIDER_REGISTRY[kind];
+  const defaultBaseURL = entry?.defaultBaseURL ?? '';
+  return {
+    apiKey: slot?.apiKey?.trim() ? slot.apiKey : '',
+    baseURL: slot?.baseURL?.trim() ? slot.baseURL : defaultBaseURL,
+  };
+}
+
 export async function bootstrapAgent(): Promise<BootstrapResult> {
   const storage = createTypedStorage<StorageSchema>();
 
@@ -76,51 +97,17 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     storage.get(STORAGE_KEYS.MEMORY_SETTINGS),
   ]);
 
-  // 主 Provider：MAIN 已配置则用；否则用默认（空 apiKey），由 OptionsForm 引导用户填写
-  let mainProvider: LLMProviderConfig = mainStored
+  // 主 Provider：MAIN 已配置则用；否则用默认（空凭证），由 OptionsForm 引导用户填写
+  const mainProvider: LLMProviderConfig = mainStored
     ? { ...DEFAULT_MAIN_PROVIDER_CONFIG, ...mainStored }
     : DEFAULT_MAIN_PROVIDER_CONFIG;
 
   const auxConfig: ProviderConfigOrRef<LLMProviderConfig> =
     auxStored ?? DEFAULT_AUX_PROVIDER_CONFIG;
 
-  /* ---- v0.6.0-beta.2：按 Provider 分桶凭证 + 幂等迁移 ---- */
-  // 迁移入参：从老 main/aux 字段把 apiKey/baseURL 折叠进桶；桶里已有则不覆盖（幂等）。
-  const legacyForMigration: Array<
-    { kind: 'qwen' | 'deepseek'; apiKey?: string; baseURL?: string } | undefined
-  > = [
-    { kind: mainProvider.kind, apiKey: mainProvider.apiKey, baseURL: mainProvider.baseURL },
-    !isUseMain(auxConfig)
-      ? { kind: auxConfig.kind, apiKey: auxConfig.apiKey, baseURL: auxConfig.baseURL }
-      : undefined,
-  ];
-  const defaultBaseURLOf = (k: 'qwen' | 'deepseek'): string | undefined =>
-    PROVIDER_REGISTRY[k]?.defaultConfig.baseURL;
-  const migratedCreds: ProviderCredentialsMap = migrateProviderCredentials(
-    credsStored ?? DEFAULT_PROVIDER_CREDENTIALS,
-    legacyForMigration,
-    defaultBaseURLOf,
-  );
-  // 桶内容变了才写回，避免无意义写
-  if (migratedCreds !== (credsStored ?? DEFAULT_PROVIDER_CREDENTIALS)) {
-    try {
-      await storage.set(STORAGE_KEYS.PROVIDER_CREDENTIALS, migratedCreds);
-      logger.info('providerCredentials 迁移完成', {
-        kinds: Object.keys(migratedCreds),
-      });
-    } catch (err) {
-      logger.warn('providerCredentials 写回失败（不阻塞启动）', (err as Error).message);
-    }
-  }
+  const credentials: ProviderCredentialsMap = credsStored ?? DEFAULT_PROVIDER_CREDENTIALS;
 
-  // 从桶取主 Provider 的 apiKey/baseURL；若桶为空 → 回落到老字段
-  {
-    const resolved = resolveCredentialFor(migratedCreds, mainProvider.kind, {
-      apiKey: mainProvider.apiKey,
-      baseURL: mainProvider.baseURL,
-    });
-    mainProvider = { ...mainProvider, apiKey: resolved.apiKey, baseURL: resolved.baseURL };
-  }
+  const mainCred = readCredential(credentials, mainProvider.kind);
 
   const chatSettings: ChatSettings = {
     ...DEFAULT_CHAT_SETTINGS,
@@ -132,11 +119,9 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
     ...(memStored ?? {}),
   };
 
-  const missingConfig = !mainProvider.apiKey.trim();
+  const missingConfig = !mainCred.apiKey.trim();
   if (missingConfig) {
     logger.warn('未配置主 Provider API Key，将在首次发送时提示用户配置');
-    // 用 placeholder 占位，避免 Agent 构造失败；真正调用时会抛错
-    mainProvider = { ...mainProvider, apiKey: 'placeholder' };
   }
 
   // 构造主 LLM（通过 registry 反射到对应 Provider 类）
@@ -146,13 +131,14 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
   }
   const mainLLM: LLMProvider = mainEntry.createLLM({
     kind: mainProvider.kind,
-    apiKey: mainProvider.apiKey,
-    baseURL: mainProvider.baseURL,
+    // 缺 Key 时用占位符撑住构造，真正请求时 Provider 会抛错
+    apiKey: mainCred.apiKey || 'placeholder',
+    baseURL: mainCred.baseURL,
     model: mainProvider.model,
     enableThinking: mainProvider.enableThinking ?? true,
   });
 
-  // 构造辅助 LLM（若 useMain 或为空则直接复用主 LLM）
+  // 构造辅助 LLM（若 useMain 或初始化失败则复用主 LLM）
   let auxLLM: LLMProvider = mainLLM;
   if (!isUseMain(auxConfig)) {
     try {
@@ -160,15 +146,11 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
       if (!auxEntry) {
         throw new Error(`Unknown aux provider kind: ${auxConfig.kind}`);
       }
-      // 同样从桶取 aux 的 apiKey/baseURL
-      const auxResolved = resolveCredentialFor(migratedCreds, auxConfig.kind, {
-        apiKey: auxConfig.apiKey,
-        baseURL: auxConfig.baseURL,
-      });
+      const auxCred = readCredential(credentials, auxConfig.kind);
       auxLLM = auxEntry.createLLM({
         kind: auxConfig.kind,
-        apiKey: auxResolved.apiKey,
-        baseURL: auxResolved.baseURL,
+        apiKey: auxCred.apiKey || 'placeholder',
+        baseURL: auxCred.baseURL,
         model: auxConfig.model,
         enableThinking: auxConfig.enableThinking ?? false,
       });
@@ -260,6 +242,7 @@ export async function bootstrapAgent(): Promise<BootstrapResult> {
   // sidebar 只负责通过 PAGE_VISIT_ENDED 消息把 visit 结束事件转发给 offscreen（见 sidebar/index.tsx）。
 
   logger.info('Sidebar bootstrap 完成', {
+    mainKind: mainProvider.kind,
     mainModel: mainProvider.model,
     auxUseMain: isUseMain(auxConfig),
     memoryKind: 'remote',

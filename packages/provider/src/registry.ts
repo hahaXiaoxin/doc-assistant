@@ -1,20 +1,22 @@
 /**
  * Provider Registry · kind → Provider class + 元数据 声明式映射
  * ---------------------------------------------
- * v0.6.0-beta.2 新增。目标是消除装配层 / UI 层对 `kind === 'qwen' ? ...` 的硬编码判断。
+ * v0.6.0-beta.2：凭证与运行时参数分离。
+ * - `defaultConfig`：存入 storage 的 `LLMProviderConfig`（只含 kind/model/enableThinking）
+ * - `defaultBaseURL`：切换 Provider 时给凭证桶的 baseURL 预填值（也是运行时若桶里未设置的回落值）
+ * - `createLLM(runtime)`：接受运行时注入的 `{ apiKey, baseURL, model, enableThinking? }`
  *
  * 用法：
- * - 装配层（sidebar/bootstrap / offscreen/index）：`PROVIDER_REGISTRY[kind].createLLM(config)`
- * - UI 下拉：`Object.values(PROVIDER_REGISTRY).map(e => ({ value: e.kind, label: e.displayName }))`
- * - Embedding 下拉（UI）：过滤 `entry.embedding !== null`，DeepSeek 自动被剔除
+ * - 装配层（sidebar/bootstrap / offscreen/index）：合并 `mainConfig` + `credentials[kind]`
+ *   后调 `PROVIDER_REGISTRY[kind].createLLM({...})`
+ * - UI 下拉：`listProviderEntries().map(e => ({ value: e.kind, label: e.displayName }))`
+ * - Embedding 下拉（UI）：过滤 `entry.embedding !== null`
  *
- * 增加一家新 OpenAI 兼容 Provider 的变更点：
+ * 新增 OpenAI 兼容 Provider 的步骤：
  * 1. 新增 `packages/provider/src/xxx/{index,config,list-models}.ts`
  * 2. 在 `ProviderKind` 联合里加一项
- * 3. 在本文件 PROVIDER_REGISTRY 里加一行
- * 4. 如需专属 UI 默认值，在 shared/config.ts 加一个 DEFAULT_XXX_PROVIDER_CONFIG
- *
- * 其他位置（装配 / 下拉 / zod 校验）无需改动。
+ * 3. 在本文件 `PROVIDER_REGISTRY` 里加一行
+ * 4. 如需专属 UI 默认值，在 shared/config.ts 加一个 `DEFAULT_XXX_PROVIDER_CONFIG`
  */
 import {
   DEFAULT_DEEPSEEK_PROVIDER_CONFIG,
@@ -63,8 +65,17 @@ export type ListModelsFn = (params: {
   signal?: AbortSignal;
 }) => Promise<GenericModelListItem[]>;
 
+/** LLM 工厂的运行时入参（与 storage 里的 LLMProviderConfig 解耦） */
+export interface LLMRuntimeConfig {
+  kind: ProviderKind;
+  apiKey: string;
+  baseURL: string;
+  model: string;
+  enableThinking?: boolean;
+}
+
 /** Registry 中 LLM 工厂的统一签名 */
-export type LLMProviderFactory = (config: LLMProviderConfig) => LLMProvider;
+export type LLMProviderFactory = (runtime: LLMRuntimeConfig) => LLMProvider;
 
 /** Provider 的 embedding 能力元信息（null 表示"不提供 embedding"） */
 export interface EmbeddingRegistryInfo {
@@ -85,13 +96,15 @@ export interface ProviderRegistryEntry {
   displayName: string;
   /** 简短描述，UI 可选用作 tooltip */
   description?: string;
-  /** UI 切换 Provider 时的默认配置（baseURL / model / 推荐 thinking 开关等） */
+  /** UI 切换 Provider 时的默认 LLMProviderConfig（kind/model/enableThinking） */
   defaultConfig: LLMProviderConfig;
+  /** 切换 Provider 时给凭证桶预填的 baseURL；桶里没有设置时也作为运行时回落值 */
+  defaultBaseURL: string;
   /** 主 / 辅 LLM 工厂 */
   createLLM: LLMProviderFactory;
   /** 拉取 /models 列表（已做 kind 分类 + capability 填充） */
   listModels: ListModelsFn;
-  /** UI fallback 建议模型列表（拉取失败或未拉取时使用） */
+  /** UI 建议模型列表（拉取失败或未拉取时用作下拉预选项） */
   suggestedModels: readonly string[];
   /** embedding 能力：null = 本家未提供；非 null 可被"主路径 embedding useMain=true" 使用 */
   embedding: EmbeddingRegistryInfo | null;
@@ -114,12 +127,13 @@ export const PROVIDER_REGISTRY: Record<ProviderKind, ProviderRegistryEntry> = {
     description:
       '阿里云百炼 OpenAI 兼容端点，支持 chat / tool call / reasoning（qwen3 系列）/ embedding / rerank 等多能力。',
     defaultConfig: DEFAULT_MAIN_PROVIDER_CONFIG,
-    createLLM: (config) =>
+    defaultBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    createLLM: (runtime) =>
       new QwenProvider({
-        apiKey: config.apiKey,
-        baseURL: config.baseURL,
-        model: config.model,
-        enableThinking: config.enableThinking ?? true,
+        apiKey: runtime.apiKey,
+        baseURL: runtime.baseURL,
+        model: runtime.model,
+        enableThinking: runtime.enableThinking ?? true,
       }),
     listModels: async (params) => {
       const items = await listQwenModels(params);
@@ -142,13 +156,14 @@ export const PROVIDER_REGISTRY: Record<ProviderKind, ProviderRegistryEntry> = {
     description:
       'DeepSeek 官方端点，当前线上仅两款 chat 模型：deepseek-v4-flash（低成本快响应）/ deepseek-v4-pro（主力档）。官方暂无 embedding 服务。',
     defaultConfig: DEFAULT_DEEPSEEK_PROVIDER_CONFIG,
-    createLLM: (config) =>
+    defaultBaseURL: 'https://api.deepseek.com',
+    createLLM: (runtime) =>
       new DeepSeekProvider({
-        apiKey: config.apiKey,
-        baseURL: config.baseURL,
-        model: config.model,
-        ...(typeof config.enableThinking === 'boolean'
-          ? { enableThinking: config.enableThinking }
+        apiKey: runtime.apiKey,
+        baseURL: runtime.baseURL,
+        model: runtime.model,
+        ...(typeof runtime.enableThinking === 'boolean'
+          ? { enableThinking: runtime.enableThinking }
           : {}),
       }),
     listModels: async (params) => {

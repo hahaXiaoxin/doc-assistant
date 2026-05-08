@@ -1,12 +1,15 @@
 /**
  * Provider 配置与 chrome.storage.local schema
  * ---------------------------------------------
- * v0.2 · 三套 Provider（main / auxiliary / embedding）+ MemorySettings
- * - 所有 Provider 的配置都存 chrome.storage.local
- * - API Key 严禁写日志、严禁写 IndexedDB
+ * v0.6.0-beta.2 · Breaking：凭证存储结构重构
+ *
+ * - 凭证的唯一真源：`providerCredentials: Record<ProviderKind, { apiKey, baseURL? }>`
+ * - `LLMProviderConfig` / `EmbeddingProviderConfig` 只保留 `{ kind, model, ... }`，
+ *   **不再持有 `apiKey` / `baseURL`**。装配层/运行时调用 Provider 工厂时由桶注入。
+ * - 不提供从旧结构的迁移路径；老用户升级后首次启动需在 Options 重新填写 API Key。
  *
  * 架构约定：
- * - `ProviderKind` 区分 LLM 提供方（qwen / openai / ...），新 Provider 扩展此联合
+ * - `ProviderKind` 区分 LLM 提供方（qwen / deepseek / ...），新 Provider 扩展此联合
  * - `EmbeddingProviderKind` 区分 embedding 提供方，与 LLM 解耦
  * - 辅助模型（auxiliary）与 embedding 都支持 `useMain=true` 复用主 Provider 配置
  */
@@ -25,12 +28,10 @@ export const STORAGE_KEYS = {
   EMBEDDING_PROVIDER_CONFIG: 'doc-assistant.embedding-provider-config',
 
   /**
-   * v0.6.0-beta.2：按 Provider 分桶的凭证存储
+   * 按 Provider 分桶的凭证存储（v0.6.0-beta.2 引入，唯一真源）
    * --------------------------------------------------
    * 形如 `{ qwen: { apiKey, baseURL? }, deepseek: { apiKey, baseURL? } }`。
-   * 加载时 main/aux/embedding 的 apiKey/baseURL 优先从此桶按 kind 读取，
-   * 保存时把当前 kind 的凭证写回对应桶。
-   * 旧字段 `main/aux/embedding.apiKey/baseURL` 仍然保留以便向后兼容读。
+   * main/aux/embedding 不再各自保存 apiKey/baseURL，一切凭证只从这里读。
    */
   PROVIDER_CREDENTIALS: 'doc-assistant.provider-credentials',
 
@@ -48,7 +49,7 @@ export const STORAGE_KEYS = {
 /** LLM Provider 种类；未来扩展此联合即可（v0.6.0-beta.2 新增 deepseek） */
 export type ProviderKind = 'qwen' | 'deepseek';
 
-/** 千问可选模型（仅 UI 建议值，baseURL 允许任意字符串） */
+/** 千问可选模型（仅 UI 建议值） */
 export const QWEN_MODELS = ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen3-max'] as const;
 // eslint-disable-next-line @typescript-eslint/ban-types
 export type QwenModel = (typeof QWEN_MODELS)[number] | (string & {});
@@ -59,18 +60,14 @@ export const DEEPSEEK_MODELS_SUGGESTED = ['deepseek-v4-flash', 'deepseek-v4-pro'
 export type DeepSeekModel = (typeof DEEPSEEK_MODELS_SUGGESTED)[number] | (string & {});
 
 /**
- * 通用 LLM Provider 配置
+ * 通用 LLM Provider 配置（仅 kind + model + 附加开关）
  * ---
- * 统一的 `baseUrl + model + apiKey` 规范，兼容云端与本地模型。
+ * apiKey/baseURL 不在此结构内 —— 统一从 `providerCredentials[kind]` 读取。
  */
 export interface LLMProviderConfig {
   kind: ProviderKind;
-  /** 兼容 OpenAI 协议的端点 */
-  baseURL: string;
   /** 模型名称（自由文本，遵循具体 Provider 命名） */
   model: string;
-  /** API Key（敏感，严禁日志/IDB） */
-  apiKey: string;
   /** 是否启用思考模式（qwen 特有，其它 Provider 忽略） */
   enableThinking?: boolean;
 }
@@ -98,11 +95,13 @@ export const QWEN_EMBEDDING_MODELS = ['text-embedding-v2', 'text-embedding-v3'] 
 // eslint-disable-next-line @typescript-eslint/ban-types
 export type QwenEmbeddingModel = (typeof QWEN_EMBEDDING_MODELS)[number] | (string & {});
 
+/**
+ * Embedding Provider 配置（不含 apiKey / baseURL；凭证走
+ * `providerCredentials` 桶：embedding 与 LLM 共享同一 Provider 的凭证）。
+ */
 export interface EmbeddingProviderConfig {
   kind: EmbeddingProviderKind;
-  baseURL: string;
   model: string;
-  apiKey: string;
   /** 向量维度，v2=1536 / v3=1024；用户换模型时 UI 会警告 */
   dimension: number;
 }
@@ -114,9 +113,7 @@ export interface EmbeddingProviderConfig {
 /** 默认主 Provider 配置（kind=qwen） */
 export const DEFAULT_MAIN_PROVIDER_CONFIG: LLMProviderConfig = {
   kind: 'qwen',
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   model: 'qwen-plus',
-  apiKey: '',
   enableThinking: true,
 };
 
@@ -129,9 +126,7 @@ export const DEFAULT_MAIN_PROVIDER_CONFIG: LLMProviderConfig = {
  */
 export const DEFAULT_DEEPSEEK_PROVIDER_CONFIG: LLMProviderConfig = {
   kind: 'deepseek',
-  baseURL: 'https://api.deepseek.com',
   model: 'deepseek-v4-pro',
-  apiKey: '',
   enableThinking: false,
 };
 
@@ -140,7 +135,7 @@ export const DEFAULT_AUX_PROVIDER_CONFIG: ProviderConfigOrRef<LLMProviderConfig>
   useMain: true,
 };
 
-/** 默认 Embedding Provider 配置：默认"复用主 Provider"的 baseURL+apiKey，model 用 v2 */
+/** 默认 Embedding Provider 配置：默认"复用主 Provider"的凭证，model 用 v2 */
 export const DEFAULT_EMBEDDING_PROVIDER_CONFIG: ProviderConfigOrRef<EmbeddingProviderConfig> = {
   useMain: true,
 };
@@ -148,9 +143,7 @@ export const DEFAULT_EMBEDDING_PROVIDER_CONFIG: ProviderConfigOrRef<EmbeddingPro
 /** 非 useMain 时 embedding provider 的填空默认值（UI 取消"复用主 Provider"时使用） */
 export const DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK: EmbeddingProviderConfig = {
   kind: 'qwen-embedding',
-  baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
   model: 'text-embedding-v2',
-  apiKey: '',
   dimension: 1536,
 };
 
@@ -250,14 +243,13 @@ export const DEFAULT_MEMORY_SETTINGS: MemorySettings = {
 /* ------------------------------------------------------------------ */
 
 /**
- * v0.6.0-beta.2 · 按 Provider 分桶的凭证
+ * 按 Provider 分桶的凭证（唯一真源，main/aux/embedding 自身不含 apiKey/baseURL）
  * ---------------------------------------------
- * 每个 Provider kind 各自保留一份 `{ apiKey, baseURL? }`，切换 Provider 时
+ * 每个 Provider kind 保留一份 `{ apiKey, baseURL? }`，切换 Provider 时
  * 自动从桶里带出对应值，避免"切 Provider 要重填 Key"的坏体验。
  *
  * 设计要点：
- * - baseURL 可选：老用户若没改过默认值，不写入桶里，避免无谓的数据膨胀；
- *   读时回落到 registry.defaultConfig.baseURL。
+ * - baseURL 可选：未改过默认值时不写入桶，读时回落到 Provider registry 默认值。
  * - Embedding 与 LLM 公用一个 Provider 的凭证桶（例如 Qwen 的 apiKey 对
  *   LLM / embedding 共用）——这也和 UI 层"embedding useMain=true 复用主
  *   Provider 凭证"的语义一致。
@@ -270,66 +262,6 @@ export interface ProviderCredential {
 export type ProviderCredentialsMap = Partial<Record<ProviderKind, ProviderCredential>>;
 
 export const DEFAULT_PROVIDER_CREDENTIALS: ProviderCredentialsMap = {};
-
-/**
- * 幂等迁移：把旧 `main/aux/embedding` 里的 apiKey/baseURL 折叠进 providerCredentials 桶。
- *
- * 规则（与 PRD 一致）：
- * - 只要桶里**已经有某 kind 的 apiKey（非空）**，就不覆盖——用户新填的值绝对优先；
- * - 主/辅配置里读到的 apiKey 非空 → 迁入对应 kind 的桶；baseURL 与对应 Provider
- *   registry 默认 baseURL **不同**时才记录（避免污染）。
- * - 多次执行结果一致（幂等）。
- *
- * @param existing 当前桶（可为 undefined）
- * @param legacy   旧字段候选
- * @param defaultBaseURLOf 给定 kind 的默认 baseURL（由 registry 注入，避免本包反向依赖）
- * @returns 迁移后的桶（新对象；若无需改动则返回原引用以便调用者短路）
- */
-export function migrateProviderCredentials(
-  existing: ProviderCredentialsMap | undefined,
-  legacy: Array<{ kind: ProviderKind; apiKey?: string; baseURL?: string } | undefined>,
-  defaultBaseURLOf: (kind: ProviderKind) => string | undefined,
-): ProviderCredentialsMap {
-  const next: ProviderCredentialsMap = { ...(existing ?? {}) };
-  let touched = false;
-  for (const item of legacy) {
-    if (!item) continue;
-    const { kind, apiKey, baseURL } = item;
-    if (!kind) continue;
-    const slot = next[kind];
-    // 已经有非空 apiKey 就不动（幂等 + 保护用户新值）
-    const slotHasKey = !!slot && slot.apiKey.trim().length > 0;
-    if (slotHasKey) continue;
-    const legacyKey = (apiKey ?? '').trim();
-    if (!legacyKey) continue;
-    const defaultBase = defaultBaseURLOf(kind);
-    const nextSlot: ProviderCredential = { apiKey: legacyKey };
-    if (baseURL && baseURL.trim() && baseURL !== defaultBase) {
-      nextSlot.baseURL = baseURL;
-    }
-    next[kind] = nextSlot;
-    touched = true;
-  }
-  return touched ? next : (existing ?? next);
-}
-
-/**
- * 基于 providerCredentials 桶取出指定 kind 的 { apiKey, baseURL }。
- * 桶内无记录时回落到 `fallback`（通常是调用方自己持有的旧字段）。
- *
- * 注意：本函数不 mask apiKey —— mask 由日志层 `maskSecret` 负责，这里只取值。
- */
-export function resolveCredentialFor(
-  credentials: ProviderCredentialsMap | undefined,
-  kind: ProviderKind,
-  fallback: { apiKey: string; baseURL: string },
-): { apiKey: string; baseURL: string } {
-  const slot = credentials?.[kind];
-  return {
-    apiKey: slot?.apiKey?.trim() ? slot.apiKey : fallback.apiKey,
-    baseURL: slot?.baseURL?.trim() ? slot.baseURL : fallback.baseURL,
-  };
-}
 
 /** chrome.storage.local 的强类型 schema 映射 */
 export interface StorageSchema extends Record<string, unknown> {

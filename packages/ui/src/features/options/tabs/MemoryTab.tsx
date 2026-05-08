@@ -14,8 +14,7 @@
  * v0.6.0-beta.2：
  * - 当主 Provider 为 DeepSeek 且 embedding 仍 useMain=true 时，顶部警告 +
  *   "一键使用推荐配置（Qwen text-embedding-v3）"按钮
- * - Embedding Provider 下拉彻底屏蔽 DeepSeek（走 ProviderConfigForm 的 embedding
- *   mode，该 mode 不展示 Provider 下拉、kind 固定为 qwen-embedding）
+ * - apiKey / baseURL 凭证改由父组件按 kind 从桶读写，本组件只转发
  */
 import { Alert, Button, Card, Form, InputNumber, Switch } from 'antd';
 import {
@@ -24,16 +23,25 @@ import {
   type LLMProviderConfig,
   type MemorySettings,
   type ProviderConfigOrRef,
+  type ProviderKind,
 } from '@doc-assistant/shared';
 import { PROVIDER_REGISTRY } from '@doc-assistant/provider';
-import { ProviderConfigForm } from '../ProviderConfigForm';
+import { ProviderConfigForm, type ProviderCredentialView } from '../ProviderConfigForm';
 
 export interface MemoryTabProps {
   main: LLMProviderConfig;
+  /** 主 Provider 的凭证（useMain=true 时辅助/embedding 显示这个） */
+  mainCredential: ProviderCredentialView;
   aux: ProviderConfigOrRef<LLMProviderConfig>;
   onAuxChange: (next: ProviderConfigOrRef<LLMProviderConfig>) => void;
+  /** aux 当前展开（非 useMain）时对应 kind 的凭证 */
+  auxCredential: ProviderCredentialView;
+  onAuxCredentialChange: (kind: ProviderKind, patch: Partial<{ apiKey: string; baseURL: string }>) => void;
   embedding: ProviderConfigOrRef<EmbeddingProviderConfig>;
   onEmbeddingChange: (next: ProviderConfigOrRef<EmbeddingProviderConfig>) => void;
+  /** embedding 当前展开（非 useMain）时对应 kind 的凭证（与 qwen 桶共享） */
+  embeddingCredential: ProviderCredentialView;
+  onEmbeddingCredentialChange: (patch: Partial<{ apiKey: string; baseURL: string }>) => void;
   settings: MemorySettings;
   onSettingsChange: (next: MemorySettings) => void;
 }
@@ -43,23 +51,31 @@ function isUseMainRef(v: unknown): v is { useMain: true } {
 }
 
 export function MemoryTab(props: MemoryTabProps) {
-  const { main, aux, onAuxChange, embedding, onEmbeddingChange, settings, onSettingsChange } =
-    props;
+  const {
+    main,
+    mainCredential,
+    aux,
+    onAuxChange,
+    auxCredential,
+    onAuxCredentialChange,
+    embedding,
+    onEmbeddingChange,
+    embeddingCredential,
+    onEmbeddingCredentialChange,
+    settings,
+    onSettingsChange,
+  } = props;
 
-  // aux 的 fallback：继承主 Provider 的结构（kind/baseURL/model/apiKey），enableThinking 可保持或清零
-  const auxFallback: LLMProviderConfig = { ...main };
+  // aux 的 fallback：kind 继承主 Provider（方便"关掉 useMain 时自然回到主 kind"）
+  const auxFallback: LLMProviderConfig = {
+    kind: main.kind,
+    model: main.model,
+    ...(typeof main.enableThinking === 'boolean' ? { enableThinking: main.enableThinking } : {}),
+  };
 
-  // embedding fallback：优先用主 Provider 的 baseURL+apiKey + 标准 embedding model
+  // embedding fallback：kind 固定 qwen-embedding
   const embeddingFallback: EmbeddingProviderConfig = {
     ...DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
-    baseURL:
-      main.kind === 'qwen'
-        ? main.baseURL || DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL
-        : DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL,
-    apiKey:
-      main.kind === 'qwen'
-        ? main.apiKey || DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.apiKey
-        : DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.apiKey,
   };
 
   /** 主 Provider 是否无 embedding 能力（如 DeepSeek）且用户仍 useMain */
@@ -69,15 +85,20 @@ export function MemoryTab(props: MemoryTabProps) {
   const showComboWarning = mainLacksEmbedding && embeddingUseMain;
 
   const handleApplyRecommendedEmbedding = () => {
-    // 推荐：Qwen text-embedding-v3 / 1024 维，apiKey 留空等待用户填
+    // 推荐：Qwen text-embedding-v3 / 1024 维，apiKey 走 qwen 桶（用户需另行填写）
     onEmbeddingChange({
       kind: 'qwen-embedding',
-      baseURL: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.baseURL,
       model: 'text-embedding-v3',
       dimension: 1024,
-      apiKey: '',
     });
   };
+
+  // 辅助表单的凭证视图：useMain=true 时显示主凭证；否则显示 aux kind 对应凭证
+  const auxCredView: ProviderCredentialView = isUseMainRef(aux) ? mainCredential : auxCredential;
+  // embedding 表单同理：useMain=true 显示主凭证；自定义时显示 qwen 桶凭证
+  const embCredView: ProviderCredentialView = isUseMainRef(embedding)
+    ? mainCredential
+    : embeddingCredential;
 
   return (
     <>
@@ -102,6 +123,11 @@ export function MemoryTab(props: MemoryTabProps) {
             value={aux}
             onChange={onAuxChange}
             fallback={auxFallback}
+            credential={auxCredView}
+            onCredentialChange={(patch) => {
+              const kind = isUseMainRef(aux) ? main.kind : aux.kind;
+              onAuxCredentialChange(kind, patch);
+            }}
             hint="辅助模型的调用次数较高，建议选择便宜的模型（如 qwen-turbo / deepseek-v4-flash）。"
           />
         </Form>
@@ -117,7 +143,7 @@ export function MemoryTab(props: MemoryTabProps) {
             description={
               <>
                 向量召回依赖 embedding，推荐切换到 <strong>Qwen text-embedding-v3</strong>
-                （与主对话解耦，不影响聊天质量；老用户的历史记忆索引也由 Qwen 建成，可无缝继续使用）。
+                （与主对话解耦，不影响聊天质量）。
                 <div style={{ marginTop: 8 }}>
                   <Button size="small" type="primary" onClick={handleApplyRecommendedEmbedding}>
                     一键使用推荐配置
@@ -133,6 +159,8 @@ export function MemoryTab(props: MemoryTabProps) {
             value={embedding}
             onChange={onEmbeddingChange}
             fallback={embeddingFallback}
+            credential={embCredView}
+            onCredentialChange={onEmbeddingCredentialChange}
             hint="向量模型维度与模型绑定；切换后必须清库重建。Embedding 暂仅支持 Qwen（DeepSeek 官方无 embedding 服务）。"
           />
         </Form>
