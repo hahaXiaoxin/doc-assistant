@@ -27,7 +27,7 @@ const VALID = {
   apiKey: 'sk-deepseek-test-123',
   baseURL: 'https://api.deepseek.com',
   model: 'deepseek-v4-pro',
-  thinking: 'disabled' as const,
+  thinking: false as boolean,
 };
 
 describe('DeepSeekProvider · config 校验', () => {
@@ -67,12 +67,12 @@ describe('DeepSeekProvider · getModelInfo', () => {
     const p1 = new DeepSeekProvider({
       ...VALID,
       model: 'deepseek-v4-pro',
-      thinking: 'disabled',
+      thinking: false,
     });
     const p2 = new DeepSeekProvider({
       ...VALID,
       model: 'deepseek-v4-pro',
-      thinking: 'enabled',
+      thinking: true,
     });
     expect(p1.getModelInfo().id).toBe('deepseek-v4-pro');
     expect(p2.getModelInfo().id).toBe('deepseek-v4-pro');
@@ -111,22 +111,22 @@ describe('DeepSeekProvider · getProviderOptions 透传 thinking 字段', () => 
     getProviderOptions: (p: unknown) => Record<string, unknown> | undefined;
   };
 
-  it('thinking=enabled → providerOptions.openai.thinking = { type: "enabled" }', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: 'enabled' });
+  it('thinking=true → providerOptions.openai.thinking = { type: "enabled" }（Provider 层翻译）', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: true });
     const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
     // 官方 API: 请求体顶层 `thinking: { type }` 与 `model`/`messages` 同级；
     // 通过 @ai-sdk/openai 的 providerOptions.openai 透传
     expect(opts).toEqual({ openai: { thinking: { type: 'enabled' } } });
   });
 
-  it('thinking=disabled → providerOptions.openai.thinking = { type: "disabled" }', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: 'disabled' });
+  it('thinking=false → providerOptions.openai.thinking = { type: "disabled" }（显式透传，与 Qwen 不同）', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: false });
     const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
     expect(opts).toEqual({ openai: { thinking: { type: 'disabled' } } });
   });
 
-  it('未显式传 thinking → schema default `enabled` 生效', () => {
-    // 构造时不传 thinking：zod `default('enabled')` 会自动填入
+  it('未显式传 thinking → schema default `true` 生效 → 翻译为 enabled', () => {
+    // 构造时不传 thinking：zod `default(true)` 会自动填入
     const cfg = { apiKey: VALID.apiKey, baseURL: VALID.baseURL, model: VALID.model };
     const p = new DeepSeekProvider(cfg as never);
     const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });

@@ -64,21 +64,17 @@ export type DeepSeekModel = (typeof DEEPSEEK_MODELS_SUGGESTED)[number] | (string
  * ---
  * apiKey/baseURL 不在此结构内 —— 统一从 `providerCredentials[kind]` 读取。
  *
- * 思考模式开关：两家 Provider 形态不同，这里把两个字段都放在基类里（均可选），
- * 每家自己只使用对应的那一个字段：
- * - **Qwen** 用 `enableThinking: boolean`（透传 extra_body `enable_thinking`）
- * - **DeepSeek** 用 `thinking: 'enabled' | 'disabled'`（透传请求体顶层
- *   `thinking: { type: 'enabled' | 'disabled' }`，与官方 `/chat/completions` API 对齐；
- *   默认 `'enabled'`）
+ * 思考模式开关：**对外统一为 `thinking: boolean`**。Provider 层承担兼容层角色，
+ * 在各自子类的 `getProviderOptions()` 里翻译为对应官方 API 形态；装配层 / UI 只
+ * 需要关心 on/off 这个布尔语义，无需感知"Qwen 走 extra_body、DeepSeek 走请求体顶层"
+ * 这类协议细节。未来若出现"思考力度（effort）"等更丰富的语义再扩展 `thinkingEffort`。
  */
 export interface LLMProviderConfig {
   kind: ProviderKind;
   /** 模型名称（自由文本，遵循具体 Provider 命名） */
   model: string;
-  /** 是否启用思考模式（Qwen 专属；DeepSeek 忽略此字段） */
-  enableThinking?: boolean;
-  /** DeepSeek 思考模式开关（DeepSeek 专属；Qwen 忽略此字段）；默认 `'enabled'` */
-  thinking?: 'enabled' | 'disabled';
+  /** 是否启用思考模式（各 Provider 内部翻译为官方 API 要求的形态） */
+  thinking?: boolean;
 }
 
 /**
@@ -123,22 +119,20 @@ export interface EmbeddingProviderConfig {
 export const DEFAULT_MAIN_PROVIDER_CONFIG: LLMProviderConfig = {
   kind: 'qwen',
   model: 'qwen-plus',
-  enableThinking: true,
+  thinking: true,
 };
 
 /**
  * DeepSeek 主 Provider 默认值（v0.6.0-beta.2 新增）
  * ---------------------------------------------
  * UI 在用户把主 Provider 切到 DeepSeek 时使用。默认用 `deepseek-v4-pro`（官方主力档）；
- * `deepseek-v4-flash`（低成本档）由用户显式切。`thinking` 默认 `'enabled'`——
- * 与 DeepSeek 官方 API 默认行为对齐（见 `deepSeekProviderConfigSchema`）；
- * 运行时通过 `providerOptions.openai.thinking = { type }` 透传到 `/chat/completions`
- * 请求体顶层字段 `thinking`。
+ * `deepseek-v4-flash`（低成本档）由用户显式切。`thinking` 默认启用——
+ * Provider 内部会把 `true` 翻译为官方 API 要求的 `{ type: 'enabled' }` 形态。
  */
 export const DEFAULT_DEEPSEEK_PROVIDER_CONFIG: LLMProviderConfig = {
   kind: 'deepseek',
   model: 'deepseek-v4-pro',
-  thinking: 'enabled',
+  thinking: true,
 };
 
 /** 默认辅助 Provider 配置：默认"复用主 Provider" */

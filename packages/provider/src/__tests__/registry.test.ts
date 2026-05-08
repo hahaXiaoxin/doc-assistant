@@ -6,6 +6,8 @@
  * - getProviderEntry(kind) 对未知 kind 抛错
  * - listEmbeddingCapableProviders 只返回有 embedding 能力的 Provider（即排除 DeepSeek）
  * - 每条 entry 的 createLLM / listModels / defaultConfig 形状正确
+ * - 统一 `thinking: boolean` 入参 → 各 Provider 产出正确的底层 providerOptions
+ *   （本次抽象的核心契约：Provider 作为兼容层承担参数翻译）
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -14,6 +16,13 @@ import {
   listProviderEntries,
   listEmbeddingCapableProviders,
 } from '../registry';
+import { QwenProvider } from '../qwen/index';
+import { DeepSeekProvider } from '../deepseek/index';
+
+/** 用于访问 protected getProviderOptions 的窄接口 */
+type OptionsReader = {
+  getProviderOptions: (p: unknown) => Record<string, unknown> | undefined;
+};
 
 describe('PROVIDER_REGISTRY', () => {
   it('同时登记了 qwen 与 deepseek', () => {
@@ -74,7 +83,7 @@ describe('PROVIDER_REGISTRY', () => {
       apiKey: 'sk-test',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       model: 'qwen-plus',
-      enableThinking: true,
+      thinking: true,
     });
     expect(llm.getModelInfo().id).toBe('qwen-plus');
   });
@@ -85,10 +94,61 @@ describe('PROVIDER_REGISTRY', () => {
       apiKey: 'sk-test',
       baseURL: 'https://api.deepseek.com',
       model: 'deepseek-v4-pro',
+      thinking: true,
     });
     const info = llm.getModelInfo();
     expect(info.id).toBe('deepseek-v4-pro');
     // DeepSeek 当前线上模型不强制声明 reasoning 能力；这里只做 supportsTools 断言
     expect(info.supportsTools).toBe(true);
+  });
+});
+
+describe('PROVIDER_REGISTRY · 统一 thinking:boolean 入参 → Provider 翻译契约', () => {
+  it('Qwen: thinking=true → providerOptions.openai.extra_body `enable_thinking:true`（此处表现为 openai.enable_thinking）', () => {
+    const p = PROVIDER_REGISTRY.qwen.createLLM({
+      kind: 'qwen',
+      apiKey: 'sk-test',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen-plus',
+      thinking: true,
+    }) as unknown as QwenProvider;
+    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
+    expect(opts).toEqual({ openai: { enable_thinking: true } });
+  });
+
+  it('Qwen: thinking=false → 不透传（early return；避免给 Qwen 发没必要的 enable_thinking:false）', () => {
+    const p = PROVIDER_REGISTRY.qwen.createLLM({
+      kind: 'qwen',
+      apiKey: 'sk-test',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model: 'qwen-plus',
+      thinking: false,
+    }) as unknown as QwenProvider;
+    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
+    expect(opts).toBeUndefined();
+  });
+
+  it('DeepSeek: thinking=true → providerOptions.openai.thinking = { type:"enabled" }', () => {
+    const p = PROVIDER_REGISTRY.deepseek.createLLM({
+      kind: 'deepseek',
+      apiKey: 'sk-test',
+      baseURL: 'https://api.deepseek.com',
+      model: 'deepseek-v4-pro',
+      thinking: true,
+    }) as unknown as DeepSeekProvider;
+    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
+    expect(opts).toEqual({ openai: { thinking: { type: 'enabled' } } });
+  });
+
+  it('DeepSeek: thinking=false → 显式透传 { type:"disabled" }（与 Qwen 不同，DeepSeek 关闭思考需显式告知）', () => {
+    const p = PROVIDER_REGISTRY.deepseek.createLLM({
+      kind: 'deepseek',
+      apiKey: 'sk-test',
+      baseURL: 'https://api.deepseek.com',
+      model: 'deepseek-v4-pro',
+      thinking: false,
+    }) as unknown as DeepSeekProvider;
+    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
+    expect(opts).toEqual({ openai: { thinking: { type: 'disabled' } } });
   });
 });

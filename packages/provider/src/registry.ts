@@ -2,11 +2,11 @@
  * Provider Registry · kind → Provider class + 元数据 声明式映射
  * ---------------------------------------------
  * v0.6.0-beta.2：凭证与运行时参数分离。
- * - `defaultConfig`：存入 storage 的 `LLMProviderConfig`（只含 kind/model + 各家的"思考模式"字段）
+ * - `defaultConfig`：存入 storage 的 `LLMProviderConfig`（只含 kind/model/thinking）
  * - `defaultBaseURL`：切换 Provider 时给凭证桶的 baseURL 预填值（也是运行时若桶里未设置的回落值）
- * - `createLLM(runtime)`：接受运行时注入的 `{ apiKey, baseURL, model, enableThinking? | thinking? }`
- *   · Qwen 用 `enableThinking: boolean`（extra_body `enable_thinking`）
- *   · DeepSeek 用 `thinking: 'enabled' | 'disabled'`（请求体顶层 `thinking: { type }`）
+ * - `createLLM(runtime)`：接受运行时注入的 `{ apiKey, baseURL, model, thinking? }`
+ *   · 思考模式参数统一为 `thinking: boolean`；各 Provider 子类在 `getProviderOptions()`
+ *     里翻译为官方 API 要求的形态（Provider 作为兼容层存在）
  *
  * 用法：
  * - 装配层（sidebar/bootstrap / offscreen/index）：合并 `mainConfig` + `credentials[kind]`
@@ -73,10 +73,8 @@ export interface LLMRuntimeConfig {
   apiKey: string;
   baseURL: string;
   model: string;
-  /** Qwen 专属：是否启用思考模式（透传 extra_body `enable_thinking`） */
-  enableThinking?: boolean;
-  /** DeepSeek 专属：思考模式开关（透传请求体顶层 `thinking: { type }`） */
-  thinking?: 'enabled' | 'disabled';
+  /** 是否启用思考模式（各 Provider 内部翻译为官方 API 形态） */
+  thinking?: boolean;
 }
 
 /** Registry 中 LLM 工厂的统一签名 */
@@ -138,7 +136,7 @@ export const PROVIDER_REGISTRY: Record<ProviderKind, ProviderRegistryEntry> = {
         apiKey: runtime.apiKey,
         baseURL: runtime.baseURL,
         model: runtime.model,
-        enableThinking: runtime.enableThinking ?? true,
+        thinking: runtime.thinking ?? true,
       }),
     listModels: async (params) => {
       const items = await listQwenModels(params);
@@ -167,7 +165,7 @@ export const PROVIDER_REGISTRY: Record<ProviderKind, ProviderRegistryEntry> = {
         apiKey: runtime.apiKey,
         baseURL: runtime.baseURL,
         model: runtime.model,
-        thinking: runtime.thinking ?? 'enabled',
+        thinking: runtime.thinking ?? true,
       }),
     listModels: async (params) => {
       const items = await listDeepSeekModels(params);

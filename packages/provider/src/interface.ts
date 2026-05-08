@@ -6,7 +6,8 @@
  *
  * 关键设计：
  * - chat(): 返回 AsyncIterable<ChatChunk>，Agent 用 for-await 消费
- * - 所有厂商特有字段（千问的 enable_thinking、reasoning_content 等）都封装在具体实现内部
+ * - 所有厂商特有字段（Qwen 的 enable_thinking、DeepSeek 的 thinking.type、
+ *   reasoning_content 等）都封装在具体实现内部；对外思考模式统一为 `thinking: boolean`
  * - getModelInfo(): 让 Agent 能感知模型能力（是否支持 tool / reasoning / 上下文窗口）
  *
  * 架构红线：

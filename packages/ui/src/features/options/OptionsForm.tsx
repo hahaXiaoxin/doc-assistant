@@ -50,16 +50,21 @@ const logger = createLogger('ui:options');
 /* zod schemas                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 主 Provider schema：思考模式对外统一为 `thinking: boolean`（各 Provider 内部翻译）。
+ * 通过 `z.discriminatedUnion('kind', ...)` 仍保留 kind 的类型安全，但两家的 schema
+ * 形状完全一致。
+ */
 const qwenMainSchema = z.object({
   kind: z.literal('qwen'),
   model: z.string().trim().min(1, '请选择主 Provider 模型'),
-  enableThinking: z.boolean().optional(),
+  thinking: z.boolean().optional(),
 });
 
 const deepseekMainSchema = z.object({
   kind: z.literal('deepseek'),
   model: z.string().trim().min(1, '请选择主 Provider 模型'),
-  thinking: z.enum(['enabled', 'disabled']).optional(),
+  thinking: z.boolean().optional(),
 });
 
 const mainProviderSchema = z.discriminatedUnion('kind', [qwenMainSchema, deepseekMainSchema]);
@@ -70,12 +75,12 @@ const llmProviderOrRefSchema = z.union([
     z.object({
       kind: z.literal('qwen'),
       model: z.string().trim().min(1),
-      enableThinking: z.boolean().optional(),
+      thinking: z.boolean().optional(),
     }),
     z.object({
       kind: z.literal('deepseek'),
       model: z.string().trim().min(1),
-      thinking: z.enum(['enabled', 'disabled']).optional(),
+      thinking: z.boolean().optional(),
     }),
   ]),
 ]);

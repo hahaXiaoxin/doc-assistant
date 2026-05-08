@@ -20,9 +20,11 @@
     运行时默认 `max_tokens` 仍由上层保守决定，不自动撑到此上限）。
     若上游自发返回 `reasoning_content`，经 `ChatChunk.reasoning-delta` 流出 → UI
     `ThinkingBlock` 折叠展示（链路保留，未与具体模型名绑定）
-  - 思考模式参数与官方 API 对齐：配置字段 `thinking: 'enabled' | 'disabled'`（默认
-    `'enabled'`），运行时通过 `providerOptions.openai.thinking = { type }` 透传到
-    `/chat/completions` 请求体顶层字段 `thinking: { type }`（与 `model` / `messages` 同级）
+  - **思考模式参数统一为 `thinking: boolean`**：各 Provider 内部翻译为官方 API 要求的
+    形态（Qwen → `extra_body.enable_thinking`；DeepSeek → 请求体顶层 `thinking: { type }`
+    与 `model`/`messages` 同级）。Provider 作为兼容层承担参数翻译，装配层 / UI 只需
+    关心 on/off 布尔语义。DeepSeek 关闭思考需显式透传 `{ type: 'disabled' }`；
+    Qwen 关闭思考则不透传（避免发送没必要的 `enable_thinking: false`）。
   - 完整 chat / stream / tool call / usage / error 五条路径
 - **OpenAICompatible 基类**（`packages/provider/src/openai-compatible/`）：
   - `OpenAICompatibleProvider` · chat 流式 + tool call + ChatMessage→CoreMessage + jsonSchemaToZod
@@ -48,8 +50,9 @@
 ### Changed
 
 - **Qwen Provider 瘦身**：`QwenProvider` / `QwenEmbeddingProvider` / `listQwenModels` 继承
-  或复用 OpenAICompatible 基类；千问特化只保留 `enable_thinking` 透传 extra_body 与
-  `CAPABILITY_TABLE` 分类规则。`qwen/normalizer.ts` 降为 re-export 壳（向后兼容）。
+  或复用 OpenAICompatible 基类；千问特化只保留思考模式的 `extra_body.enable_thinking`
+  翻译（对外入参仍是统一的 `thinking: boolean`）与 `CAPABILITY_TABLE` 分类规则。
+  `qwen/normalizer.ts` 降为 re-export 壳（向后兼容）。
 - **UI 改为 Registry 驱动**：`BasicTab` / `ProviderConfigForm` / `MemoryTab` 的 Provider
   下拉、默认 baseURL、拉模型函数、zod 校验（改用 `z.discriminatedUnion('kind', ...)`）
   全部读 `PROVIDER_REGISTRY`，不再出现 `kind === 'qwen' ? ...` 硬编码分支。

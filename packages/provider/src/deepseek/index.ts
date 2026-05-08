@@ -7,10 +7,12 @@
  * 特化：
  * - `getModelInfo()` 按 DEEPSEEK_MODEL_CAPABILITIES 表填充（当前覆盖 `deepseek-v4-flash`
  *   与 `deepseek-v4-pro`；未命中走保守 DEFAULT）
- * - `getProviderOptions()` 把 `thinking: 'enabled' | 'disabled'` 透传为请求体顶层
- *   `thinking: { type }`（DeepSeek 官方 API 规范，与 `/chat/completions` 的 `model` /
- *   `messages` 同级；详见 https://api-docs.deepseek.com/api/create-chat-completion）。
+ * - `getProviderOptions()` 把统一的 `thinking: boolean` 翻译为请求体顶层
+ *   `thinking: { type: 'enabled' | 'disabled' }`（DeepSeek 官方 API 规范，与
+ *   `/chat/completions` 的 `model` / `messages` 同级；详见
+ *   https://api-docs.deepseek.com/api/create-chat-completion ）。
  *   通过 `@ai-sdk/openai` 的 `providerOptions.openai` 路径由 AI SDK 作为扩展字段发出；
+ *   enabled/disabled 两种都显式透传（DeepSeek 关闭思考需要显式 `disabled`，与 Qwen 不同）。
  *   若上游自发返回 `reasoning_content`，AI SDK 会将其识别为 reasoning part →
  *   normalizer 走 `reasoning-delta` 分支。
  */
@@ -65,16 +67,18 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
   }
 
   /**
-   * DeepSeek 特化：把 `thinking` 通过 `providerOptions.openai` 透传到
-   * `/chat/completions` 请求体顶层字段 `thinking: { type: 'enabled' | 'disabled' }`。
-   * （AI SDK v4 的 `@ai-sdk/openai` 会把 `providerOptions.openai` 的键合并进请求体。）
+   * DeepSeek 特化：把统一的 `thinking: boolean` 翻译为 `providerOptions.openai.thinking
+   * = { type: 'enabled' | 'disabled' }`，最终以请求体顶层 `thinking: { type }`
+   * 发给 `/chat/completions`。（AI SDK v4 的 `@ai-sdk/openai` 会把
+   * `providerOptions.openai` 的键合并进请求体。）enabled/disabled 两种都显式透传。
    */
   protected override getProviderOptions(
     _params: ChatParams,
   ): Record<string, unknown> | undefined {
+    const type = this.deepSeekConfig.thinking ? 'enabled' : 'disabled';
     return {
       openai: {
-        thinking: { type: this.deepSeekConfig.thinking },
+        thinking: { type },
       },
     };
   }

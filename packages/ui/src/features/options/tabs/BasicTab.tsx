@@ -2,7 +2,7 @@
  * BasicTab · 基础配置
  * ---------------------------------------------
  * 职责：
- * - 主 Provider 配置（kind 可选；model + enableThinking，凭证走桶）
+ * - 主 Provider 配置（kind 可选；model + thinking 开关，凭证走桶）
  * - 测试连接（轻量 fetch）
  * - 拉取账号可用模型列表（走 registry.listModels）
  * - 通用对话设置（systemPrompt + maxContextChars）
@@ -11,6 +11,7 @@
  * - Provider 下拉 / listModels 函数全部从 `PROVIDER_REGISTRY` 读
  * - apiKey / baseURL 由父组件传入 `credential`，本组件只负责 UI
  * - 切换 kind 时：model 替换为新 kind 的默认 model；凭证由父组件根据桶自动带出
+ * - 思考模式对外统一为 `thinking: boolean`，UI 用 Switch 表达
  */
 import {
   AutoComplete,
@@ -86,24 +87,13 @@ export function BasicTab({
   const handleKindChange = (nextKind: ProviderKind) => {
     const nextEntry = PROVIDER_REGISTRY[nextKind];
     if (!nextEntry) return;
-    // 两家思考开关形态不同，按 kind 分路拼装 next：
-    //  - qwen     → `enableThinking: boolean`
-    //  - deepseek → `thinking: 'enabled' | 'disabled'`
-    // 从 registry.defaultConfig 或上一 kind 的状态里取默认值。
+    // 思考模式对外统一为 `thinking: boolean`——新 kind 的默认值优先，其次沿用上一 kind 的 thinking
     const nextDefault = nextEntry.defaultConfig;
-    if (nextKind === 'qwen') {
-      onMainChange({
-        kind: 'qwen',
-        model: nextDefault.model,
-        enableThinking: nextDefault.enableThinking ?? main.enableThinking ?? false,
-      });
-    } else {
-      onMainChange({
-        kind: 'deepseek',
-        model: nextDefault.model,
-        thinking: nextDefault.thinking ?? main.thinking ?? 'enabled',
-      });
-    }
+    onMainChange({
+      kind: nextKind,
+      model: nextDefault.model,
+      thinking: nextDefault.thinking ?? main.thinking ?? false,
+    });
     // 切换 kind 后清空模型列表缓存（账号不一定对新端点生效）
     setFetchedModels(null);
     setSearchText('');
@@ -355,36 +345,15 @@ export function BasicTab({
             ) : null}
           </Form.Item>
 
-          {main.kind === 'qwen' ? (
-            <Form.Item
-              label="启用思考模式（reasoning_content）"
-              extra="开启后助手会流式返回思考过程；具体效果取决于所选模型是否支持（如 qwen3 系列）。"
-            >
-              <Switch
-                checked={!!main.enableThinking}
-                onChange={(v) =>
-                  onMainChange({ ...main, kind: 'qwen', enableThinking: v })
-                }
-              />
-            </Form.Item>
-          ) : (
-            <Form.Item
-              label="思考模式"
-              extra="DeepSeek 官方 API 原生参数 `thinking`，控制是否启用思考模式；透传为请求体顶层 `thinking: { type }`，默认启用。"
-            >
-              <Select
-                value={main.thinking ?? 'enabled'}
-                onChange={(v: 'enabled' | 'disabled') =>
-                  onMainChange({ ...main, kind: 'deepseek', thinking: v })
-                }
-                options={[
-                  { label: '启用思考（enabled）', value: 'enabled' },
-                  { label: '关闭思考（disabled）', value: 'disabled' },
-                ]}
-                style={{ width: 240 }}
-              />
-            </Form.Item>
-          )}
+          <Form.Item
+            label="思考模式"
+            extra="开启后模型会返回思考过程（reasoning），UI 以折叠块展示；具体效果取决于所选模型是否支持。"
+          >
+            <Switch
+              checked={!!main.thinking}
+              onChange={(v) => onMainChange({ ...main, thinking: v })}
+            />
+          </Form.Item>
 
           <Space>
             <Button onClick={handleTestConnection} loading={testing}>

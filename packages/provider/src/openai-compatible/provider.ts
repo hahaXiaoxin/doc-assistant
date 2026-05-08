@@ -13,7 +13,8 @@
  *
  * 子类需覆盖：
  * - `getModelInfo()`：按各自 capability 表返回
- * - `getProviderOptions()`（可选）：透传特化 extra_body（如 Qwen 的 `enable_thinking`）
+ * - `getProviderOptions()`（可选）：把统一的 `thinking: boolean` 翻译为官方 API 形态
+ *   （如 Qwen → extra_body.enable_thinking；DeepSeek → 请求体顶层 thinking.type）
  *
  * 不负责：
  * - 配置 schema 校验（各 Provider 的 config.ts 里 safeParse 后再传进来）
@@ -82,7 +83,7 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
 
   /**
    * 子类可覆盖：返回要透传给 AI SDK 的 `providerOptions`（会合并入 streamText 调用）。
-   * 用于透传各家扩展字段（如 Qwen 的 `enable_thinking`）。
+   * 用于把统一的 `thinking: boolean` 翻译为各家官方 API 要求的扩展字段形态。
    */
   protected getProviderOptions(_params: ChatParams): Record<string, unknown> | undefined {
     return undefined;

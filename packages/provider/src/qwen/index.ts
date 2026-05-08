@@ -1,9 +1,10 @@
 /**
  * QwenProvider · 千问大模型适配
  * ---------------------------------------------
- * v0.6.0-beta.2：已瘦身为 `OpenAICompatibleProvider` 基类的子类，仅保留千问特化：
- * - `enable_thinking` 通过 `providerOptions.openai.extra_body` 透传
- * - `getModelInfo()` 根据 QWEN_MODEL_CAPABILITIES 表 + 用户 enableThinking 开关合成
+ * v0.6.0-beta.2：已瘦身为 `OpenAICompatibleProvider` 基类的子类。思考模式对外
+ * 统一为 `thinking: boolean`，Qwen 子类在 `getProviderOptions()` 里把它翻译为
+ * 千问官方要求的 `extra_body.enable_thinking` 形态；`thinking=false` 时 early
+ * return `undefined`，避免给 Qwen 发没必要的 `enable_thinking: false` 字段。
  *
  * 千问在 OpenAI 兼容模式下通过请求体 extra_body 接收 `enable_thinking`；AI SDK v4 的
  * OpenAI provider 提供 providerOptions 映射到 extra_body。
@@ -38,7 +39,7 @@ export class QwenProvider extends OpenAICompatibleProvider {
     );
     this.qwenConfig = parsed.data;
     this.logger.info('QwenProvider 初始化特化', {
-      enableThinking: this.qwenConfig.enableThinking,
+      thinking: this.qwenConfig.thinking,
     });
   }
 
@@ -47,14 +48,18 @@ export class QwenProvider extends OpenAICompatibleProvider {
     return {
       id: this.qwenConfig.model,
       contextWindow: cap.contextWindow,
-      supportsReasoning: cap.supportsReasoning && this.qwenConfig.enableThinking,
+      supportsReasoning: cap.supportsReasoning && this.qwenConfig.thinking,
       supportsTools: cap.supportsTools,
     };
   }
 
-  /** 千问特化：把 enable_thinking 通过 providerOptions.openai 透传为 extra_body */
+  /**
+   * 千问特化：把统一的 `thinking: boolean` 翻译为 Qwen 官方要求的
+   * `extra_body.enable_thinking`，透传给 AI SDK 的 `providerOptions.openai`。
+   * `thinking=false` 时不透传（避免给 Qwen 发没必要的 `enable_thinking: false`）。
+   */
   protected override getProviderOptions(_params: ChatParams): Record<string, unknown> | undefined {
-    if (!this.qwenConfig.enableThinking) return undefined;
+    if (!this.qwenConfig.thinking) return undefined;
     return {
       openai: {
         enable_thinking: true,

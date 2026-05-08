@@ -34,23 +34,26 @@ describe('STORAGE_KEYS', () => {
 });
 
 describe('DEFAULT_* 默认值', () => {
-  it('主 Provider 默认只含 kind/model/enableThinking（凭证走桶）', () => {
+  it('主 Provider 默认只含 kind/model/thinking（凭证走桶）', () => {
     expect(DEFAULT_MAIN_PROVIDER_CONFIG.kind).toBe('qwen');
     expect(DEFAULT_MAIN_PROVIDER_CONFIG.model).toBe('qwen-plus');
-    expect(DEFAULT_MAIN_PROVIDER_CONFIG.enableThinking).toBe(true);
+    expect(DEFAULT_MAIN_PROVIDER_CONFIG.thinking).toBe(true);
     // 不应含 apiKey / baseURL（v0.6.0-beta.2 Breaking）
     expect((DEFAULT_MAIN_PROVIDER_CONFIG as unknown as { apiKey?: string }).apiKey).toBeUndefined();
     expect(
       (DEFAULT_MAIN_PROVIDER_CONFIG as unknown as { baseURL?: string }).baseURL,
     ).toBeUndefined();
+    // 旧字段已移除
+    expect(
+      (DEFAULT_MAIN_PROVIDER_CONFIG as unknown as { enableThinking?: unknown }).enableThinking,
+    ).toBeUndefined();
   });
 
-  it('DeepSeek 默认只含 kind/model/thinking', () => {
+  it('DeepSeek 默认只含 kind/model/thinking（对外统一 boolean）', () => {
     expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.kind).toBe('deepseek');
     expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.model).toBe('deepseek-v4-pro');
-    // DeepSeek 用 `thinking: 'enabled' | 'disabled'`（与官方 API 对齐），默认启用
-    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.thinking).toBe('enabled');
-    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.enableThinking).toBeUndefined();
+    // 思考模式对外统一为 boolean；Provider 内部翻译到官方 `{ type: 'enabled' | 'disabled' }`
+    expect(DEFAULT_DEEPSEEK_PROVIDER_CONFIG.thinking).toBe(true);
     expect(
       (DEFAULT_DEEPSEEK_PROVIDER_CONFIG as unknown as { apiKey?: string }).apiKey,
     ).toBeUndefined();
