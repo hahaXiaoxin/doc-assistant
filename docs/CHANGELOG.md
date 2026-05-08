@@ -79,6 +79,14 @@
 - 本期为 Breaking 版本：凭证存储结构重构，旧版本配置不再兼容，首次升级需重新填写
   一次 API Key；其它配置照常保留。
 
+### Breaking
+
+- **`read_page_content` 工具返回值移除 `charCount` 字段**：该字段与 `totalChars` 完全重复
+  （两者同时等于正文总字符数），此前仅作为向后兼容保留。本期顺手收掉冗余：
+  `ReadPageContentResult` 不再声明/返回 `charCount`，tool description 与 JSON Schema
+  描述文本同步更新。消费方（若有）统一改用 `totalChars`。提取器内部契约
+  `ExtractedContent.charCount`（`@doc-assistant/shared`）不变，仅工具返回值收窄。
+
 ### Version
 
 - `apps/extension/manifest.json` `version_name`：0.6.0-beta.1 → 0.6.0-beta.2
