@@ -15,3 +15,4 @@ export * from './errors';
 export * from './url-normalize';
 export * from './sensitive-filter';
 export * from './sanitize-export';
+export * from './compact';
