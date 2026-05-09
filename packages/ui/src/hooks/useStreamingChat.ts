@@ -25,7 +25,7 @@ import type {
   ChatMessage,
   ToolExecutionContext,
 } from '@doc-assistant/shared';
-import { createLogger } from '@doc-assistant/shared';
+import { createLogger, compact } from '@doc-assistant/shared';
 
 const logger = createLogger('ui:streaming-chat');
 
@@ -136,7 +136,7 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
           role: 'assistant',
           content: trimmed,
           visitId: visitMeta?.visitId ?? '',
-          ...(visitMeta?.title ? { visitTitle: visitMeta.title } : {}),
+          ...(visitMeta?.title ? { visitTitle: visitMeta.title } : {}), // 保留:原语义需要排除空字符串
         },
       ]);
     },
@@ -156,7 +156,7 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
         role: 'user',
         content: trimmed,
         visitId: currentVisitMeta?.visitId ?? '',
-        ...(currentVisitMeta?.title ? { visitTitle: currentVisitMeta.title } : {}),
+        ...(currentVisitMeta?.title ? { visitTitle: currentVisitMeta.title } : {}), // 保留:原语义需要排除空字符串
       };
       setMessages((prev) => [...prev, userMsg]);
 
@@ -191,13 +191,13 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
         userInput: trimmed,
         history,
         ...opts.buildInvokeContext(trimmed, references),
-        ...(references ? { references } : {}),
+        ...(references ? { references } : {}), // 保留:原语义需要排除空字符串
       };
 
       const meta = opts.buildToolExecCtx();
       const execCtx: ToolExecutionContext = {
         signal: controller.signal,
-        ...(meta ? { meta } : {}),
+        ...compact({ meta }),
       };
 
       try {
@@ -232,11 +232,9 @@ export function useStreamingChat(opts: UseStreamingChatOptions) {
               id: genId(),
               role: 'assistant',
               content: assistantText,
-              ...(s.reasoning ? { reasoning: s.reasoning } : {}),
-              ...(typeof s.thinkingElapsedMs === 'number'
-                ? { reasoningElapsedMs: s.thinkingElapsedMs }
-                : {}),
-              ...(hadError ? { error: true } : {}),
+              ...(s.reasoning ? { reasoning: s.reasoning } : {}), // 保留:原语义需要排除空字符串
+              ...compact({ reasoningElapsedMs: s.thinkingElapsedMs }),
+              ...(hadError ? { error: true } : {}), // 保留:布尔条件包含,非 null/undefined 判断
               visitId: currentVisitMeta?.visitId ?? '',
               ...(currentVisitMeta?.title
                 ? { visitTitle: currentVisitMeta.title }
@@ -319,7 +317,7 @@ function applyChunk(
         return {
           ...s,
           streaming: false,
-          ...(typeof elapsed === 'number' ? { thinkingElapsedMs: elapsed } : {}),
+          ...compact({ thinkingElapsedMs: elapsed }),
         };
       }
       case 'error':

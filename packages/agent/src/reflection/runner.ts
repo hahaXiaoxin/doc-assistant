@@ -27,7 +27,7 @@ import type {
   ReflectionTaskType,
 } from '@doc-assistant/memory';
 import type { ChatMessage } from '@doc-assistant/shared';
-import { createLogger } from '@doc-assistant/shared';
+import { createLogger, compact } from '@doc-assistant/shared';
 import { collectText } from '../aux/collect-text';
 
 const logger = createLogger('agent:reflection:runner');
@@ -185,15 +185,17 @@ export class ReflectionRunner {
         content: parsed.summary,
         timestamp: now,
         visitId: task.visitId,
-        ...(vec ? { embedding: vec } : {}),
-        ...(first.canonicalUrl !== undefined ? { canonicalUrl: first.canonicalUrl } : {}),
-        ...(first.domain !== undefined ? { domain: first.domain } : {}),
-        ...(first.articleId !== undefined ? { articleId: first.articleId } : {}),
+        ...compact({
+          embedding: vec,
+          canonicalUrl: first.canonicalUrl,
+          domain: first.domain,
+          articleId: first.articleId,
+        }),
         topic: parsed.tags,
         meta: {
           source: 'reflection',
           messageCount: visitEpisodes.length,
-          ...(pageVisitTitle !== undefined ? { title: pageVisitTitle } : {}),
+          ...compact({ title: pageVisitTitle }),
         },
       };
       await memory.remember(record);
@@ -306,7 +308,7 @@ export class ReflectionRunner {
             extractedBy: 'reflection',
             messageIds: [],
           },
-          ...(cand.tags && cand.tags.length ? { tags: cand.tags } : {}),
+          ...(cand.tags && cand.tags.length ? { tags: cand.tags } : {}), // 保留:原语义需要排除空数组
         };
         await memory.addPersonaCandidate(candidatePayload);
         added += 1;

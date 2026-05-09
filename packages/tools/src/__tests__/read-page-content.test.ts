@@ -16,7 +16,7 @@ function makeExecCtx(selectionText?: string) {
         url: 'https://example.com/long-article',
         title: 'Long Article',
         document,
-        ...(selectionText ? { selectionText } : {}),
+        ...(selectionText ? { selectionText } : {}), // 保留:测试 helper 与生产代码语义一致(排除空字符串)
       },
     },
   };

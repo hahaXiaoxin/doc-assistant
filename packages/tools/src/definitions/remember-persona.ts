@@ -100,7 +100,7 @@ export function createRememberPersonaTool(
           hitCount: 1,
           reviewedByUser: true, // 显式声明即视为已审核
           source: {
-            ...(visitId ? { visitId } : {}),
+            ...(visitId ? { visitId } : {}), // 保留:原语义需要排除空字符串
             extractedBy: 'user_explicit',
             messageIds: [],
           },

@@ -17,7 +17,7 @@
  * - 本类**不持有** Document / chrome.tabs，由调用方注入归一化好的 canonicalUrl。
  */
 
-import { createLogger, canonicalizeUrl, extractDomain } from '@doc-assistant/shared';
+import { createLogger, canonicalizeUrl, compact, extractDomain } from '@doc-assistant/shared';
 import type { MemoryStore } from '@doc-assistant/memory';
 import type { PageVisit } from './types';
 
@@ -93,8 +93,7 @@ export class PageVisitManager {
       url: input.url,
       canonicalUrl,
       domain,
-      ...(input.articleId !== undefined ? { articleId: input.articleId } : {}),
-      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...compact({ articleId: input.articleId, title: input.title }),
     };
     this.current = visit;
     logger.info('startNewVisit', {
@@ -158,22 +157,12 @@ export class PageVisitManager {
     // 用当前 visit 的 URL 信息作为默认值
     const fallback: StartVisitInput = {
       url: input?.url ?? this.current?.url ?? '',
-      ...(input?.canonicalUrl !== undefined
-        ? { canonicalUrl: input.canonicalUrl }
-        : this.current?.canonicalUrl !== undefined
-          ? { canonicalUrl: this.current.canonicalUrl }
-          : {}),
-      ...(input?.doc !== undefined ? { doc: input.doc } : {}),
-      ...(input?.articleId !== undefined
-        ? { articleId: input.articleId }
-        : this.current?.articleId !== undefined
-          ? { articleId: this.current.articleId }
-          : {}),
-      ...(input?.title !== undefined
-        ? { title: input.title }
-        : this.current?.title !== undefined
-          ? { title: this.current.title }
-          : {}),
+      ...compact({
+        canonicalUrl: input?.canonicalUrl ?? this.current?.canonicalUrl,
+        articleId: input?.articleId ?? this.current?.articleId,
+        title: input?.title ?? this.current?.title,
+        doc: input?.doc,
+      }),
     };
     return this.startNewVisit(fallback);
   }

@@ -21,6 +21,7 @@ import type {
   ReflectionStatus,
   PageVisitRecord,
 } from './interface';
+import { compact } from '@doc-assistant/shared';
 
 export class NullMemoryStore implements MemoryStore {
   async remember(_record: MemoryRecord): Promise<void> {
@@ -119,8 +120,7 @@ export class NullMemoryStore implements MemoryStore {
       status: task.status ?? 'pending',
       attemptsCount: 0,
       createdAt: now,
-      ...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
-      ...(task.lastError !== undefined ? { lastError: task.lastError } : {}),
+      ...compact({ completedAt: task.completedAt, lastError: task.lastError }),
     };
   }
 

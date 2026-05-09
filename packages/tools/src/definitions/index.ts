@@ -9,6 +9,7 @@
  *   - (可选) list_recent_visits: deps.listRecentVisits 存在时加入
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
+import { compact } from '@doc-assistant/shared';
 import { readPageContentTool } from './read-page-content';
 import { getPageIdentityTool } from './get-page-identity';
 import { getSelectionTextTool } from './get-selection-text';
@@ -63,8 +64,7 @@ export function buildDefaultTools(deps: DefaultToolsDeps): ToolDefinition[] {
       ...(deps.persona?.getCurrentVisitId !== undefined
         ? { getCurrentVisitId: deps.persona.getCurrentVisitId }
         : { getCurrentVisitId: () => deps.getCurrentVisit()?.visitId }),
-      ...(deps.persona?.getNow !== undefined ? { getNow: deps.persona.getNow } : {}),
-      ...(deps.persona?.genId !== undefined ? { genId: deps.persona.genId } : {}),
+      ...compact({ getNow: deps.persona?.getNow, genId: deps.persona?.genId }),
     }),
   ];
   if (deps.recallSemantic) {

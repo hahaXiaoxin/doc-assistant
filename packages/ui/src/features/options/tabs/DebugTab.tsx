@@ -33,6 +33,7 @@ import JSZip from 'jszip';
 import {
   MessageType,
   STORAGE_KEYS,
+  compact,
   createLogger,
   getLogLevel,
   sanitizeExportBundle,
@@ -276,7 +277,7 @@ export function DebugTab({ memory, storage }: DebugTabProps) {
       // 2. memory.json:仅 memory 快照(已脱敏)
       const memoryJson = sanitizeExportJson({
         exportedAt: now,
-        ...(bundle.memory ? { memory: bundle.memory } : {}),
+        ...compact({ memory: bundle.memory }),
       });
 
       // 3. logs.json:最近 5000 条日志(整体再过一次文本兜底)

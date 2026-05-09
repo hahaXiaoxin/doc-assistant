@@ -12,7 +12,7 @@
  * Provider 特有的能力填充（例如 Qwen 的 QWEN_MODEL_CAPABILITIES）由调用方通过
  * `classify` 回调注入。
  */
-import { ProviderError, createLogger, maskSecret } from '@doc-assistant/shared';
+import { ProviderError, createLogger, maskSecret, compact } from '@doc-assistant/shared';
 import { z } from 'zod';
 import { joinUrl, safeReadText } from './config';
 
@@ -70,7 +70,7 @@ export async function listOpenAICompatibleModels(
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      ...(signal ? { signal } : {}),
+      ...compact({ signal }),
     });
   } catch (err) {
     if ((err as Error).name === 'AbortError') {

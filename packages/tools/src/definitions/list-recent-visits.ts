@@ -14,6 +14,7 @@
  * （memory.recall + resolveTimeRange），确保 LLM 显式调用与系统隐式路由语义一致。
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
+import { compact } from '@doc-assistant/shared';
 
 /** 时间窗口键；与 `packages/agent/src/context/time-query.ts` 保持一致 */
 export type TimeRangeKey =
@@ -135,13 +136,15 @@ export function createListRecentVisitsTool(
       if (limit > 50) limit = 50;
 
       try {
-        const out = await deps.listRecentVisits({
-          timeRange,
-          ...(args.startTs !== undefined ? { startTs: args.startTs } : {}),
-          ...(args.endTs !== undefined ? { endTs: args.endTs } : {}),
-          ...(args.domain !== undefined ? { domain: args.domain } : {}),
-          limit,
-        });
+        const out = await deps.listRecentVisits(
+          compact({
+            timeRange,
+            startTs: args.startTs,
+            endTs: args.endTs,
+            domain: args.domain,
+            limit,
+          }),
+        );
         // title 兜底：反思 Job 有可能没写 meta.title（老数据/title 获取失败），
         // 此处用 URL 的 hostname+path 生成可读标题，保证时间维清单不会出现"空标题"条目
         const visits = out.visits.map((v) => {

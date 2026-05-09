@@ -16,7 +16,7 @@
  * - finish 必须最后发出；error 发出后 stream 应立即结束。
  */
 import type { ChatChunk, ToolCall, ToolResult } from '@doc-assistant/shared';
-import { createLogger } from '@doc-assistant/shared';
+import { createLogger, compact } from '@doc-assistant/shared';
 
 const logger = createLogger('provider:openai-compatible:normalizer');
 
@@ -116,7 +116,7 @@ export function normalizeStreamPart(part: UnknownStreamPart): ChatChunk[] {
         {
           type: 'finish',
           finishReason: normalizeFinishReason(part.finishReason),
-          ...(usage ? { usage } : {}),
+          ...compact({ usage }),
         },
       ];
     }

@@ -11,6 +11,7 @@
  * - 我们在这里定义一个最小鸭子类型 `PageVisitLike`，字段与 agent 的 PageVisit 完全兼容（结构子类型）。
  */
 import type { MemoryStore, WorkingMemoryRecord } from '@doc-assistant/memory';
+import { compact } from '@doc-assistant/shared';
 
 /**
  * 与 `packages/agent/src/page-visit/types.PageVisit` 保持结构兼容的最小字段集。
@@ -51,7 +52,7 @@ export function emptyWorkingMemory(
     createdAt: now,
     updatedAt: now,
     lastAccessedAt: now,
-    ...(visit.articleId !== undefined ? { articleId: visit.articleId } : {}),
+    ...compact({ articleId: visit.articleId }),
   };
 }
 

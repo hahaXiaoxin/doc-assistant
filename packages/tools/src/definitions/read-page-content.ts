@@ -77,7 +77,7 @@ export const readPageContentTool: ToolDefinition<ReadPageContentArgs, object> = 
       url: pageCtx.url,
       title: pageCtx.title,
       document: pageCtx.document,
-      ...(pageCtx.selectionText ? { selectionText: pageCtx.selectionText } : {}),
+      ...(pageCtx.selectionText ? { selectionText: pageCtx.selectionText } : {}), // 保留:原语义需要排除空字符串
     });
     if (!extracted) {
       throw new Error('未能从当前页面提取到主体内容');

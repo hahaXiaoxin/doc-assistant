@@ -5,6 +5,7 @@
  * id 不存在 → ok:false
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
+import { compact } from '@doc-assistant/shared';
 import type { TodoItem, TodoStatus, WorkingMemoryRecord } from '@doc-assistant/memory';
 import type { WorkingMemoryToolDeps, WMToolResult } from './deps';
 import { resolveVisitAndMemory } from './deps';
@@ -77,8 +78,7 @@ export function createUpdateTodoTool(
           content: args.content?.trim() ? args.content.trim() : before.content,
           status: args.status ?? before.status,
           updatedAt: now,
-          ...(nextPriority !== undefined ? { priority: nextPriority } : {}),
-          ...(nextNotes !== undefined ? { notes: nextNotes } : {}),
+          ...compact({ priority: nextPriority, notes: nextNotes }),
         };
         const nextTodos = [...record.todos];
         nextTodos[idx] = updated;

@@ -15,7 +15,7 @@
  * 子类需实现：
  * - 选择合适的 `maxBatchSize` / `maxInputTokens`（千问硬限 25 / DeepSeek 官方无 embedding）
  */
-import { createLogger, maskSecret, ProviderError } from '@doc-assistant/shared';
+import { createLogger, maskSecret, ProviderError, compact } from '@doc-assistant/shared';
 import { z } from 'zod';
 import type { EmbeddingProvider, EmbeddingInfo } from '../embedding-interface';
 import { joinUrl, safeReadText } from './config';
@@ -132,7 +132,7 @@ export class OpenAICompatibleEmbeddingProvider implements EmbeddingProvider {
           input: batch,
           encoding_format: 'float',
         }),
-        ...(signal ? { signal } : {}),
+        ...compact({ signal }),
       });
     } catch (err) {
       if ((err as Error).name === 'AbortError') {

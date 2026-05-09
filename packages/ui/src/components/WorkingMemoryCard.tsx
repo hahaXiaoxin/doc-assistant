@@ -14,6 +14,7 @@
  */
 import { useState } from 'react';
 import styled from 'styled-components';
+import { compact } from '@doc-assistant/shared';
 import { tokens } from '../theme/tokens';
 import { StatusStrip, StatusStripChevron } from './StatusStrip';
 
@@ -127,7 +128,7 @@ export function WorkingMemoryCard({ wm }: WorkingMemoryCardProps): JSX.Element |
         display: 'inline-block',
         verticalAlign: 'bottom',
       }} title={labelText}>{labelText}</span>}
-      {...(metaText !== undefined ? { meta: metaText } : {})}
+      {...compact({ meta: metaText })}
       action={<StatusStripChevron $open={open}>›</StatusStripChevron>}
       expanded={open}
       onToggle={() => setOpen((v) => !v)}

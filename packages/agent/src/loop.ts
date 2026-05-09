@@ -33,6 +33,7 @@
 import {
   createLogger,
   DEFAULT_CHAT_SETTINGS,
+  compact,
   type ChatChunk,
   type ChatMessage,
   type ToolCall,
@@ -79,8 +80,8 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
 
     const chatParams = {
       messages: turnMessages,
-      ...(isLastTurn ? {} : { tools: opts.tools }),
-      ...(opts.signal ? { signal: opts.signal } : {}),
+      ...(isLastTurn ? {} : { tools: opts.tools }), // 保留:布尔条件择一(非 null/undefined 判断)
+      ...compact({ signal: opts.signal }),
     };
     const stream = opts.llm.chat(chatParams);
 

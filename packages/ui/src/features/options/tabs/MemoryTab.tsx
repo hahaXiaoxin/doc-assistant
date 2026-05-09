@@ -19,6 +19,7 @@
 import { Alert, Button, Card, Form, InputNumber, Switch } from 'antd';
 import {
   DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
+  compact,
   type EmbeddingProviderConfig,
   type LLMProviderConfig,
   type MemorySettings,
@@ -71,7 +72,7 @@ export function MemoryTab(props: MemoryTabProps) {
   const auxFallback: LLMProviderConfig = {
     kind: main.kind,
     model: main.model,
-    ...(typeof main.thinking === 'boolean' ? { thinking: main.thinking } : {}),
+    ...compact({ thinking: main.thinking }),
   };
 
   // embedding fallback：kind 固定 qwen-embedding

@@ -13,6 +13,7 @@
 import {
   createLogger,
   DEFAULT_CHAT_SETTINGS,
+  compact,
   type ChatChunk,
   type ChatMessage,
   type ToolDefinition,
@@ -72,7 +73,7 @@ export class Agent {
       tools: this.tools,
       toolExecCtx: execCtx,
       maxTurns: this.maxTurns,
-      ...(execCtx.signal ? { signal: execCtx.signal } : {}),
+      ...compact({ signal: execCtx.signal }),
     };
     for await (const chunk of runAgentLoop(loopOpts)) {
       yield chunk;

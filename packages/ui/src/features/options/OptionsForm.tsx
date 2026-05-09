@@ -344,7 +344,7 @@ export function OptionsForm({ storage, memory = null }: OptionsFormProps) {
       const incomingBase = patch.baseURL !== undefined ? patch.baseURL : prevSlot.baseURL;
       const nextSlot: { apiKey: string; baseURL?: string } = {
         apiKey: nextApiKey,
-        ...(incomingBase && incomingBase !== defaultBase ? { baseURL: incomingBase } : {}),
+        ...(incomingBase && incomingBase !== defaultBase ? { baseURL: incomingBase } : {}), // 保留:多条件复合(非空且不等于默认值)
       };
       return { ...prev, [kind]: nextSlot };
     });

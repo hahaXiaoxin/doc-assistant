@@ -26,6 +26,7 @@ import { z } from 'zod';
 import {
   createLogger,
   maskSecret,
+  compact,
   type ChatChunk,
   type ChatMessage,
   type ToolDefinition,
@@ -102,16 +103,14 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
       const result = streamText({
         model: this.client(modelId),
         messages: coreMessages,
-        ...(tools ? { tools } : {}),
-        ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
-        ...(params.signal ? { abortSignal: params.signal } : {}),
-        ...(providerOptions
-          ? {
-              providerOptions: providerOptions as NonNullable<
-                Parameters<typeof streamText>[0]['providerOptions']
-              >,
-            }
-          : {}),
+        ...compact({
+          tools,
+          temperature: params.temperature,
+          abortSignal: params.signal,
+          providerOptions: providerOptions as
+            | NonNullable<Parameters<typeof streamText>[0]['providerOptions']>
+            | undefined,
+        }),
       });
 
       for await (const part of result.fullStream as AsyncIterable<UnknownStreamPart>) {

@@ -9,6 +9,7 @@
  *   共享 LLM/Memory/Orchestrator,但有自己的 sources。
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
+import { compact } from '@doc-assistant/shared';
 import type { LLMProvider } from '@doc-assistant/provider';
 import type { MemoryStore } from '@doc-assistant/memory';
 import { Agent } from '../agent';
@@ -43,10 +44,12 @@ export function createChatAgent(opts: CreateChatAgentOptions): Agent {
     systemPrompt: opts.systemPrompt,
     maxHistoryChars: opts.maxHistoryChars,
     memory: opts.memory,
-    ...(opts.agentPersonaTopK !== undefined ? { agentPersonaTopK: opts.agentPersonaTopK } : {}),
-    ...(opts.userPersonaTopK !== undefined ? { userPersonaTopK: opts.userPersonaTopK } : {}),
-    ...(opts.auxLLM !== undefined ? { auxLLM: opts.auxLLM } : {}),
-    ...(opts.relevantMemory !== undefined ? { relevantMemory: opts.relevantMemory } : {}),
+    ...compact({
+      agentPersonaTopK: opts.agentPersonaTopK,
+      userPersonaTopK: opts.userPersonaTopK,
+      auxLLM: opts.auxLLM,
+      relevantMemory: opts.relevantMemory,
+    }),
   });
 
   return new Agent({
@@ -56,6 +59,6 @@ export function createChatAgent(opts: CreateChatAgentOptions): Agent {
     memory: opts.memory,
     tools: opts.tools,
     sources,
-    ...(typeof opts.maxTurns === 'number' ? { maxTurns: opts.maxTurns } : {}),
+    ...compact({ maxTurns: opts.maxTurns }),
   });
 }

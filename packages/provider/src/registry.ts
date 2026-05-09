@@ -25,6 +25,7 @@ import {
   DEFAULT_MAIN_PROVIDER_CONFIG,
   type LLMProviderConfig,
   type ProviderKind,
+  compact,
 } from '@doc-assistant/shared';
 import type { LLMProvider } from './interface';
 import type { EmbeddingProvider } from './embedding-interface';
@@ -140,12 +141,14 @@ export const PROVIDER_REGISTRY: Record<ProviderKind, ProviderRegistryEntry> = {
       }),
     listModels: async (params) => {
       const items = await listQwenModels(params);
-      return items.map((m) => ({
-        id: m.id,
-        kind: m.kind as GenericModelKind,
-        ...(m.ownedBy !== undefined ? { ownedBy: m.ownedBy } : {}),
-        ...(m.capability ? { capability: m.capability } : {}),
-      }));
+      return items.map((m) =>
+        compact({
+          id: m.id,
+          kind: m.kind as GenericModelKind,
+          ownedBy: m.ownedBy,
+          capability: m.capability,
+        }),
+      );
     },
     suggestedModels: ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen3-max'],
     embedding: {
@@ -169,12 +172,14 @@ export const PROVIDER_REGISTRY: Record<ProviderKind, ProviderRegistryEntry> = {
       }),
     listModels: async (params) => {
       const items = await listDeepSeekModels(params);
-      return items.map((m) => ({
-        id: m.id,
-        kind: (m.kind === 'chat' ? 'chat' : 'other') as GenericModelKind,
-        ...(m.ownedBy !== undefined ? { ownedBy: m.ownedBy } : {}),
-        ...(m.capability ? { capability: m.capability } : {}),
-      }));
+      return items.map((m) =>
+        compact({
+          id: m.id,
+          kind: (m.kind === 'chat' ? 'chat' : 'other') as GenericModelKind,
+          ownedBy: m.ownedBy,
+          capability: m.capability,
+        }),
+      );
     },
     suggestedModels: DEEPSEEK_MODELS,
     embedding: null,
