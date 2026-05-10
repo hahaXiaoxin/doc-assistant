@@ -27,10 +27,11 @@
     Qwen 关闭思考则不透传（避免发送没必要的 `enable_thinking: false`）。
   - 完整 chat / stream / tool call / usage / error 五条路径
 - **OpenAICompatible 基类**（`packages/provider/src/openai-compatible/`）：
-  - `OpenAICompatibleProvider` · chat 流式 + tool call + ChatMessage→CoreMessage + jsonSchemaToZod
+  - `OpenAICompatibleProvider` · chat 流式 + tool call + ChatMessage→OpenAI 协议消息转换
   - `OpenAICompatibleEmbeddingProvider` · /embeddings 分批 + 维度校验
   - `listOpenAICompatibleModels` · /models 骨架
-  - `normalizeStreamPart` · AI SDK → ChatChunk 归一化
+  - `runOpenAIChatStream` · 裸 fetch + SSE 解析(v0.6.0-beta.2 起替代 AI SDK 的 streamText)
+  - `normalizeFinishReason` / `extractUsage` · OpenAI 协议响应字段归一化
   - 错误归一化工具（`mapHttpErrorToProviderError` 等）
 - **Provider Registry**（`packages/provider/src/registry.ts`）：声明式 `kind → {LLM 工厂 /
   embedding 能力 / listModels / 默认配置 / 推荐组合}` 映射。新增 OpenAI 兼容 Provider 只需
@@ -52,7 +53,6 @@
 - **Qwen Provider 瘦身**：`QwenProvider` / `QwenEmbeddingProvider` / `listQwenModels` 继承
   或复用 OpenAICompatible 基类；千问特化只保留思考模式的 `extra_body.enable_thinking`
   翻译（对外入参仍是统一的 `thinking: boolean`）与 `CAPABILITY_TABLE` 分类规则。
-  `qwen/normalizer.ts` 降为 re-export 壳（向后兼容）。
 - **UI 改为 Registry 驱动**：`BasicTab` / `ProviderConfigForm` / `MemoryTab` 的 Provider
   下拉、默认 baseURL、拉模型函数、zod 校验（改用 `z.discriminatedUnion('kind', ...)`）
   全部读 `PROVIDER_REGISTRY`，不再出现 `kind === 'qwen' ? ...` 硬编码分支。
@@ -88,11 +88,36 @@
 
 ### Breaking
 
+- **Chat 链路从 Vercel AI SDK 切到裸 fetch + 自己解析 OpenAI SSE**(`packages/provider/src/openai-compatible/sse-chat.ts`):
+  彻底删除对 `ai` 与 `@ai-sdk/openai` 的依赖。原因——`@ai-sdk/openai` v1.x
+  按 OpenAI 协议白名单序列化请求体,DeepSeek 思考模式所需的顶层 `thinking` 字段被吞,
+  上下行 `reasoning_content` 也不在 v1 解析路径,导致思考开关失效、ThinkingBlock
+  不显示、第 2 轮工具调用因缺 `reasoning_content` 回传被 DeepSeek 400 拒绝。
+  自己写 fetch + SSE 解析后,任何 OpenAI 协议方言字段(thinking / reasoning_content /
+  cache_control / extra_body / ...)都由我们直接控制透传,不再受 AI SDK 白名单限制。
+  对外契约不变:Agent / UI 仍只看 `ChatChunk`,Provider 内部实现切换不感知。
+- **Provider 子类 hook 改名 `getProviderOptions` → `getRequestBodyExtras`**:
+  语义从"AI SDK provider 选项"变成"直接合并入 chat completions 请求体顶层的方言字段"。
+  · DeepSeek → `{ thinking: { type: 'enabled' | 'disabled' } }`(顶层字段)
+  · Qwen     → `{ extra_body: { enable_thinking: true } }`(extra_body 容器)
 - **`read_page_content` 工具返回值移除 `charCount` 字段**：该字段与 `totalChars` 完全重复
   （两者同时等于正文总字符数），此前仅作为向后兼容保留。本期顺手收掉冗余：
   `ReadPageContentResult` 不再声明/返回 `charCount`，tool description 与 JSON Schema
   描述文本同步更新。消费方（若有）统一改用 `totalChars`。提取器内部契约
   `ExtractedContent.charCount`（`@doc-assistant/shared`）不变，仅工具返回值收窄。
+
+### Fixed
+
+- **DeepSeek 思考模式 `thinking` 字段被 AI SDK 吞** → 实际请求体里现在能看到
+  `thinking: { type: 'enabled' | 'disabled' }`,思考开关真正生效。
+- **DeepSeek `reasoning_content` 下行被 AI SDK 吞** → ThinkingBlock 在思考模式下
+  正常流式显示思考过程。
+- **DeepSeek 第 2 轮工具调用 400** → assistant 消息在多轮请求中正确回传
+  `reasoning_content`(ChatMessage 新增 `reasoning?: string` 字段,agent loop
+  累积上一轮 reasoning-delta,Provider 序列化时透出 `reasoning_content`)。
+- **DeepSeek tool 消息双重 stringify**(原通过 AI SDK CoreMessage 转换会再 stringify
+  一次工具结果,触发 DeepSeek 严格校验失败) → tool 消息 content 直接为字符串,不再
+  嵌套 array。
 
 ### Version
 

@@ -675,7 +675,43 @@ hashchange 清 topic"绕过了此冲突，真正的分离留给后续重构。
 
 ---
 
-## §14+ · 预留
+## §14 · v0.6.0-beta.2 · DeepSeek 思考模式开关失效 / ThinkingBlock 不显示 / 第 2 轮 400
+
+**症状**:
+- DeepSeek `deepseek-v4-pro` 思考模式开关在 UI 切到 "关",但实际仍在思考(响应慢、
+  返回 reasoning_tokens)。
+- 思考模式开启时 ThinkingBlock 永远不出现,UI 看到的是大段空白后才出文字。
+- 触发工具调用后,第 2 轮请求返回 400:
+  `The reasoning_content in the thinking mode must be passed back to the API`。
+
+**根因**:`@ai-sdk/openai` v1.x 按 OpenAI 协议白名单序列化:
+1. 上行:Provider 子类返回的 `providerOptions.openai.thinking` 不在白名单里,被静默丢弃,
+   实际请求体里看不到 `thinking` 字段,DeepSeek 按默认行为继续思考。
+2. 下行:SSE 流里的 `delta.reasoning_content` 不被 v1 解析路径识别,我们 normalizer
+   的 `case 'reasoning':` 永远不命中,UI 收不到 reasoning-delta。
+3. 多轮:第 2 轮请求里 assistant 消息无 reasoning_content 字段(因为下行就没收到),
+   DeepSeek 严格校验拒绝。
+
+**修复**:把 chat 链路从 AI SDK 切到自己写的裸 fetch + SSE 解析
+(`packages/provider/src/openai-compatible/sse-chat.ts`),彻底删除 `ai` / `@ai-sdk/openai`
+依赖。任何 OpenAI 协议方言字段(thinking / reasoning_content / extra_body / ...)由
+我们直接控制透传。Provider 子类 hook 改名 `getProviderOptions` → `getRequestBodyExtras`,
+返回的对象直接合并进请求体顶层。`ChatMessage` 新增 `reasoning?: string`,agent loop
+累积 reasoning-delta 后在多轮回传中作为 `reasoning_content` 透出。
+
+**验证点**:
+- DevTools Network → 看 `/chat/completions` 请求体里有 `thinking: { type }` 字段
+- 思考模式开,UI 出现 ThinkingBlock 流式显示
+- 第 2 轮请求体里上一轮 assistant 消息含 `reasoning_content` 字段,不再 400
+
+**相关代码锚点**:
+- [`packages/provider/src/openai-compatible/sse-chat.ts`](../packages/provider/src/openai-compatible/sse-chat.ts)
+- [`packages/provider/src/openai-compatible/provider.ts`](../packages/provider/src/openai-compatible/provider.ts) `toOpenAIMessages`
+- [`packages/agent/src/loop.ts`](../packages/agent/src/loop.ts) reasoning 累积
+
+---
+
+## §15+ · 预留
 
 > v0.2.1 以上踩坑已沉淀。后续若遇到反思 Job 在 SW 真机失败（跨 origin 问题暴露）、
 > Dexie 在 fake-indexeddb 与真实 IDB 行为差异、千问 embedding 限流/节流等，继续按

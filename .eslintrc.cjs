@@ -2,8 +2,10 @@
  * ESLint 根配置
  *
  * 关键约束：
- * 1. Agent 层（packages/agent）严禁直接 import `ai` 或 `@ai-sdk/*`，
+ * 1. Agent 层（packages/agent）严禁直接 import 任何 LLM 厂商 SDK,
  *    必须通过 LLMProvider 接口使用 —— 通过 overrides + no-restricted-imports 强制。
+ *    (历史遗留:v0.6.0-beta.2 之前曾把 chat 链路建在 `ai` / `@ai-sdk/openai` 上,
+ *    本期把这两个包从 Provider 层一并删除;规则保留作为对未来潜在 SDK 引入的预防。)
  * 2. Tools 层（packages/tools）暂不接入 OCR 实现（`tesseract.js`）；
  *    OCR 只保留接口骨架，详见 docs/ROADMAP.md §3。
  * 3. 禁止裸 console；使用 `packages/shared` 的 logger（logger 内部可使用 console）。

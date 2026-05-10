@@ -11,8 +11,8 @@
  * - getModelInfo(): 让 Agent 能感知模型能力（是否支持 tool / reasoning / 上下文窗口）
  *
  * 架构红线：
- * - Agent 层严禁 import 'ai' / '@ai-sdk/*'（ESLint 强约束）
- * - 所有 LLM 访问必须通过本接口
+ * - 所有 LLM 访问必须通过本接口；v0.6.0-beta.2 起 chat 实现层用裸 fetch + 自己解析
+ *   OpenAI SSE,不再依赖 Vercel AI SDK
  */
 
 import type {
