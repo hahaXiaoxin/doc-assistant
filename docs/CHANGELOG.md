@@ -75,6 +75,14 @@
   及更早版本的用户升级后需要**去 Options 页重新填写一次 API Key**，所有其他
   配置（模型选择、chat 设置、记忆数据）照常保留。
 - 重构 `@doc-assistant/shared` 内部目录为 `types/ errors/ config/ utils/` 四分区，对外 API 保持不变。
+- **Provider 子类扩展方式从 protected 方法 override 改为 Hook 注册机制**(`HookRegistry`):
+  原 `getRequestBodyExtras` / `patchOutgoingMessage` 两个 protected 钩子方法被删除,
+  子类改为在构造函数里 `this.hooks.register({ kind, name, priority?, fn })` 注册 hook。
+  本期支持 `request:body`(装饰整个请求体)与 `message:outgoing`(装饰单条出站消息)
+  两种 kind,数字越小越先执行,同优先级保持注册顺序;支持优先级排序与流水线串联,
+  便于未来添加新 hook 点(例如 `chunk:incoming`)。对外行为保持不变——
+  DeepSeek 仍发 `thinking: { type }` 顶层 + `reasoning_content` 多轮回传;
+  Qwen 仍仅在 thinking=true 时发 `extra_body.enable_thinking=true`。
 
 ### Notes
 

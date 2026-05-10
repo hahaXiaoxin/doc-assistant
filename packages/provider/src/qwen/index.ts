@@ -4,13 +4,15 @@
  * v0.6.0-beta.2:
  * - chat 链路从 AI SDK 切到自己解析 OpenAI SSE(详见 openai-compatible/sse-chat.ts)
  * - 思考模式字段直接合并进请求体的 `extra_body`(Qwen/vLLM 风格的二级容器)
+ * - 子类扩展从"override protected 方法"改为"在构造函数注册 hook"
  *
- * 思考模式对外统一为 `thinking: boolean`,Qwen 子类在 `getRequestBodyExtras()` 里把它
- * 翻译为千问官方要求的 `extra_body.enable_thinking` 形态;`thinking=false` 时 early
- * return `undefined`,避免给 Qwen 发没必要的 `enable_thinking: false` 字段。
+ * 思考模式对外统一为 `thinking: boolean`。Qwen 子类在构造函数里仅当 `thinking=true`
+ * 时注册 `request:body` hook(`qwen:enable-thinking`),把开关翻译为千问官方要求的
+ * `extra_body.enable_thinking=true` 形态;`thinking=false` 时不注册 hook,避免给
+ * Qwen 发没必要的 `enable_thinking: false` 字段。
  */
 import { ProviderError } from '@doc-assistant/shared';
-import type { ChatParams, ModelInfo } from '../interface';
+import type { ModelInfo } from '../interface';
 import { OpenAICompatibleProvider } from '../openai-compatible/provider';
 import {
   getQwenCapability,
@@ -41,6 +43,21 @@ export class QwenProvider extends OpenAICompatibleProvider {
     this.logger.info('QwenProvider 初始化特化', {
       thinking: this.qwenConfig.thinking,
     });
+
+    // 思考模式(extra_body 容器)。Qwen 关闭思考时不发任何字段——直接不注册 hook。
+    if (this.qwenConfig.thinking) {
+      this.hooks.register({
+        kind: 'request:body',
+        name: 'qwen:enable-thinking',
+        fn: (body) => ({
+          ...body,
+          extra_body: {
+            ...((body.extra_body as Record<string, unknown> | undefined) ?? {}),
+            enable_thinking: true,
+          },
+        }),
+      });
+    }
   }
 
   getModelInfo(): ModelInfo {
@@ -51,17 +68,5 @@ export class QwenProvider extends OpenAICompatibleProvider {
       supportsReasoning: cap.supportsReasoning && this.qwenConfig.thinking,
       supportsTools: cap.supportsTools,
     };
-  }
-
-  /**
-   * 千问特化:把统一的 `thinking: boolean` 翻译为 Qwen 官方要求的
-   * `extra_body.enable_thinking`,直接合并入 chat completions 请求体。
-   * `thinking=false` 时不透传(避免给 Qwen 发没必要的 `enable_thinking: false`)。
-   */
-  protected override getRequestBodyExtras(
-    _params: ChatParams,
-  ): Record<string, unknown> | undefined {
-    if (!this.qwenConfig.thinking) return undefined;
-    return { extra_body: { enable_thinking: true } };
   }
 }

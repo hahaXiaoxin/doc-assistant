@@ -1,12 +1,17 @@
 /**
- * 单测：DeepSeekProvider · config + listDeepSeekModels + getRequestBodyExtras
+ * 单测：DeepSeekProvider · config + listDeepSeekModels + hook 注册
  * ---------------------------------------------
  * v0.6.0-beta.2 起 chat 流式归一化由 sse-chat 单测覆盖（见 sse-chat.test.ts），
  * 不再依赖 AI SDK part 形态。本文件保留:
  * - 配置校验（INVALID_CONFIG）
  * - getModelInfo 对当前线上两款模型（deepseek-v4-flash / deepseek-v4-pro）的返回
- * - getRequestBodyExtras：thinking 开关 → 请求体顶层 thinking.type 字段
+ * - 注册的 `request:body` hook：thinking 开关 → 请求体顶层 thinking.type 字段
+ * - 注册的 `message:outgoing` hook：assistant.reasoning → reasoning_content 透出
  * - listDeepSeekModels：正常路径 + 错误路径（401 / 429 / 500）
+ *
+ * 通过测试桩子类 TestableDeepSeekProvider / TestableQwenProvider 暴露 protected
+ * hooks 与 toOpenAIMessages,把"构造时已注册哪些 hook"当成黑盒接口断言,而不是把
+ * 基类 protected 字段改成 public(那样会污染生产 API)。
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProviderError, type ChatMessage } from '@doc-assistant/shared';
@@ -17,7 +22,8 @@ import {
   deepSeekProviderConfigSchema,
 } from '../deepseek/config';
 import { listDeepSeekModels, classifyDeepSeekModel } from '../deepseek/list-models';
-import type { OpenAIMessage } from '../openai-compatible/sse-chat';
+import type { OpenAIChatRequest } from '../openai-compatible/sse-chat';
+import type { ChatParams } from '../interface';
 
 const VALID = {
   apiKey: 'sk-deepseek-test-123',
@@ -25,6 +31,31 @@ const VALID = {
   model: 'deepseek-v4-pro',
   thinking: false as boolean,
 };
+
+/** 测试桩:暴露 protected hooks 与 toOpenAIMessages,生产代码保持 protected 不动 */
+class TestableDeepSeekProvider extends DeepSeekProvider {
+  exposeHooks() {
+    return this.hooks;
+  }
+  exposeToOpenAIMessages(msgs: ChatMessage[], params: ChatParams = { messages: msgs }) {
+    return this.toOpenAIMessages(msgs, params);
+  }
+}
+
+class TestableQwenProvider extends QwenProvider {
+  exposeHooks() {
+    return this.hooks;
+  }
+  exposeToOpenAIMessages(msgs: ChatMessage[], params: ChatParams = { messages: msgs }) {
+    return this.toOpenAIMessages(msgs, params);
+  }
+}
+
+/** 把空 body 通过 hooks.runRequestBody 流过一遍,断言输出形状 */
+function runHooksOnEmptyBody(p: TestableDeepSeekProvider | TestableQwenProvider): OpenAIChatRequest {
+  const empty: OpenAIChatRequest = { model: 'm', messages: [], stream: true };
+  return p.exposeHooks().runRequestBody(empty, { params: { messages: [] } });
+}
 
 describe('DeepSeekProvider · config 校验', () => {
   it('合法配置通过 schema', () => {
@@ -101,12 +132,7 @@ describe('DeepSeekProvider · getModelInfo', () => {
   });
 });
 
-describe('DeepSeekProvider · patchOutgoingMessage 钩子注入 reasoning_content', () => {
-  /** 访问 protected toOpenAIMessages 做断言用的窄接口 */
-  type MsgConverter = {
-    toOpenAIMessages: (msgs: ChatMessage[]) => OpenAIMessage[];
-  };
-
+describe('DeepSeekProvider · message:outgoing hook 注入 reasoning_content', () => {
   const VALID_QWEN = {
     apiKey: 'sk-qwen-test-123',
     baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -115,12 +141,12 @@ describe('DeepSeekProvider · patchOutgoingMessage 钩子注入 reasoning_conten
   };
 
   it('assistant 含 reasoning + 无 toolCalls → 出站消息含 reasoning_content', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const p = new TestableDeepSeekProvider({ ...VALID, thinking: true });
     const msgs: ChatMessage[] = [
       { role: 'user', content: '问题' },
       { role: 'assistant', content: '回答', reasoning: '我先想一下...' },
     ];
-    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    const out = p.exposeToOpenAIMessages(msgs);
     expect(out).toHaveLength(2);
     expect(out[1]).toEqual({
       role: 'assistant',
@@ -130,7 +156,7 @@ describe('DeepSeekProvider · patchOutgoingMessage 钩子注入 reasoning_conten
   });
 
   it('assistant 含 reasoning + toolCalls → 出站消息含 reasoning_content + tool_calls(content 保留 null)', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const p = new TestableDeepSeekProvider({ ...VALID, thinking: true });
     const msgs: ChatMessage[] = [
       {
         role: 'assistant',
@@ -138,7 +164,7 @@ describe('DeepSeekProvider · patchOutgoingMessage 钩子注入 reasoning_conten
         toolCalls: [{ id: 'call_1', name: 'read_file', args: { path: 'a.ts' } }],
       },
     ];
-    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    const out = p.exposeToOpenAIMessages(msgs);
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({
       role: 'assistant',
@@ -155,67 +181,70 @@ describe('DeepSeekProvider · patchOutgoingMessage 钩子注入 reasoning_conten
   });
 
   it('assistant 不含 reasoning → 出站消息不含 reasoning_content 字段', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const p = new TestableDeepSeekProvider({ ...VALID, thinking: true });
     const msgs: ChatMessage[] = [{ role: 'assistant', content: '回答' }];
-    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    const out = p.exposeToOpenAIMessages(msgs);
     expect(out[0]).toEqual({ role: 'assistant', content: '回答' });
     expect('reasoning_content' in (out[0] as object)).toBe(false);
   });
 
   it('assistant.reasoning 为空字符串 → 不注入 reasoning_content(等价于 truthy 才带)', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const p = new TestableDeepSeekProvider({ ...VALID, thinking: true });
     const msgs: ChatMessage[] = [{ role: 'assistant', content: '回答', reasoning: '' }];
-    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    const out = p.exposeToOpenAIMessages(msgs);
     expect('reasoning_content' in (out[0] as object)).toBe(false);
   });
 
   it('user/system/tool 角色不会被注入 reasoning_content', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const p = new TestableDeepSeekProvider({ ...VALID, thinking: true });
     const msgs: ChatMessage[] = [
       { role: 'system', content: 'sys' },
       { role: 'user', content: 'u' },
       { role: 'tool', content: 'r', toolCallId: 'call_1' },
     ];
-    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    const out = p.exposeToOpenAIMessages(msgs);
     for (const m of out) {
       expect('reasoning_content' in (m as object)).toBe(false);
     }
   });
 
-  it('基类默认钩子(用 QwenProvider 实例验证)即便 ChatMessage.reasoning 非空也不注入 reasoning_content', () => {
-    const p = new QwenProvider(VALID_QWEN);
+  it('Qwen 不注册 message:outgoing hook,即便 ChatMessage.reasoning 非空也不注入 reasoning_content', () => {
+    const p = new TestableQwenProvider(VALID_QWEN);
     const msgs: ChatMessage[] = [
       { role: 'assistant', content: '回答', reasoning: '思考' },
     ];
-    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    const out = p.exposeToOpenAIMessages(msgs);
     expect(out[0]).toEqual({ role: 'assistant', content: '回答' });
     expect('reasoning_content' in (out[0] as object)).toBe(false);
   });
 });
 
-describe('DeepSeekProvider · getRequestBodyExtras 透传 thinking 字段', () => {
-  /** 访问 protected getRequestBodyExtras 做断言用的窄接口 */
-  type ExtrasReader = {
-    getRequestBodyExtras: (p: unknown) => Record<string, unknown> | undefined;
-  };
-
+describe('DeepSeekProvider · request:body hook 透传 thinking 字段', () => {
   it('thinking=true → 请求体顶层 `thinking: { type: "enabled" }`(DeepSeek 官方协议)', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: true });
-    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
-    expect(extras).toEqual({ thinking: { type: 'enabled' } });
+    const p = new TestableDeepSeekProvider({ ...VALID, thinking: true });
+    const body = runHooksOnEmptyBody(p);
+    expect((body as { thinking?: unknown }).thinking).toEqual({ type: 'enabled' });
   });
 
   it('thinking=false → 显式透传 `thinking: { type: "disabled" }`(DeepSeek 关闭思考需显式告知)', () => {
-    const p = new DeepSeekProvider({ ...VALID, thinking: false });
-    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
-    expect(extras).toEqual({ thinking: { type: 'disabled' } });
+    const p = new TestableDeepSeekProvider({ ...VALID, thinking: false });
+    const body = runHooksOnEmptyBody(p);
+    expect((body as { thinking?: unknown }).thinking).toEqual({ type: 'disabled' });
   });
 
   it('未显式传 thinking → schema default `true` 生效 → 翻译为 enabled', () => {
     const cfg = { apiKey: VALID.apiKey, baseURL: VALID.baseURL, model: VALID.model };
-    const p = new DeepSeekProvider(cfg as never);
-    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
-    expect(extras).toEqual({ thinking: { type: 'enabled' } });
+    const p = new TestableDeepSeekProvider(cfg as never);
+    const body = runHooksOnEmptyBody(p);
+    expect((body as { thinking?: unknown }).thinking).toEqual({ type: 'enabled' });
+  });
+
+  it('hook 不破坏请求体的其它字段(model / messages / stream 原样保留)', () => {
+    const p = new TestableDeepSeekProvider({ ...VALID, thinking: true });
+    const body = runHooksOnEmptyBody(p);
+    expect(body.model).toBe('m');
+    expect(body.messages).toEqual([]);
+    expect(body.stream).toBe(true);
   });
 });
 

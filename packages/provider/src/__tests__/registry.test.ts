@@ -8,8 +8,10 @@
  * - 每条 entry 的 createLLM / listModels / defaultConfig 形状正确
  * - 统一 `thinking: boolean` 入参 → 各 Provider 产出正确的请求体方言字段
  *   （本次抽象的核心契约：Provider 作为兼容层承担参数翻译。
- *    v0.6.0-beta.2 起从 providerOptions 改为直接的请求体扩展字段：
- *    DeepSeek → root.thinking;Qwen → extra_body.enable_thinking）
+ *    v0.6.0-beta.2 起从 providerOptions 改为直接的请求体扩展字段:
+ *    DeepSeek → root.thinking;Qwen → extra_body.enable_thinking。
+ *    后续(同 0.6.0-beta.2)再把 protected 方法 override 改为 HookRegistry 注册,
+ *    本测试通过测试桩 expose hooks 把"构造时已注册哪些 hook"当成黑盒断言。)
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -20,11 +22,30 @@ import {
 } from '../registry';
 import { QwenProvider } from '../qwen/index';
 import { DeepSeekProvider } from '../deepseek/index';
+import type { OpenAIChatRequest } from '../openai-compatible/sse-chat';
+import type { HookRegistry } from '../openai-compatible/hooks';
 
-/** 用于访问 protected getRequestBodyExtras 的窄接口 */
-type ExtrasReader = {
-  getRequestBodyExtras: (p: unknown) => Record<string, unknown> | undefined;
-};
+/**
+ * 测试桩:把构造时注册的 hooks 当成黑盒断言对象暴露出来,生产 API 不动。
+ * 通过把空 body 流过 hooks 看输出形状,验证 thinking 翻译契约。
+ */
+class TestableQwenProvider extends QwenProvider {
+  exposeHooks(): HookRegistry {
+    return this.hooks;
+  }
+}
+class TestableDeepSeekProvider extends DeepSeekProvider {
+  exposeHooks(): HookRegistry {
+    return this.hooks;
+  }
+}
+
+function runHooksOnEmptyBody(
+  p: TestableQwenProvider | TestableDeepSeekProvider,
+): OpenAIChatRequest {
+  const empty: OpenAIChatRequest = { model: 'm', messages: [], stream: true };
+  return p.exposeHooks().runRequestBody(empty, { params: { messages: [] } });
+}
 
 describe('PROVIDER_REGISTRY', () => {
   it('同时登记了 qwen 与 deepseek', () => {
@@ -107,50 +128,46 @@ describe('PROVIDER_REGISTRY', () => {
 
 describe('PROVIDER_REGISTRY · 统一 thinking:boolean 入参 → Provider 翻译契约', () => {
   it('Qwen: thinking=true → extra_body.enable_thinking=true(Qwen 官方协议方言)', () => {
-    const p = PROVIDER_REGISTRY.qwen.createLLM({
-      kind: 'qwen',
+    const p = new TestableQwenProvider({
       apiKey: 'sk-test',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       model: 'qwen-plus',
       thinking: true,
-    }) as unknown as QwenProvider;
-    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
-    expect(extras).toEqual({ extra_body: { enable_thinking: true } });
+    });
+    const body = runHooksOnEmptyBody(p);
+    expect((body as { extra_body?: unknown }).extra_body).toEqual({ enable_thinking: true });
   });
 
-  it('Qwen: thinking=false → 不透传(early return;避免给 Qwen 发没必要的 enable_thinking:false)', () => {
-    const p = PROVIDER_REGISTRY.qwen.createLLM({
-      kind: 'qwen',
+  it('Qwen: thinking=false → 不注册 hook(避免给 Qwen 发没必要的 enable_thinking:false)', () => {
+    const p = new TestableQwenProvider({
       apiKey: 'sk-test',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       model: 'qwen-plus',
       thinking: false,
-    }) as unknown as QwenProvider;
-    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
-    expect(extras).toBeUndefined();
+    });
+    const body = runHooksOnEmptyBody(p);
+    expect('extra_body' in body).toBe(false);
   });
 
   it('DeepSeek: thinking=true → 请求体顶层 thinking={ type:"enabled" }', () => {
-    const p = PROVIDER_REGISTRY.deepseek.createLLM({
-      kind: 'deepseek',
+    const p = new TestableDeepSeekProvider({
       apiKey: 'sk-test',
       baseURL: 'https://api.deepseek.com',
       model: 'deepseek-v4-pro',
       thinking: true,
-    }) as unknown as DeepSeekProvider;
-    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
-    expect(extras).toEqual({ thinking: { type: 'enabled' } });
+    });
+    const body = runHooksOnEmptyBody(p);
+    expect((body as { thinking?: unknown }).thinking).toEqual({ type: 'enabled' });
   });
 
   it('DeepSeek: thinking=false → 显式透传 { type:"disabled" }(与 Qwen 不同,DeepSeek 关闭思考需显式告知)', () => {
-    const p = PROVIDER_REGISTRY.deepseek.createLLM({
-      kind: 'deepseek',
+    const p = new TestableDeepSeekProvider({
       apiKey: 'sk-test',
       baseURL: 'https://api.deepseek.com',
       model: 'deepseek-v4-pro',
       thinking: false,
-    }) as unknown as DeepSeekProvider;
-    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
-    expect(extras).toEqual({ thinking: { type: 'disabled' } });
+    });
+    const body = runHooksOnEmptyBody(p);
+    expect((body as { thinking?: unknown }).thinking).toEqual({ type: 'disabled' });
   });
 });

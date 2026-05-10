@@ -15,15 +15,19 @@
  * - `ChatMessage[]` → OpenAI 协议 `messages` 数组(含 assistant.tool_calls /
  *   tool 角色)
  * - `ToolDefinition[]` → OpenAI 协议 `tools` 数组(直接透传 JSON Schema)
- * - 子类 `getRequestBodyExtras()` 返回的方言字段直接合并进请求体顶层
- * - 子类 `patchOutgoingMessage()` 钩子可对单条出站消息做协议方言级别 patch
- *   (例:DeepSeek 把 ChatMessage.reasoning 注入到 reasoning_content 实现多轮回传)
+ * - 通过 HookRegistry 把子类注册的 hook 串成流水线:
+ *   · `request:body`     · 装饰整个 chat completions 请求体
+ *   · `message:outgoing` · 装饰单条 ChatMessage 转换后的 OpenAIMessage
  *
  * 子类需覆盖:
  * - `getModelInfo()`:按各自 capability 表返回
- * - `getRequestBodyExtras()`(可选):返回要直接合并进请求体的方言字段
- *   · DeepSeek → `{ thinking: { type: 'enabled' | 'disabled' } }`(root 字段)
- *   · Qwen     → `{ extra_body: { enable_thinking: true } }`(extra_body 容器)
+ *
+ * 子类**扩展行为的方式**(不要 override 基类方法,统一注册 hook):
+ * - 在构造函数里 `this.hooks.register({ kind, name, priority?, fn })`
+ *   · DeepSeek → 注册 `request:body` 把 thinking 翻译为 `{ thinking: { type } }`
+ *               + 注册 `message:outgoing` 把 reasoning 注入 reasoning_content
+ *   · Qwen     → 注册 `request:body` 把 thinking=true 翻译为
+ *               `extra_body.enable_thinking=true`(thinking=false 时不注册)
  *
  * 不负责:
  * - 配置 schema 校验(各 Provider 的 config.ts 里 safeParse 后再传进来)
@@ -45,6 +49,7 @@ import {
   type OpenAITool,
 } from './sse-chat';
 import { joinUrl } from './config';
+import { HookRegistry } from './hooks';
 
 /** 基础字段:所有 OpenAI 兼容 Provider 都需要这些 */
 export interface OpenAICompatibleBaseParams {
@@ -67,17 +72,20 @@ export interface OpenAICompatibleProviderOptions {
  * class DeepSeekProvider extends OpenAICompatibleProvider {
  *   constructor(config) {
  *     super(config, { logName: 'provider:deepseek' });
+ *     this.hooks.register({
+ *       kind: 'request:body',
+ *       name: 'deepseek:thinking',
+ *       fn: (body) => ({ ...body, thinking: { type: 'enabled' } }),
+ *     });
  *   }
  *   getModelInfo(): ModelInfo { ... }
- *   protected override getRequestBodyExtras(_p: ChatParams) {
- *     return { thinking: { type: 'enabled' } };
- *   }
  * }
  * ```
  */
 export abstract class OpenAICompatibleProvider implements LLMProvider {
   protected readonly baseConfig: OpenAICompatibleBaseParams;
   protected readonly logger: ReturnType<typeof createLogger>;
+  protected readonly hooks = new HookRegistry();
 
   constructor(config: OpenAICompatibleBaseParams, opts: OpenAICompatibleProviderOptions) {
     this.baseConfig = config;
@@ -91,27 +99,13 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
 
   abstract getModelInfo(): ModelInfo;
 
-  /**
-   * 子类可覆盖:返回要直接合并进 chat completions 请求体顶层的扩展字段。
-   * 用于把统一的 `thinking: boolean` 翻译为各家官方 API 要求的方言形态。
-   *
-   * - DeepSeek: `{ thinking: { type: 'enabled' | 'disabled' } }`(顶层字段)
-   * - Qwen:    `{ extra_body: { enable_thinking: true } }`(extra_body 容器)
-   *
-   * 返回 undefined 表示无扩展字段。
-   */
-  protected getRequestBodyExtras(_params: ChatParams): Record<string, unknown> | undefined {
-    return undefined;
-  }
-
   async *chat(params: ChatParams): AsyncIterable<ChatChunk> {
     const modelId = params.modelOverride ?? this.baseConfig.model;
-    const messages = this.toOpenAIMessages(params.messages);
+    const messages = this.toOpenAIMessages(params.messages, params);
     const tools = this.toOpenAITools(params.tools);
-    const extras = this.getRequestBodyExtras(params);
     const startedAt = Date.now();
 
-    const body: OpenAIChatRequest = {
+    let body: OpenAIChatRequest = {
       model: modelId,
       messages,
       stream: true,
@@ -119,8 +113,8 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
         tools,
         temperature: params.temperature,
       }),
-      ...(extras ?? {}),
     };
+    body = this.hooks.runRequestBody(body, { params });
 
     const url = joinUrl(this.baseConfig.baseURL, '/chat/completions');
     let finishReason: string | undefined;
@@ -157,13 +151,15 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
    *    导致 DeepSeek 严格校验 400)
    *
    * 协议方言级别的字段补丁(例如 DeepSeek 的 `reasoning_content` 多轮回传)由子类
-   * 通过覆盖 `patchOutgoingMessage` 钩子实现,基类对此类厂商专属字段保持无知。
+   * 通过注册 `message:outgoing` hook 实现,基类对此类厂商专属字段保持无知。
    */
-  protected toOpenAIMessages(messages: ChatMessage[]): OpenAIMessage[] {
+  protected toOpenAIMessages(messages: ChatMessage[], params: ChatParams): OpenAIMessage[] {
     const out: OpenAIMessage[] = [];
     for (const msg of messages) {
       const converted = this.convertSingleMessage(msg);
-      if (converted) out.push(this.patchOutgoingMessage(converted, msg));
+      if (converted) {
+        out.push(this.hooks.runMessageOutgoing(converted, { params, source: msg }));
+      }
     }
     return out;
   }
@@ -205,21 +201,6 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
       default:
         return undefined;
     }
-  }
-
-  /**
-   * 子类可覆盖:在 ChatMessage → OpenAIMessage 转换之后,对单条出站消息做协议方言级别的 patch。
-   * 默认 identity,不动消息。
-   *
-   * 用例:
-   * - DeepSeek 思考模式协议要求"上一轮 assistant 的 reasoning_content 必须回传",
-   *   子类在此把 ChatMessage.reasoning 注入到 OpenAIMessage.reasoning_content。
-   *
-   * 注意:此钩子只接收转换后的 OpenAIMessage 与原始 ChatMessage,
-   * 不应改变 role 或 OpenAI 协议必填字段。
-   */
-  protected patchOutgoingMessage(out: OpenAIMessage, _src: ChatMessage): OpenAIMessage {
-    return out;
   }
 
   /**
