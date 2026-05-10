@@ -35,12 +35,3 @@ export async function safeReadText(resp: Response): Promise<string> {
     return '';
   }
 }
-
-/** 兜底 JSON 解析：失败则原样返回 */
-export function safeParseJSON(s: string): unknown {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return s;
-  }
-}

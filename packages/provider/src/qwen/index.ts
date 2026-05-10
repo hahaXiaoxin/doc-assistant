@@ -1,13 +1,13 @@
 /**
  * QwenProvider · 千问大模型适配
  * ---------------------------------------------
- * v0.6.0-beta.2：已瘦身为 `OpenAICompatibleProvider` 基类的子类。思考模式对外
- * 统一为 `thinking: boolean`，Qwen 子类在 `getProviderOptions()` 里把它翻译为
- * 千问官方要求的 `extra_body.enable_thinking` 形态；`thinking=false` 时 early
- * return `undefined`，避免给 Qwen 发没必要的 `enable_thinking: false` 字段。
+ * v0.6.0-beta.2:
+ * - chat 链路从 AI SDK 切到自己解析 OpenAI SSE(详见 openai-compatible/sse-chat.ts)
+ * - 思考模式字段直接合并进请求体的 `extra_body`(Qwen/vLLM 风格的二级容器)
  *
- * 千问在 OpenAI 兼容模式下通过请求体 extra_body 接收 `enable_thinking`；AI SDK v4 的
- * OpenAI provider 提供 providerOptions 映射到 extra_body。
+ * 思考模式对外统一为 `thinking: boolean`,Qwen 子类在 `getRequestBodyExtras()` 里把它
+ * 翻译为千问官方要求的 `extra_body.enable_thinking` 形态;`thinking=false` 时 early
+ * return `undefined`,避免给 Qwen 发没必要的 `enable_thinking: false` 字段。
  */
 import { ProviderError } from '@doc-assistant/shared';
 import type { ChatParams, ModelInfo } from '../interface';
@@ -54,16 +54,14 @@ export class QwenProvider extends OpenAICompatibleProvider {
   }
 
   /**
-   * 千问特化：把统一的 `thinking: boolean` 翻译为 Qwen 官方要求的
-   * `extra_body.enable_thinking`，透传给 AI SDK 的 `providerOptions.openai`。
-   * `thinking=false` 时不透传（避免给 Qwen 发没必要的 `enable_thinking: false`）。
+   * 千问特化:把统一的 `thinking: boolean` 翻译为 Qwen 官方要求的
+   * `extra_body.enable_thinking`,直接合并入 chat completions 请求体。
+   * `thinking=false` 时不透传(避免给 Qwen 发没必要的 `enable_thinking: false`)。
    */
-  protected override getProviderOptions(_params: ChatParams): Record<string, unknown> | undefined {
+  protected override getRequestBodyExtras(
+    _params: ChatParams,
+  ): Record<string, unknown> | undefined {
     if (!this.qwenConfig.thinking) return undefined;
-    return {
-      openai: {
-        enable_thinking: true,
-      },
-    };
+    return { extra_body: { enable_thinking: true } };
   }
 }

@@ -1,17 +1,12 @@
 /**
- * 单测：DeepSeekProvider · config + listDeepSeekModels + chat-stream mock
+ * 单测：DeepSeekProvider · config + listDeepSeekModels + getRequestBodyExtras
  * ---------------------------------------------
- * 覆盖 AC-COMPAT-2 列出的场景：
+ * v0.6.0-beta.2 起 chat 流式归一化由 sse-chat 单测覆盖（见 sse-chat.test.ts），
+ * 不再依赖 AI SDK part 形态。本文件保留:
  * - 配置校验（INVALID_CONFIG）
  * - getModelInfo 对当前线上两款模型（deepseek-v4-flash / deepseek-v4-pro）的返回
- * - Chat stream mock（通过 mock streamText 的 fullStream 走 normalizer）：
- *   text-delta / tool-call / reasoning-delta / usage / finish
- *   这部分直接通过 normalizer 测试覆盖，不走真实 AI SDK（避免依赖网络）
- * - listDeepSeekModels：正常路径（所有条目都归类为 chat）+ 错误路径（401 / 429 / 500）
- *
- * 说明：reasoning-delta 链路保留（DeepSeek 官方 OpenAI 兼容协议仍可能在 `deepseek-v4-pro`
- * 上返回 reasoning 字段），但测试断言**不再绑定特定模型名**——只要上游发出
- * `reasoning` / `reasoning-delta` part，normalizer 就应正确归一化。
+ * - getRequestBodyExtras：thinking 开关 → 请求体顶层 thinking.type 字段
+ * - listDeepSeekModels：正常路径 + 错误路径（401 / 429 / 500）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProviderError } from '@doc-assistant/shared';
@@ -21,7 +16,6 @@ import {
   deepSeekProviderConfigSchema,
 } from '../deepseek/config';
 import { listDeepSeekModels, classifyDeepSeekModel } from '../deepseek/list-models';
-import { normalizeStreamPart } from '../openai-compatible/normalizer';
 
 const VALID = {
   apiKey: 'sk-deepseek-test-123',
@@ -105,97 +99,29 @@ describe('DeepSeekProvider · getModelInfo', () => {
   });
 });
 
-describe('DeepSeekProvider · getProviderOptions 透传 thinking 字段', () => {
-  /** 访问 protected getProviderOptions 做断言用的窄接口 */
-  type OptionsReader = {
-    getProviderOptions: (p: unknown) => Record<string, unknown> | undefined;
+describe('DeepSeekProvider · getRequestBodyExtras 透传 thinking 字段', () => {
+  /** 访问 protected getRequestBodyExtras 做断言用的窄接口 */
+  type ExtrasReader = {
+    getRequestBodyExtras: (p: unknown) => Record<string, unknown> | undefined;
   };
 
-  it('thinking=true → providerOptions.openai.thinking = { type: "enabled" }（Provider 层翻译）', () => {
+  it('thinking=true → 请求体顶层 `thinking: { type: "enabled" }`(DeepSeek 官方协议)', () => {
     const p = new DeepSeekProvider({ ...VALID, thinking: true });
-    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
-    // 官方 API: 请求体顶层 `thinking: { type }` 与 `model`/`messages` 同级；
-    // 通过 @ai-sdk/openai 的 providerOptions.openai 透传
-    expect(opts).toEqual({ openai: { thinking: { type: 'enabled' } } });
+    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
+    expect(extras).toEqual({ thinking: { type: 'enabled' } });
   });
 
-  it('thinking=false → providerOptions.openai.thinking = { type: "disabled" }（显式透传，与 Qwen 不同）', () => {
+  it('thinking=false → 显式透传 `thinking: { type: "disabled" }`(DeepSeek 关闭思考需显式告知)', () => {
     const p = new DeepSeekProvider({ ...VALID, thinking: false });
-    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
-    expect(opts).toEqual({ openai: { thinking: { type: 'disabled' } } });
+    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
+    expect(extras).toEqual({ thinking: { type: 'disabled' } });
   });
 
   it('未显式传 thinking → schema default `true` 生效 → 翻译为 enabled', () => {
-    // 构造时不传 thinking：zod `default(true)` 会自动填入
     const cfg = { apiKey: VALID.apiKey, baseURL: VALID.baseURL, model: VALID.model };
     const p = new DeepSeekProvider(cfg as never);
-    const opts = (p as unknown as OptionsReader).getProviderOptions({ messages: [] });
-    expect(opts).toEqual({ openai: { thinking: { type: 'enabled' } } });
-  });
-});
-
-describe('DeepSeekProvider · 流式归一化覆盖（AC-MAIN-1/-3/-4）', () => {
-  it('text-delta 逐字拼接', () => {
-    const chunks = [
-      ...normalizeStreamPart({ type: 'text-delta', textDelta: '你好' }),
-      ...normalizeStreamPart({ type: 'text-delta', textDelta: '世界' }),
-    ];
-    const text = chunks
-      .filter((c) => c.type === 'text-delta')
-      .map((c) => (c as { delta: string }).delta)
-      .join('');
-    expect(text).toBe('你好世界');
-  });
-
-  it('上游发出 reasoning / reasoning-delta 分支时正确归一化（不依赖具体模型名）', () => {
-    // DeepSeek 官方 OpenAI 兼容协议仍可能返回 reasoning_content；
-    // 只要 AI SDK 把它翻译成 reasoning / reasoning-delta part，normalizer 就得归一化为
-    // ChatChunk.reasoning-delta。此断言不再绑定特定模型（v4 两档均未强制声明 reasoning 能力）。
-    const chunks = [
-      ...normalizeStreamPart({ type: 'reasoning', textDelta: '让我先分析' }),
-      ...normalizeStreamPart({ type: 'reasoning-delta', textDelta: '这道题的结构' }),
-    ];
-    const reasoning = chunks
-      .filter((c) => c.type === 'reasoning-delta')
-      .map((c) => (c as { delta: string }).delta)
-      .join('');
-    expect(reasoning).toBe('让我先分析这道题的结构');
-  });
-
-  it('tool-call 流式分块被归一为 tool-call chunk（AC-MAIN-2）', () => {
-    const chunks = normalizeStreamPart({
-      type: 'tool-call',
-      toolCallId: 'call_deepseek_1',
-      toolName: 'recall_memory',
-      args: { query: '上次我们聊的 agent loop' },
-    });
-    expect(chunks).toHaveLength(1);
-    const first = chunks[0]!;
-    expect(first.type).toBe('tool-call');
-    if (first.type === 'tool-call') {
-      expect(first.call.name).toBe('recall_memory');
-      expect(first.call.id).toBe('call_deepseek_1');
-    }
-  });
-
-  it('finish 带 usage 能被提取（AC-MAIN-4）', () => {
-    const chunks = normalizeStreamPart({
-      type: 'finish',
-      finishReason: 'stop',
-      usage: { promptTokens: 120, completionTokens: 45, reasoningTokens: 88 },
-    });
-    expect(chunks).toEqual([
-      {
-        type: 'finish',
-        finishReason: 'stop',
-        usage: { promptTokens: 120, completionTokens: 45, reasoningTokens: 88 },
-      },
-    ]);
-  });
-
-  it('finish 缺 usage 字段不抛异常（AC-MAIN-4 兜底）', () => {
-    const chunks = normalizeStreamPart({ type: 'finish', finishReason: 'stop' });
-    expect(chunks).toEqual([{ type: 'finish', finishReason: 'stop' }]);
+    const extras = (p as unknown as ExtrasReader).getRequestBodyExtras({ messages: [] });
+    expect(extras).toEqual({ thinking: { type: 'enabled' } });
   });
 });
 

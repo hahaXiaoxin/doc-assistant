@@ -431,7 +431,7 @@ describe('runOpenAIChatStream · 错误路径', () => {
     expect(chunks[0]?.type).toBe('error');
     expect(chunks[1]).toEqual({ type: 'finish', finishReason: 'error' });
     if (chunks[0]?.type === 'error') {
-      expect((chunks[0].error as { code: string }).code).toBe('AUTH_ERROR');
+      expect((chunks[0].error as unknown as { code: string }).code).toBe('AUTH_ERROR');
     }
   });
 
@@ -442,7 +442,7 @@ describe('runOpenAIChatStream · 错误路径', () => {
     );
     expect(chunks[0]?.type).toBe('error');
     if (chunks[0]?.type === 'error') {
-      expect((chunks[0].error as { code: string }).code).toBe('RATE_LIMITED');
+      expect((chunks[0].error as unknown as { code: string }).code).toBe('RATE_LIMITED');
     }
   });
 
@@ -452,7 +452,7 @@ describe('runOpenAIChatStream · 错误路径', () => {
       runOpenAIChatStream({ url: 'https://x', apiKey: 'sk', body: BASE_REQ, logger }),
     );
     if (chunks[0]?.type === 'error') {
-      expect((chunks[0].error as { code: string }).code).toBe('UPSTREAM_ERROR');
+      expect((chunks[0].error as unknown as { code: string }).code).toBe('UPSTREAM_ERROR');
     }
   });
 
@@ -465,7 +465,7 @@ describe('runOpenAIChatStream · 错误路径', () => {
     );
     expect(chunks[0]?.type).toBe('error');
     if (chunks[0]?.type === 'error') {
-      expect((chunks[0].error as { code: string }).code).toBe('NETWORK_ERROR');
+      expect((chunks[0].error as unknown as { code: string }).code).toBe('NETWORK_ERROR');
     }
   });
 
