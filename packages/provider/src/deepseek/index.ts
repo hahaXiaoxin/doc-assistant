@@ -14,9 +14,10 @@
  *   与 `model`/`messages` 同级;详见 https://api-docs.deepseek.com/api/create-chat-completion)。
  *   enabled/disabled 两种都显式透传(DeepSeek 关闭思考需要显式 `disabled`,与 Qwen 不同)。
  */
-import { ProviderError } from '@doc-assistant/shared';
+import { ProviderError, compact, type ChatMessage } from '@doc-assistant/shared';
 import type { ChatParams, ModelInfo } from '../interface';
 import { OpenAICompatibleProvider } from '../openai-compatible/provider';
+import type { OpenAIMessage } from '../openai-compatible/sse-chat';
 import {
   deepSeekProviderConfigSchema,
   getDeepSeekCapability,
@@ -72,5 +73,22 @@ export class DeepSeekProvider extends OpenAICompatibleProvider {
   ): Record<string, unknown> | undefined {
     const type = this.deepSeekConfig.thinking ? 'enabled' : 'disabled';
     return { thinking: { type } };
+  }
+
+  /**
+   * DeepSeek 特化:思考模式协议要求"上一轮 assistant 的 reasoning_content 必须回传",
+   * 否则下一轮工具调用会被 DeepSeek 严格校验 400 拒绝。
+   *
+   * 把 ChatMessage.reasoning(由上层 agent loop 在前一轮累积)注入到 OpenAIMessage.reasoning_content。
+   * 仅对 assistant 角色生效;`reasoning || undefined` 把空串归一,再由 compact 剔除(语义=truthy 才注入)。
+   * `removeNull: false` 保留 `content: null`(tool_calls 场景故意保留,部分上游对空串敏感)。
+   * 这是 DeepSeek 协议方言级别的"用法",留在此处不向基类泄漏。
+   */
+  protected override patchOutgoingMessage(out: OpenAIMessage, src: ChatMessage): OpenAIMessage {
+    if (src.role !== 'assistant') return out;
+    return compact(
+      { ...out, reasoning_content: src.reasoning || undefined },
+      { removeNull: false },
+    );
   }
 }

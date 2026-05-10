@@ -13,9 +13,11 @@
  * 本基类承担:
  * - 用 `runOpenAIChatStream` 发起流式请求,转发 ChatChunk 给 Agent 层
  * - `ChatMessage[]` → OpenAI 协议 `messages` 数组(含 assistant.tool_calls /
- *   tool 角色 / 思考模式 reasoning_content 多轮回传)
+ *   tool 角色)
  * - `ToolDefinition[]` → OpenAI 协议 `tools` 数组(直接透传 JSON Schema)
  * - 子类 `getRequestBodyExtras()` 返回的方言字段直接合并进请求体顶层
+ * - 子类 `patchOutgoingMessage()` 钩子可对单条出站消息做协议方言级别 patch
+ *   (例:DeepSeek 把 ChatMessage.reasoning 注入到 reasoning_content 实现多轮回传)
  *
  * 子类需覆盖:
  * - `getModelInfo()`:按各自 capability 表返回
@@ -128,7 +130,7 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
       url,
       apiKey: this.baseConfig.apiKey,
       body,
-      ...(params.signal ? { signal: params.signal } : {}),
+      ...compact({ signal: params.signal }),
       logger: this.logger,
     })) {
       if (chunk.type === 'finish') finishReason = chunk.finishReason;
@@ -148,59 +150,75 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
    *
    * - system / user:简单透传 content
    * - assistant 文本:`{ role: 'assistant', content }`
-   * - assistant 含 tool_calls:`{ role, content?, reasoning_content?, tool_calls: [...] }`,
+   * - assistant 含 tool_calls:`{ role, content?, tool_calls: [...] }`,
    *   args 为对象时 stringify(OpenAI 协议要求 arguments 为 JSON 字符串)。
-   *   `reasoning_content` 是 DeepSeek 思考模式协议要求的多轮回传字段,只有当上一轮
-   *   ChatMessage.reasoning 非空时才透传(非思考模型不会有这个字段)。
    * - tool:`{ role: 'tool', tool_call_id, content }`,content 直接为字符串
    *   (上层 agent loop 已 serializeToolResult 过,这里不再嵌套 array,避免双重 stringify
    *    导致 DeepSeek 严格校验 400)
+   *
+   * 协议方言级别的字段补丁(例如 DeepSeek 的 `reasoning_content` 多轮回传)由子类
+   * 通过覆盖 `patchOutgoingMessage` 钩子实现,基类对此类厂商专属字段保持无知。
    */
   protected toOpenAIMessages(messages: ChatMessage[]): OpenAIMessage[] {
     const out: OpenAIMessage[] = [];
     for (const msg of messages) {
-      switch (msg.role) {
-        case 'system':
-          out.push({ role: 'system', content: msg.content ?? '' });
-          break;
-        case 'user':
-          out.push({ role: 'user', content: msg.content ?? '' });
-          break;
-        case 'assistant': {
-          if (msg.toolCalls?.length) {
-            out.push({
-              role: 'assistant',
-              // OpenAI 协议允许 tool_calls 同时携带 content;无文本时给 null(部分上游对空串敏感)
-              content: msg.content ?? null,
-              ...(msg.reasoning ? { reasoning_content: msg.reasoning } : {}),
-              tool_calls: msg.toolCalls.map((c) => ({
-                id: c.id,
-                type: 'function' as const,
-                function: {
-                  name: c.name,
-                  arguments: typeof c.args === 'string' ? c.args : JSON.stringify(c.args ?? {}),
-                },
-              })),
-            });
-          } else {
-            out.push({
-              role: 'assistant',
-              content: msg.content ?? '',
-              ...(msg.reasoning ? { reasoning_content: msg.reasoning } : {}),
-            });
-          }
-          break;
-        }
-        case 'tool': {
-          out.push({
-            role: 'tool',
-            tool_call_id: msg.toolCallId ?? '',
-            content: msg.content ?? '',
-          });
-          break;
-        }
-      }
+      const converted = this.convertSingleMessage(msg);
+      if (converted) out.push(this.patchOutgoingMessage(converted, msg));
     }
+    return out;
+  }
+
+  /**
+   * 单条 ChatMessage → OpenAIMessage 的纯字段映射(不含厂商方言补丁)。
+   * 不可识别的 role 返回 undefined,由调用方丢弃。
+   */
+  private convertSingleMessage(msg: ChatMessage): OpenAIMessage | undefined {
+    switch (msg.role) {
+      case 'system':
+        return { role: 'system', content: msg.content ?? '' };
+      case 'user':
+        return { role: 'user', content: msg.content ?? '' };
+      case 'assistant': {
+        if (msg.toolCalls?.length) {
+          return {
+            role: 'assistant',
+            // OpenAI 协议允许 tool_calls 同时携带 content;无文本时给 null(部分上游对空串敏感)
+            content: msg.content ?? null,
+            tool_calls: msg.toolCalls.map((c) => ({
+              id: c.id,
+              type: 'function' as const,
+              function: {
+                name: c.name,
+                arguments: typeof c.args === 'string' ? c.args : JSON.stringify(c.args ?? {}),
+              },
+            })),
+          };
+        }
+        return { role: 'assistant', content: msg.content ?? '' };
+      }
+      case 'tool':
+        return {
+          role: 'tool',
+          tool_call_id: msg.toolCallId ?? '',
+          content: msg.content ?? '',
+        };
+      default:
+        return undefined;
+    }
+  }
+
+  /**
+   * 子类可覆盖:在 ChatMessage → OpenAIMessage 转换之后,对单条出站消息做协议方言级别的 patch。
+   * 默认 identity,不动消息。
+   *
+   * 用例:
+   * - DeepSeek 思考模式协议要求"上一轮 assistant 的 reasoning_content 必须回传",
+   *   子类在此把 ChatMessage.reasoning 注入到 OpenAIMessage.reasoning_content。
+   *
+   * 注意:此钩子只接收转换后的 OpenAIMessage 与原始 ChatMessage,
+   * 不应改变 role 或 OpenAI 协议必填字段。
+   */
+  protected patchOutgoingMessage(out: OpenAIMessage, _src: ChatMessage): OpenAIMessage {
     return out;
   }
 

@@ -25,6 +25,7 @@
  */
 import {
   ProviderError,
+  compact,
   type ChatChunk,
   type ToolCall,
   type createLogger,
@@ -103,7 +104,7 @@ export async function* runOpenAIChatStream(
         Accept: 'text/event-stream',
       },
       body: JSON.stringify(body),
-      ...(signal ? { signal } : {}),
+      ...compact({ signal }),
     });
   } catch (err) {
     if ((err as Error)?.name === 'AbortError') {
@@ -246,7 +247,7 @@ export async function* runOpenAIChatStream(
   yield {
     type: 'finish',
     finishReason: finishReason ?? 'stop',
-    ...(usage ? { usage } : {}),
+    ...compact({ usage }),
   };
 }
 

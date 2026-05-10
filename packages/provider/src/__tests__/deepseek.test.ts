@@ -9,13 +9,15 @@
  * - listDeepSeekModels：正常路径 + 错误路径（401 / 429 / 500）
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProviderError } from '@doc-assistant/shared';
+import { ProviderError, type ChatMessage } from '@doc-assistant/shared';
 import { DeepSeekProvider } from '../deepseek/index';
+import { QwenProvider } from '../qwen/index';
 import {
   DEEPSEEK_MODEL_CAPABILITIES,
   deepSeekProviderConfigSchema,
 } from '../deepseek/config';
 import { listDeepSeekModels, classifyDeepSeekModel } from '../deepseek/list-models';
+import type { OpenAIMessage } from '../openai-compatible/sse-chat';
 
 const VALID = {
   apiKey: 'sk-deepseek-test-123',
@@ -96,6 +98,98 @@ describe('DeepSeekProvider · getModelInfo', () => {
     expect(info.supportsReasoning).toBe(false);
     // DEFAULT 能力表不声明 maxOutputTokens（未知模型不做乐观假设）
     expect(info.maxOutputTokens).toBeUndefined();
+  });
+});
+
+describe('DeepSeekProvider · patchOutgoingMessage 钩子注入 reasoning_content', () => {
+  /** 访问 protected toOpenAIMessages 做断言用的窄接口 */
+  type MsgConverter = {
+    toOpenAIMessages: (msgs: ChatMessage[]) => OpenAIMessage[];
+  };
+
+  const VALID_QWEN = {
+    apiKey: 'sk-qwen-test-123',
+    baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: 'qwen3-max',
+    thinking: false,
+  };
+
+  it('assistant 含 reasoning + 无 toolCalls → 出站消息含 reasoning_content', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const msgs: ChatMessage[] = [
+      { role: 'user', content: '问题' },
+      { role: 'assistant', content: '回答', reasoning: '我先想一下...' },
+    ];
+    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    expect(out).toHaveLength(2);
+    expect(out[1]).toEqual({
+      role: 'assistant',
+      content: '回答',
+      reasoning_content: '我先想一下...',
+    });
+  });
+
+  it('assistant 含 reasoning + toolCalls → 出站消息含 reasoning_content + tool_calls(content 保留 null)', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const msgs: ChatMessage[] = [
+      {
+        role: 'assistant',
+        reasoning: '需要查文件',
+        toolCalls: [{ id: 'call_1', name: 'read_file', args: { path: 'a.ts' } }],
+      },
+    ];
+    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      role: 'assistant',
+      content: null,
+      reasoning_content: '需要查文件',
+      tool_calls: [
+        {
+          id: 'call_1',
+          type: 'function',
+          function: { name: 'read_file', arguments: JSON.stringify({ path: 'a.ts' }) },
+        },
+      ],
+    });
+  });
+
+  it('assistant 不含 reasoning → 出站消息不含 reasoning_content 字段', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const msgs: ChatMessage[] = [{ role: 'assistant', content: '回答' }];
+    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    expect(out[0]).toEqual({ role: 'assistant', content: '回答' });
+    expect('reasoning_content' in (out[0] as object)).toBe(false);
+  });
+
+  it('assistant.reasoning 为空字符串 → 不注入 reasoning_content(等价于 truthy 才带)', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const msgs: ChatMessage[] = [{ role: 'assistant', content: '回答', reasoning: '' }];
+    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    expect('reasoning_content' in (out[0] as object)).toBe(false);
+  });
+
+  it('user/system/tool 角色不会被注入 reasoning_content', () => {
+    const p = new DeepSeekProvider({ ...VALID, thinking: true });
+    const msgs: ChatMessage[] = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'u' },
+      { role: 'tool', content: 'r', toolCallId: 'call_1' },
+    ];
+    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    for (const m of out) {
+      expect('reasoning_content' in (m as object)).toBe(false);
+    }
+  });
+
+  it('基类默认钩子(用 QwenProvider 实例验证)即便 ChatMessage.reasoning 非空也不注入 reasoning_content', () => {
+    const p = new QwenProvider(VALID_QWEN);
+    const msgs: ChatMessage[] = [
+      { role: 'assistant', content: '回答', reasoning: '思考' },
+    ];
+    const out = (p as unknown as MsgConverter).toOpenAIMessages(msgs);
+    expect(out[0]).toEqual({ role: 'assistant', content: '回答' });
+    expect('reasoning_content' in (out[0] as object)).toBe(false);
   });
 });
 
