@@ -74,6 +74,7 @@
   / bootstrap/offscreen 的 fallback 分支 / UI 里的双写逻辑全部删除）。0.6.0-beta.1
   及更早版本的用户升级后需要**去 Options 页重新填写一次 API Key**，所有其他
   配置（模型选择、chat 设置、记忆数据）照常保留。
+- 重构 `@doc-assistant/shared` 内部目录为 `types/ errors/ config/ utils/` 四分区，对外 API 保持不变。
 
 ### Notes
 

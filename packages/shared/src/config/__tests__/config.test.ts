@@ -13,7 +13,7 @@ import {
   MAX_TURNS_MAX,
   clampMaxTurns,
   isUseMain,
-} from '../config';
+} from '..';
 
 describe('STORAGE_KEYS', () => {
   it('所有 key 全部存在且格式统一', () => {
