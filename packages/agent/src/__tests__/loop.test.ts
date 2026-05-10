@@ -327,4 +327,97 @@ describe('runAgentLoop', () => {
       finishReason: 'error',
     });
   });
+
+  it('v0.6.0-beta.2: reasoning-delta 累积后作为 assistant.reasoning 在下一轮回传', async () => {
+    const capturedParams: ChatParams[] = [];
+    const llm: LLMProvider = {
+      getModelInfo: () => ({
+        id: 'fake-thinking',
+        contextWindow: 1024,
+        supportsReasoning: true,
+        supportsTools: true,
+      }),
+      async *chat(p: ChatParams) {
+        capturedParams.push(p);
+        const turnIdx = capturedParams.length - 1;
+        if (turnIdx === 0) {
+          // 第 0 轮:思考一下,然后调 tool
+          yield { type: 'reasoning-delta', delta: '让我先想想' } as ChatChunk;
+          yield { type: 'reasoning-delta', delta: '应该调 echo' } as ChatChunk;
+          yield {
+            type: 'tool-call',
+            call: { id: 'c1', name: 'echo', args: { x: 1 } },
+          } as ChatChunk;
+          yield { type: 'finish', finishReason: 'tool_calls' } as ChatChunk;
+        } else {
+          yield { type: 'text-delta', delta: 'done' } as ChatChunk;
+          yield { type: 'finish', finishReason: 'stop' } as ChatChunk;
+        }
+      },
+    };
+    const chunks: ChatChunk[] = [];
+    for await (const c of runAgentLoop({
+      llm,
+      messages: [{ role: 'user', content: 'hi' } as ChatMessage],
+      tools: [dummyTool],
+      toolExecCtx: {},
+      maxTurns: 4,
+    })) {
+      chunks.push(c);
+    }
+
+    // reasoning-delta 也透传给 UI
+    expect(chunks.some((c) => c.type === 'reasoning-delta')).toBe(true);
+
+    // 第 1 轮请求里,assistant 消息(刚刚那条 tool_calls)应该带 reasoning='让我先想想应该调 echo'
+    // 注意:capturedParams[1].messages 是按引用捕获的;loop 结束时已追加了 turn 1 的 assistant 文本消息,
+    // 因此用 toolCalls 字段定位 turn 0 的 assistant
+    const turn1Messages = capturedParams[1]?.messages ?? [];
+    const assistantWithReasoning = turn1Messages.find(
+      (m) => m.role === 'assistant' && m.toolCalls?.length,
+    );
+    expect(assistantWithReasoning?.reasoning).toBe('让我先想想应该调 echo');
+    expect(assistantWithReasoning?.toolCalls?.length).toBe(1);
+  });
+
+  it('v0.6.0-beta.2: 无 reasoning 时 assistant.reasoning 字段缺席', async () => {
+    const capturedParams: ChatParams[] = [];
+    const llm: LLMProvider = {
+      getModelInfo: () => ({
+        id: 'fake',
+        contextWindow: 1024,
+        supportsReasoning: false,
+        supportsTools: true,
+      }),
+      async *chat(p: ChatParams) {
+        capturedParams.push(p);
+        const idx = capturedParams.length - 1;
+        if (idx === 0) {
+          yield {
+            type: 'tool-call',
+            call: { id: 'c1', name: 'echo', args: {} },
+          } as ChatChunk;
+          yield { type: 'finish', finishReason: 'tool_calls' } as ChatChunk;
+        } else {
+          yield { type: 'text-delta', delta: 'k' } as ChatChunk;
+          yield { type: 'finish', finishReason: 'stop' } as ChatChunk;
+        }
+      },
+    };
+    for await (const _c of runAgentLoop({
+      llm,
+      messages: [{ role: 'user', content: 'x' } as ChatMessage],
+      tools: [dummyTool],
+      toolExecCtx: {},
+      maxTurns: 4,
+    })) {
+      void _c;
+    }
+    const turn1Messages = capturedParams[1]?.messages ?? [];
+    const assistantMsg = turn1Messages.find(
+      (m) => m.role === 'assistant' && m.toolCalls?.length,
+    );
+    expect(assistantMsg).toBeDefined();
+    expect(assistantMsg?.reasoning).toBeUndefined();
+  });
 });

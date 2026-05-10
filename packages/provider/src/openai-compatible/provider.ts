@@ -148,8 +148,10 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
    *
    * - system / user:简单透传 content
    * - assistant 文本:`{ role: 'assistant', content }`
-   * - assistant 含 tool_calls:`{ role, content?, tool_calls: [...] }`,
-   *   args 为对象时 stringify(OpenAI 协议要求 arguments 为 JSON 字符串)
+   * - assistant 含 tool_calls:`{ role, content?, reasoning_content?, tool_calls: [...] }`,
+   *   args 为对象时 stringify(OpenAI 协议要求 arguments 为 JSON 字符串)。
+   *   `reasoning_content` 是 DeepSeek 思考模式协议要求的多轮回传字段,只有当上一轮
+   *   ChatMessage.reasoning 非空时才透传(非思考模型不会有这个字段)。
    * - tool:`{ role: 'tool', tool_call_id, content }`,content 直接为字符串
    *   (上层 agent loop 已 serializeToolResult 过,这里不再嵌套 array,避免双重 stringify
    *    导致 DeepSeek 严格校验 400)
@@ -170,6 +172,7 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
               role: 'assistant',
               // OpenAI 协议允许 tool_calls 同时携带 content;无文本时给 null(部分上游对空串敏感)
               content: msg.content ?? null,
+              ...(msg.reasoning ? { reasoning_content: msg.reasoning } : {}),
               tool_calls: msg.toolCalls.map((c) => ({
                 id: c.id,
                 type: 'function' as const,
@@ -180,7 +183,11 @@ export abstract class OpenAICompatibleProvider implements LLMProvider {
               })),
             });
           } else {
-            out.push({ role: 'assistant', content: msg.content ?? '' });
+            out.push({
+              role: 'assistant',
+              content: msg.content ?? '',
+              ...(msg.reasoning ? { reasoning_content: msg.reasoning } : {}),
+            });
           }
           break;
         }

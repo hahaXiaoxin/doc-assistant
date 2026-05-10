@@ -69,6 +69,7 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
 
     const pendingCalls: ToolCall[] = [];
     let assistantText = '';
+    let assistantReasoning = '';
     let sawAnyChunk = false;
     let streamErrored = false;
     let ignoredToolCallCount = 0;
@@ -96,6 +97,7 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
           yield chunk;
           break;
         case 'reasoning-delta':
+          assistantReasoning += chunk.delta;
           yield chunk;
           break;
         case 'tool-call':
@@ -127,9 +129,12 @@ export async function* runAgentLoop(opts: LoopOptions): AsyncIterable<ChatChunk>
       );
     }
 
-    // 把 assistant 消息（包括 tool_calls）追加到 messages
+    // 把 assistant 消息（包括 tool_calls 与 reasoning）追加到 messages
+    // reasoning 仅记录上一轮(用于下一轮请求中按 OpenAI/DeepSeek 协议作为 reasoning_content
+    // 回传),不主动累积历史所有轮。
     const assistantMsg: ChatMessage = { role: 'assistant' };
     if (assistantText) assistantMsg.content = assistantText;
+    if (assistantReasoning) assistantMsg.reasoning = assistantReasoning;
     if (pendingCalls.length) assistantMsg.toolCalls = pendingCalls;
     if (assistantMsg.content || assistantMsg.toolCalls) {
       messages.push(assistantMsg);
