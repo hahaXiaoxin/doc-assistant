@@ -101,27 +101,39 @@ function ActionsBridge({
   actionsRef,
   insertRef,
   submitRef,
+  clearRef,
 }: {
   actionsRef?: React.MutableRefObject<ChatInputActions | null>;
   insertRef: React.MutableRefObject<((p: ReferencePayload) => void) | null>;
   submitRef: React.MutableRefObject<(() => void) | null>;
+  /**
+   * v1.2 · 让 LexicalComposer 外层的 handleSubmit 也能在「命令分发命中时」清空
+   * 输入框 —— 把 editor 实例上的 clearEditor(editor) 挂到 ref 上,外层闭包通过
+   * ref 调用,避免把 editor 一路 prop drilling 出 Composer。
+   *
+   * 注意:即使调用方没传 actionsRef,clearRef 也要绑 —— 命令路径默认就要 clear。
+   */
+  clearRef: React.MutableRefObject<(() => void) | null>;
 }) {
   const [editor] = useLexicalComposerContext();
   useEffect(() => {
-    if (!actionsRef) return;
-    actionsRef.current = {
-      // insertReference 作为闭包实时读 insertRef · 详见 docs/TROUBLESHOOTING.md §6
-      // 不能在此直接固化成具体函数——InsertReferencePlugin 和 ActionsBridge
-      // 的 useEffect 执行顺序按 JSX 挂载顺序，不保证谁先谁后；固化会吞掉后续注册的真 fn。
-      insertReference: (payload) => insertRef.current?.(payload),
-      clear: () => clearEditor(editor),
-      focus: () => editor.focus(),
-      submit: () => submitRef.current?.(),
-    };
+    clearRef.current = () => clearEditor(editor);
+    if (actionsRef) {
+      actionsRef.current = {
+        // insertReference 作为闭包实时读 insertRef · 详见 docs/TROUBLESHOOTING.md §6
+        // 不能在此直接固化成具体函数——InsertReferencePlugin 和 ActionsBridge
+        // 的 useEffect 执行顺序按 JSX 挂载顺序，不保证谁先谁后；固化会吞掉后续注册的真 fn。
+        insertReference: (payload) => insertRef.current?.(payload),
+        clear: () => clearEditor(editor),
+        focus: () => editor.focus(),
+        submit: () => submitRef.current?.(),
+      };
+    }
     return () => {
-      actionsRef.current = null;
+      clearRef.current = null;
+      if (actionsRef) actionsRef.current = null;
     };
-  }, [editor, actionsRef, insertRef, submitRef]);
+  }, [editor, actionsRef, insertRef, submitRef, clearRef]);
   return null;
 }
 
@@ -132,6 +144,10 @@ export function LexicalChatInput(props: LexicalChatInputProps) {
   });
   const insertRef = useRef<((p: ReferencePayload) => void) | null>(null);
   const submitRef = useRef<(() => void) | null>(null);
+  // v1.2 · clearViaEditorRef 由 ActionsBridge 在 Composer 内层绑定:命令分发命中时
+  // 清空输入框。和 actionsRef.clear 不同的是:这条路径无论调用方是否传 actionsRef
+  // 都可用(命令路径必清)。
+  const clearViaEditorRef = useRef<(() => void) | null>(null);
   // v1.1 PR-3 C3 · 本地缓存 isEmpty 的上次值,避免每次 onChange 都打父组件 setState。
   const lastIsEmptyRef = useRef<boolean>(true);
 
@@ -153,6 +169,25 @@ export function LexicalChatInput(props: LexicalChatInputProps) {
     if (props.disabled) return;
     const payload = editorRef.current;
     if (!payload.userInput.trim()) return;
+    // v1.2 · 统一命令分发器:发送时先看用户输入是不是 `/<已注册命令>`,是则
+    // 把它当 slash command 跑掉,**不**作为普通消息发出去;否则走原 onSubmit。
+    //
+    // 关键不变量(避免回归):
+    //  - 只有当 references 为空时才尝试命令分发 —— 用户在输入框里挂了引用,通常
+    //    意味着这是一条带上下文的"消息",不该被当成命令吞掉。
+    //  - 命令命中时立刻清空输入框,体感跟旧路径(pick→执行)一致。
+    //  - registry.dispatch 只严格匹配已注册命令名;陌生 `/foo` 仍会作为普通消息
+    //    发出,以免用户的代码片段(`/usr/local/...`)被错误当成命令。
+    if (payload.references.length === 0) {
+      const r = props.slashRegistry.dispatch(payload.userInput, props.slashContext);
+      if (r.handled) {
+        clearViaEditorRef.current?.();
+        // 命令多为 fire-and-forget;失败由命令内部 notify。这里不 await,
+        // 否则会把 LexicalChatInput 的 onSubmit 同步语义搞复杂(目前调用方不期望)。
+        void r.result;
+        return;
+      }
+    }
     props.onSubmit(payload);
   };
   submitRef.current = handleSubmit;
@@ -186,8 +221,17 @@ export function LexicalChatInput(props: LexicalChatInputProps) {
             insertRef.current = fn;
           }}
         />
-        <SlashCommandPlugin registry={props.slashRegistry} context={props.slashContext} />
-        {props.actionsRef && <ActionsBridge actionsRef={props.actionsRef} insertRef={insertRef} submitRef={submitRef} />}
+        <SlashCommandPlugin registry={props.slashRegistry} />
+        {/*
+          ActionsBridge v1.2 起总是 mount —— clearRef 在命令分发命中时清空输入,
+          这条路径独立于 actionsRef,所以即使调用方没传 actionsRef 也得绑。
+        */}
+        <ActionsBridge
+          {...(props.actionsRef ? { actionsRef: props.actionsRef } : {})}
+          insertRef={insertRef}
+          submitRef={submitRef}
+          clearRef={clearViaEditorRef}
+        />
       </LexicalComposer>
     </EditorShell>
   );
