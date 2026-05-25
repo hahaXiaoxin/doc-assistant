@@ -214,9 +214,10 @@ pnpm typecheck        # TypeScript 类型检查（tsc -b）
 | [`docs/PRIVACY.md`](./docs/PRIVACY.md) | 隐私政策与 `<all_urls>` 权限说明 |
 | [`docs/CWS-REVIEW-NOTES.md`](./docs/CWS-REVIEW-NOTES.md) | Chrome Web Store 审核 justification 模板 |
 | [`docs/TROUBLESHOOTING.md`](./docs/TROUBLESHOOTING.md) | Shadow DOM / Lexical / 流式 / CORS 等踩坑沉淀 |
-| [`docs/v0.2-DESIGN-HISTORY.md`](./docs/v0.2-DESIGN-HISTORY.md) | v0.2 大版本：从 MVP 到四层记忆的设计史 |
-| [`docs/v0.4-v0.5-DESIGN-HISTORY.md`](./docs/v0.4-v0.5-DESIGN-HISTORY.md) | v0.4–v0.5 可见记忆 · Offscreen 架构设计史 |
 | [`docs/requirements/`](./docs/requirements) | 正式需求说明（按版本归档） |
+| [`docs/ideas/`](./docs/ideas) | 产品想法索引（短表 + 单文件跟踪） |
+| [`docs/bugs/`](./docs/bugs) | 已知缺陷索引（短表 + 单文件跟踪） |
+| [`docs/archive/`](./docs/archive) | 历史设计史与已完成的一次性需求 |
 
 ---
 

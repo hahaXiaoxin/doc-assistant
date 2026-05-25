@@ -243,6 +243,8 @@ Manifest V3 下 content script 发起的跨源请求**仍受 CORS 约束**，
 时，同时提示"本扩展仅预授权 `dashscope.aliyuncs.com`，其他域
 需在 manifest 声明后重新打包"。
 
+> 已索引到:[`docs/bugs/006.host-permissions-dynamic-request.md`](bugs/006.host-permissions-dynamic-request.md) <!-- 由 ideas/bugs 双向链接维护 -->
+
 ---
 
 ## §5 · 输入卡顿 + 宿主页面 404 请求风暴
@@ -520,6 +522,8 @@ all: initial;          /* 避免继承宿主页面样式 */
 模型调 tool 时几乎完全依赖 description 判断用途，任何语义歧义都会被它填上自己的理解。
 同时，UI 层默认隐藏 tool-call 会让这类设计 bug 悄无声息——下一版本考虑给 assistant
 消息加一个"已调用 N 个工具"的小徽章（点击可展开详情），作为最低限度的可观测性。
+
+> 已索引到:[`docs/ideas/017.tool-call-observability.md`](ideas/017.tool-call-observability.md) <!-- 由 ideas/bugs 双向链接维护 -->
 
 ---
 

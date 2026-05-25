@@ -4,7 +4,7 @@
 > 版本目标：`v0.3.0`（标记 **breaking change**）
 > 定稿日期：2026-04-29
 > 关联 ROADMAP：`docs/ROADMAP.md · #代码清理 · 移除 v0.1 向后兼容代码`
-> 关联 DESIGN HISTORY：`docs/v0.2-DESIGN-HISTORY.md · §七` TODO 条目
+> 关联 DESIGN HISTORY：`docs/archive/v0.2-DESIGN-HISTORY.md · §七` TODO 条目
 
 ---
 
@@ -112,7 +112,7 @@
 2. **ROADMAP 同步**
    - `docs/ROADMAP.md · #代码清理`：把该条目标记为 `[x]` 完成，附指向 v0.3.0 CHANGELOG 的锚链
 3. **DESIGN HISTORY 同步**
-   - `docs/v0.2-DESIGN-HISTORY.md · §七`：把"移除 v0.1 兼容..."那行从 TODO 清单中移出，或改写为"已于 v0.3.0 完成清理"
+   - `docs/archive/v0.2-DESIGN-HISTORY.md · §七`：把"移除 v0.1 兼容..."那行从 TODO 清单中移出，或改写为"已于 v0.3.0 完成清理"
 4. **TROUBLESHOOTING 无需改动**：本次没有踩坑记录新增。
 
 > **不在范围内**（已按 Q4 明确排除）：
@@ -146,7 +146,7 @@
 
 ### 发布物
 - [ ] `docs/CHANGELOG.md` 增加 v0.3.0 breaking 条目，包含 Removed / Breaking / Upgrade Guide 三小节
-- [ ] `docs/ROADMAP.md` 和 `docs/v0.2-DESIGN-HISTORY.md` 的 TODO 同步勾掉
+- [ ] `docs/ROADMAP.md` 和 `docs/archive/v0.2-DESIGN-HISTORY.md` 的 TODO 同步勾掉
 - [ ] `package.json`（仓库根与各子包）`version` 字段统一升到 `0.3.0`
 
 ---
@@ -175,7 +175,7 @@
 | 代码改动 | 所有 `MemoryStore` 可选方法的消费端（agent / tools / sidebar），删除 optional-chaining |
 | 版本号 | 仓库根 `package.json` 与所有 workspace 子包 `version: 0.3.0` |
 | 文档 | `docs/CHANGELOG.md` · 新增 v0.3.0 breaking 条目 |
-| 文档 | `docs/ROADMAP.md` / `docs/v0.2-DESIGN-HISTORY.md` · 同步 TODO 状态 |
+| 文档 | `docs/ROADMAP.md` / `docs/archive/v0.2-DESIGN-HISTORY.md` · 同步 TODO 状态 |
 
 ---
 
