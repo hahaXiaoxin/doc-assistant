@@ -29,6 +29,14 @@ export interface ChatMessage {
   role: ChatRole;
   /** 文本内容（user/system/assistant 普通消息） */
   content?: string;
+  /**
+   * assistant 思考模式产出的思考内容（DeepSeek `reasoning_content` / Qwen 思考链）。
+   * - 流式过程中由 ChatChunk.reasoning-delta 累积
+   * - 多轮 chat 时回传给 LLM:DeepSeek 思考模式协议要求第 N(>1) 轮请求中,assistant 消息
+   *   必须把上一轮的 `reasoning_content` 一并回传,否则 400(详见 docs/CHANGELOG.md)
+   * - 仅记录"上一轮 assistant"的 reasoning,不主动扩展为历史所有轮
+   */
+  reasoning?: string;
   /** 对于 assistant 消息，发起的 tool 调用 */
   toolCalls?: ToolCall[];
   /** 对于 tool 消息，响应的 toolCallId */

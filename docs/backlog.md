@@ -28,7 +28,7 @@
 
 ## B-001 · 接入 DeepSeek 相关模型
 
-> ✅ **已升级为正式需求**（2026-05-06），见 [`docs/requirements/v0.5.1-deepseek-provider.md`](./requirements/v0.5.1-deepseek-provider.md)。本节保留作为**背景档案**，新的验收标准以需求文档为准。
+> ✅ **已升级为正式需求**（2026-05-06），见 [`docs/archive/v0.5.1-deepseek-provider.md`](./archive/v0.5.1-deepseek-provider.md)（已被 v0.6.0-beta.2 取代,归档保留)。本节保留作为**背景档案**,新的验收标准以 [`v0.6.0-beta.2-deepseek-provider.md`](./requirements/v0.6.0-beta.2-deepseek-provider.md) 为准。
 
 ### 背景 / 动机
 
@@ -43,7 +43,7 @@
 ### 初步验收标准
 
 - [ ] 配置页 `main` / `auxiliary` / `embedding` 三套 Provider 下拉里**新增 "DeepSeek" 选项**，与 Qwen 并列。
-- [ ] 用户填入 DeepSeek 的 `apiKey` + `baseUrl`（留默认值）+ `model id`（如 `deepseek-chat` / `deepseek-reasoner`）后，**主对话、辅助任务、embedding 三条链路分别可用**（embedding 如 DeepSeek 无官方 embedding，此项可标"不适用"并在 UI 上明确）。
+- [ ] 用户填入 DeepSeek 的 `apiKey` + `baseUrl`（留默认值）+ `model id`（如 `deepseek-v4-flash` / `deepseek-v4-pro`）后，**主对话、辅助任务、embedding 三条链路分别可用**（embedding 如 DeepSeek 无官方 embedding，此项可标"不适用"并在 UI 上明确）。
 - [ ] 流式输出、tool calling、usage 统计字段均能正确归一化到现有 `ChatChunk` 契约（即 sidebar / RelevantMemorySource / ReflectionRunner 等所有消费方无感）。
 - [ ] 新增 ≥ 1 组端到端回归：`packages/provider/src/__tests__/deepseek.test.ts` 覆盖 normal / tool-call / error 三条路径。
 - [ ] 文档同步：README "支持的模型" 章节、ROADMAP · §6 把该条目勾掉。
@@ -126,6 +126,8 @@
 - **强前置关系：B-003 / B-004 的"所属智能体"语义都依赖本条先落地**。如果跳过本条直接做 subAgent，会出现"子 agent 挂在谁身上"的架构空洞，返工风险高。
 - 与 ROADMAP · v0.8 的 `CheckerAgent` **已确认合并**（2026-05-06）：`CheckerAgent` 作为 B-002 框架的内置"背景型 / 旁路型"智能体实例存在，不再单独演化一套机制。详见上文"与 ROADMAP · v0.8 `CheckerAgent` 的治理关系（2026-05-06 并轨）"小节与 [ROADMAP · §4](./ROADMAP.md#4--phase-3-bcheckeragent-与实时提醒) 中的注脚。
 
+> 已索引到:[`docs/ideas/001.custom-agent.md`](ideas/001.custom-agent.md) <!-- 由 ideas/bugs 双向链接维护 -->
+
 ---
 
 ## B-003 · subAgent · 子智能体委派
@@ -176,6 +178,8 @@
 - **启用下游 B-009-b(WebSearch)**(2026-05-06 补录):迭代式 WebSearch(搜 → 拉 → 判 → 再搜)本质需要独立上下文、能自循环、不污染主对话的子 agent —— **B-003 是 B-009-b 的硬前置,B-009-b 是 B-003 的典型应用场景**。B-003 的验收标准"子 agent 独立 ContextSource + 独立 tool-call loop + 独立 maxTurn 与 token 预算"恰好是 B-009-b 迭代循环的基础设施。
 - 与 B-001 无直接依赖；但如果 B-001 已落地，子 agent 能用更便宜的模型跑，成本更可控——**弱协同**。
 - 与 B-004（skills）**可以独立**，但如果两者都做了，子 agent + skill 的组合是非常强大的"专家 + 工具包"模式（业界验证路径）。
+
+> 已索引到:[`docs/ideas/002.sub-agent.md`](ideas/002.sub-agent.md) <!-- 由 ideas/bugs 双向链接维护 -->
 
 ---
 
@@ -247,6 +251,8 @@
 - **复用现有基础设施**：`QwenEmbeddingProvider`、`DexieMemoryStore` 的向量能力、`RelevantMemorySource` 的 priority 设计范式都是现成的，属于**技术上的好底子**（但 PM 视角不决策，交由 tech lead 判断）。
 - 与 ROADMAP · §1 "域名级 DSL 自学习文章提取器" **哲学同源**——都是"LLM 产出可索引的结构化配置，运行时按需激活"。未来二者可以共享一套"结构化扩展点"抽象。
 
+> 已索引到:[`docs/ideas/003.skills.md`](ideas/003.skills.md) <!-- 由 ideas/bugs 双向链接维护 -->
+
 ---
 
 ## B-005 · 引用标签（Ref Chip）在气泡中的可视化与富媒体扩展
@@ -296,6 +302,11 @@
 - **与 B-004（Skills）**：正交。但若未来 skill 的"命中徽章"也想走 chip 视觉，可与 `RefChip` 共享底层组件；**弱协同**。
 - **与既有 `ReferenceNode` / `referenceTagSource` / `serializer.ts`**：**强耦合**。本条本质是把这三处从"文本专用"泛化到"多 kind 可扩展"，需一并调整，且必须保持历史消息的向后兼容。
 
+> 已索引到:
+> - ideas: [`docs/ideas/004.content-ref-chip.md`](ideas/004.content-ref-chip.md)
+> - bugs: [`docs/bugs/001.ref-chip-rendered-as-plain-text.md`](bugs/001.ref-chip-rendered-as-plain-text.md)
+> <!-- 由 ideas/bugs 双向链接维护 -->
+
 ---
 
 ## B-006 · 记忆审核文案「关于你 / 关于用户」指代歧义
@@ -320,7 +331,7 @@
   **不在本 bug 修改范围内（但记录备查）**
 
   - `packages/agent/src/context/persona.ts` 第 75 / 82 行：`# 关于你（agent）` / `# 关于用户` —— 这是注入给 **LLM** 的 system 段，模型视角的"你" = agent 是正确的，**不改**。
-  - `packages/agent/src/__tests__/phase2-sources.test.ts` 第 69–158 行、`docs/requirements/v0.4.0-visible-memory.md` 第 87–110 行、`docs/ROADMAP.md` 第 38 / 196 / 200 行、`docs/CHANGELOG.md` / `docs/v0.2-DESIGN-HISTORY.md` / `docs/v0.4-v0.5-DESIGN-HISTORY.md`：均为**内部设计档案或 prompt 话术对应的测试**，保持现状即可。只有 UI 改版后若引入术语表（glossary），`docs/requirements/v0.4.0-visible-memory.md` 第 101–110 行的验收描述可追加一条"UI 侧改用『关于助手 / 关于你』对称表述"的注脚。
+  - `packages/agent/src/__tests__/phase2-sources.test.ts` 第 69–158 行、`docs/requirements/v0.4.0-visible-memory.md` 第 87–110 行、`docs/ROADMAP.md` 第 38 / 196 / 200 行、`docs/CHANGELOG.md` / `docs/archive/v0.2-DESIGN-HISTORY.md` / `docs/archive/v0.4-v0.5-DESIGN-HISTORY.md`：均为**内部设计档案或 prompt 话术对应的测试**，保持现状即可。只有 UI 改版后若引入术语表（glossary），`docs/requirements/v0.4.0-visible-memory.md` 第 101–110 行的验收描述可追加一条"UI 侧改用『关于助手 / 关于你』对称表述"的注脚。
 - 没有 i18n：本仓库未引入多语言包（`pnpm` 依赖树里只有 zod 自带的 locales），当前 UI 全部为简体中文硬编码，**本期无需多语言同步**。
 
 ### 初步验收标准
@@ -360,6 +371,8 @@
 - **独立，无强依赖**。
 - 与 B-001 / B-002 / B-005 全部正交。
 - 与 `docs/requirements/v0.4.0-visible-memory.md` 的 UI 描述有**文档弱耦合**：如果本条落地，建议顺手在该需求文档里追加一条注脚"UI 侧已在 v0.x.x 修正为『关于助手 / 关于你』"，以免后续维护者对照时困惑。
+
+> 已索引到:[`docs/bugs/002.persona-review-pronoun-ambiguity.md`](bugs/002.persona-review-pronoun-ambiguity.md) <!-- 由 ideas/bugs 双向链接维护 -->
 
 ---
 
@@ -494,6 +507,11 @@
 3. **是否对存量 persona 做一次"历史整理"**:B-007-B 落地时,要不要对**已有**的相似条目做一次批量整理?（PM 建议：**默认不动老数据**,只对新增链路生效;整理老数据作为"高级用户手动触发"在配置页提供按钮,避免在用户不知情下合并历史记忆。）
 4. **B-007-A 的召回率/漏报阈值**:fixture 测试里"技能类 ≤ 10% 召回、persona 类 ≥ 80% 召回"这组数字是否合适?还是先不设硬阈值,只看相对改善?（PM 建议：MVP 阶段不设硬数字 gate,只对比改 prompt 前后的命中分布,定性改善即可;后续如果稳定再加数字门槛。）
 
+> 已索引到:
+> - ideas: [`docs/ideas/005.persona-extraction-boundary.md`](ideas/005.persona-extraction-boundary.md)、[`docs/ideas/006.persona-self-merging.md`](ideas/006.persona-self-merging.md)、[`docs/ideas/007.persona-independent-provider.md`](ideas/007.persona-independent-provider.md)
+> - bugs: [`docs/bugs/003.persona-extraction-noise.md`](bugs/003.persona-extraction-noise.md)、[`docs/bugs/004.persona-topk-truncation.md`](bugs/004.persona-topk-truncation.md)
+> <!-- 由 ideas/bugs 双向链接维护 -->
+
 ---
 
 ## B-008 · 开源仓库基础设施
@@ -528,6 +546,8 @@
 
 - 独立。与 B-001 ~ B-007 全部正交。
 - License 的选择是**唯一需要项目所有者决策**的硬前置，其它子项都可以先于 License 推进（但 License 不定版前不建议正式打 Release tag）。
+
+> 已索引到:[`docs/ideas/008.opensource-infra.md`](ideas/008.opensource-infra.md) <!-- 由 ideas/bugs 双向链接维护 -->
 
 ---
 
@@ -706,6 +726,10 @@
 2. **缓存时长**：15 分钟(Claude 标杆) / 更长 / 更短?PM 建议: MVP 跟 Claude 的 15 分钟,后续可参数化。
 3. **是否在 MVP 就处理"复杂页面(SPA / JS-heavy)"**：纯 `fetch` 拿不到 SPA 渲染后内容,需要真正的 headless 页或注入脚本 —— 这比想象中大。PM 建议: **MVP 先只支持静态 HTML / JSON**,SPA 页明确标注"不支持,推荐用户手动打开让 `read_page_content` 接管"。
 
+> 已索引到:
+> - ideas: [`docs/ideas/009.web-fetch.md`](ideas/009.web-fetch.md)、[`docs/ideas/010.web-search.md`](ideas/010.web-search.md)
+> <!-- 由 ideas/bugs 双向链接维护 -->
+
 ---
 
 ## 优先级总论
@@ -769,7 +793,7 @@ B-009 (给 LLM 增加 Web 能力) ── 两子项:
 | 日期 | 变更 | 作者 |
 | --- | --- | --- |
 | 2026-05-06 | 初版创建，收录 B-001 ~ B-004 | PM |
-| 2026-05-06 | **B-001 升级为正式需求** → `docs/requirements/v0.5.1-deepseek-provider.md`；索引表状态改为"已立项/待开发" | PM |
+| 2026-05-06 | **B-001 升级为正式需求** → `docs/archive/v0.5.1-deepseek-provider.md`(后被 v0.6.0-beta.2 取代);索引表状态改为"已立项/待开发" | PM |
 | 2026-05-06 | **CheckerAgent 并入 B-002**：采纳治理建议，ROADMAP · §4 / v0.8 不再单独演化，改为基于 B-002 "自定义智能体框架"的内置 `background` 型实例；B-002 验收标准新增"智能体类型 / 触发方式 / 输出通道 / 默认启用开关"四项 schema 承载要求；ROADMAP · §4 与版本表加注脚与交叉链接 | PM |
 | 2026-05-07 | **新增 B-005**：引用标签（Ref Chip）在气泡中的可视化与富媒体扩展；定位为"可见 bug + 可扩展性铺路"，优先级 P1，推荐排期紧随 B-001、先于 B-002；产品层候选命名推荐 `ContentRef`（数据模型）+ `RefChip`（UI 组件），最终以 developer 实现时定为准 | PM |
 | 2026-05-06 | **新增 B-006**：记忆审核文案「关于你 / 关于用户」指代歧义；核查到 UI 侧 2 个文件共 5 处字符串 + 1 处注释（`PersonaReviewBanner.tsx` L6/L211/L212/L232、`MemoryBrowserTab.tsx` L384/L396）；明确 LLM 注入话术 / 单测 / 后端数据模型**不动**；推荐文案对「关于助手」/「关于你」；优先级 P1，搭车 B-001 或 B-005 合入 | PM |

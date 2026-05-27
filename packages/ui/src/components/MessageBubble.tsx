@@ -211,6 +211,7 @@ function MdCode({ className, children, ...rest }: ComponentPropsWithoutRef<'code
     // 末尾 react-markdown 常给一个多余的 \n —— 去掉避免 shiki 渲空行。
     const code = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
     const language = match?.[1];
+    // 保留:原语义需要排除空字符串
     return <CodeBlock {...(language ? { language } : {})} code={code} />;
   }
   // 行内 code —— 保持原生 <code>,样式在 Bubble 里。
@@ -239,6 +240,7 @@ const markdownComponents = {
 export function MessageBubble({ role, content, streaming, error }: MessageBubbleProps) {
   return (
     <Row $role={role}>
+      {/* 保留:布尔条件包含,非 null/undefined 判断 */}
       <Bubble $role={role} {...(error ? { $error: true } : {})}>
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}

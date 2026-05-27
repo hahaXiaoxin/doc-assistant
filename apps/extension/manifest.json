@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Doc Assistant · 智能阅读助手",
   "version": "0.6.0",
-  "version_name": "0.6.0-beta.1",
+  "version_name": "0.6.0-beta.2",
   "description": "在任意网页右侧提供上下文感知的大模型对话面板，提升在线学习与文档阅读效率。",
 
   "permissions": ["storage", "activeTab", "scripting", "contextMenus", "alarms", "offscreen"],

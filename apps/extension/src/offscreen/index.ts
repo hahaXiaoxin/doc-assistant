@@ -1,5 +1,5 @@
 /**
- * Offscreen Document 入口（v0.5.0）
+ * Offscreen Document 入口（v0.5.0 / v0.6.0-beta.2）
  * ---------------------------------------------
  * 职责：
  * - 在扩展 origin 下持有 **唯一** 一份 DexieMemoryStore（所有域名共享）
@@ -13,13 +13,18 @@
  * 日志前缀：
  * - [extension:offscreen:memory]（RPC 路径）
  * - [extension:offscreen:reflection]（反思 Job 路径，方便真机调试）
+ *
+ * v0.6.0-beta.2：
+ * - main/aux/embedding 配置不再含 apiKey/baseURL；所有凭证从
+ *   `providerCredentials[kind]` 桶读取。桶里没有某 kind 的凭证时，对应
+ *   Provider 初始化失败（反思 Job / embedding 自动降级），用户去 Options 填 Key。
  */
 import {
   DEFAULT_AUX_PROVIDER_CONFIG,
   DEFAULT_EMBEDDING_PROVIDER_CONFIG,
-  DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK,
   DEFAULT_MAIN_PROVIDER_CONFIG,
   DEFAULT_MEMORY_SETTINGS,
+  DEFAULT_PROVIDER_CREDENTIALS,
   MessageType,
   STORAGE_KEYS,
   createLogger,
@@ -33,8 +38,10 @@ import {
   type OffscreenStorageReadRequest,
   type OffscreenStorageReadResponse,
   type ProviderConfigOrRef,
+  type ProviderCredentialsMap,
+  type ProviderKind,
 } from '@doc-assistant/shared';
-import { QwenEmbeddingProvider, QwenProvider } from '@doc-assistant/provider';
+import { PROVIDER_REGISTRY, QwenEmbeddingProvider } from '@doc-assistant/provider';
 import type { EmbeddingProvider, LLMProvider } from '@doc-assistant/provider';
 import {
   DexieMemoryStore,
@@ -70,6 +77,19 @@ interface OffscreenRuntime {
   store: MemoryStore;
   /** 当反思开关关闭 / 初始化失败时为 null，不影响 RPC 路径 */
   scheduler: ReflectionScheduler | null;
+}
+
+/** 从凭证桶取指定 kind 的 `{ apiKey, baseURL }`；桶里缺失则回落到 registry 默认 baseURL */
+function readCredential(
+  credentials: ProviderCredentialsMap,
+  kind: ProviderKind,
+): { apiKey: string; baseURL: string } {
+  const slot = credentials[kind];
+  const defaultBaseURL = PROVIDER_REGISTRY[kind]?.defaultBaseURL ?? '';
+  return {
+    apiKey: slot?.apiKey?.trim() ? slot.apiKey : '',
+    baseURL: slot?.baseURL?.trim() ? slot.baseURL : defaultBaseURL,
+  };
 }
 
 /**
@@ -126,6 +146,7 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
     STORAGE_KEYS.MAIN_PROVIDER_CONFIG,
     STORAGE_KEYS.AUX_PROVIDER_CONFIG,
     STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG,
+    STORAGE_KEYS.PROVIDER_CREDENTIALS,
     STORAGE_KEYS.MEMORY_SETTINGS,
   ]);
   const mainStored = storageValues[STORAGE_KEYS.MAIN_PROVIDER_CONFIG] as
@@ -136,6 +157,9 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
     | undefined;
   const embStored = storageValues[STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG] as
     | ProviderConfigOrRef<EmbeddingProviderConfig>
+    | undefined;
+  const credsStored = storageValues[STORAGE_KEYS.PROVIDER_CREDENTIALS] as
+    | ProviderCredentialsMap
     | undefined;
   const memStored = storageValues[STORAGE_KEYS.MEMORY_SETTINGS] as
     | Partial<MemorySettings>
@@ -150,27 +174,46 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
     embStored ?? DEFAULT_EMBEDDING_PROVIDER_CONFIG;
   const memorySettings = { ...DEFAULT_MEMORY_SETTINGS, ...(memStored ?? {}) };
 
+  const credentials: ProviderCredentialsMap = credsStored ?? DEFAULT_PROVIDER_CREDENTIALS;
+  const mainCred = readCredential(credentials, mainProvider.kind);
+
   /* ---- Embedding Provider（失败不阻塞；memory 降级到关键词召回） ---- */
+  // 主 Provider 可能是 DeepSeek（无 embedding），此时 useMain=true 时不能
+  // 复用——走 registry 查询主 Provider 的 embedding 能力；无则跳过（memory 降级关键词召回）。
   let embeddingProvider: EmbeddingProvider | null = null;
   try {
     if (isUseMain(embConfig)) {
-      if (mainProvider.apiKey.trim()) {
-        embeddingProvider = new QwenEmbeddingProvider({
-          apiKey: mainProvider.apiKey,
-          baseURL: mainProvider.baseURL,
-          model: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.model,
-          dimension: DEFAULT_EMBEDDING_PROVIDER_CONFIG_FALLBACK.dimension,
+      const mainEntry = PROVIDER_REGISTRY[mainProvider.kind];
+      if (mainEntry?.embedding && mainCred.apiKey.trim()) {
+        // 主 Provider 自身有 embedding 能力：复用主 Provider 的 baseURL + apiKey
+        // embedding 模型与维度用当前 fallback 默认（UI 侧在切出 useMain 时会要求用户填具体 model）
+        embeddingProvider = mainEntry.embedding.createEmbedding({
+          apiKey: mainCred.apiKey,
+          baseURL: mainCred.baseURL,
+          model: 'text-embedding-v2',
+          dimension: 1536,
         });
+      } else if (!mainEntry?.embedding) {
+        logger.warn(
+          `主 Provider (${mainProvider.kind}) 无 embedding 能力且 embedding useMain=true，向量召回降级到关键词`,
+        );
       } else {
         logger.warn('主 Provider 未配置 apiKey，embedding 暂不可用（召回降级关键词）');
       }
     } else {
-      embeddingProvider = new QwenEmbeddingProvider({
-        apiKey: embConfig.apiKey,
-        baseURL: embConfig.baseURL,
-        model: embConfig.model,
-        dimension: embConfig.dimension,
-      });
+      // 用户显式配置 embedding（kind 目前只有 qwen-embedding）
+      // embedding 与 LLM 共享同一 Provider 的凭证桶（qwen-embedding 对应 qwen）
+      const embCred = readCredential(credentials, 'qwen');
+      if (!embCred.apiKey.trim()) {
+        logger.warn('qwen 凭证桶为空，embedding 不可用（召回降级关键词）');
+      } else {
+        embeddingProvider = new QwenEmbeddingProvider({
+          apiKey: embCred.apiKey,
+          baseURL: embCred.baseURL,
+          model: embConfig.model,
+          dimension: embConfig.dimension,
+        });
+      }
     }
   } catch (err) {
     logger.warn('Embedding Provider 初始化失败（不阻塞）', (err as Error).message);
@@ -195,23 +238,33 @@ async function bootstrapRuntime(): Promise<OffscreenRuntime> {
   });
 
   /* ---- Aux LLM（反思 Job 专用；useMain 则复用主 Provider 配置） ---- */
-  // 注意：即使 mainProvider.apiKey 为空，此处仍构造 provider 占位——反思 Job
-  // 触发时再实际 fetch，若 key 缺失则 runner 内部 catch 并返回 ok=false（降级）。
+  // v0.6.0-beta.2：kind 通过 registry 反射，支持 Qwen / DeepSeek 组合。
+  // 思考模式对外统一为 thinking: boolean，由 Provider 内部翻译到官方 API 形态。
   let auxLLM: LLMProvider | null = null;
   try {
+    const effectiveKind = isUseMain(auxConfig) ? mainProvider.kind : auxConfig.kind;
+    const entry = PROVIDER_REGISTRY[effectiveKind];
+    if (!entry) {
+      throw new Error(`Unknown aux provider kind: ${effectiveKind}`);
+    }
     if (isUseMain(auxConfig)) {
-      auxLLM = new QwenProvider({
-        apiKey: mainProvider.apiKey || 'placeholder',
-        baseURL: mainProvider.baseURL,
+      auxLLM = entry.createLLM({
+        kind: effectiveKind,
+        apiKey: mainCred.apiKey || 'placeholder',
+        baseURL: mainCred.baseURL,
         model: mainProvider.model,
-        enableThinking: mainProvider.enableThinking ?? false,
+        ...(typeof mainProvider.thinking === 'boolean'
+          ? { thinking: mainProvider.thinking }
+          : {}),
       });
     } else {
-      auxLLM = new QwenProvider({
-        apiKey: auxConfig.apiKey,
-        baseURL: auxConfig.baseURL,
+      const auxCred = readCredential(credentials, auxConfig.kind);
+      auxLLM = entry.createLLM({
+        kind: effectiveKind,
+        apiKey: auxCred.apiKey || 'placeholder',
+        baseURL: auxCred.baseURL,
         model: auxConfig.model,
-        enableThinking: auxConfig.enableThinking ?? false,
+        ...(typeof auxConfig.thinking === 'boolean' ? { thinking: auxConfig.thinking } : {}),
       });
     }
   } catch (err) {

@@ -13,7 +13,7 @@
  * 线程安全：Dexie 本身串行化；本类无需额外锁。
  */
 
-import { createLogger, redactSensitiveText } from '@doc-assistant/shared';
+import { createLogger, redactSensitiveText, compact } from '@doc-assistant/shared';
 import type {
   MemoryRecord,
   MemoryStore,
@@ -123,7 +123,7 @@ export class DexieMemoryStore implements MemoryStore {
             messageIds: [],
             extractedBy: 'user_explicit',
           },
-          ...(Array.isArray(row.meta?.tags) ? { tags: row.meta!.tags as string[] } : {}),
+          ...(Array.isArray(row.meta?.tags) ? { tags: row.meta!.tags as string[] } : {}), // 保留:类型守卫(Array.isArray)而非 null/undefined 判断
         });
         return;
       }
@@ -415,8 +415,7 @@ export class DexieMemoryStore implements MemoryStore {
       status: task.status ?? 'pending',
       attemptsCount: 0,
       createdAt: now,
-      ...(task.completedAt !== undefined ? { completedAt: task.completedAt } : {}),
-      ...(task.lastError !== undefined ? { lastError: task.lastError } : {}),
+      ...compact({ completedAt: task.completedAt, lastError: task.lastError }),
     };
     await this.db.reflection_tasks.put(record);
     return record;

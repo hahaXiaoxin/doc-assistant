@@ -61,7 +61,7 @@
 | ✅ | QwenProvider · 主对话 / 流式 / tool-calling / usage 归一化 | — | `ROADMAP v0.1 / v0.2` |
 | ✅ | QwenEmbeddingProvider | — | `ROADMAP v0.2.0` |
 | ✅ | host_permissions `<all_urls>`（任意 baseURL 可用） | — | `ROADMAP v0.4.0` |
-| 🔲 | 接入 DeepSeek（deepseek-chat / reasoner）· **本期范围扩大**：R1 `reasoning_content` 采纳 C 方案（新增 `ChatChunk.reasoning` chunk 类型，UI 折叠展示） | **P0** | `backlog B-001` → `requirements/v0.5.1-deepseek-provider.md` |
+| 🔲 | 接入 DeepSeek（deepseek-v4-flash / deepseek-v4-pro）· **本期范围扩大**：`reasoning_content` 链路采纳 C 方案（新增 `ChatChunk.reasoning` chunk 类型，UI 折叠展示；v0.6.0-beta.2 起不再绑定特定模型） | **P0** | `backlog B-001` → `requirements/v0.6.0-beta.2-deepseek-provider.md` |
 | 🔲 | Provider 层抽象（OpenAI / Anthropic / Ollama） | — | `ROADMAP §6` |
 
 ## 三、记忆系统

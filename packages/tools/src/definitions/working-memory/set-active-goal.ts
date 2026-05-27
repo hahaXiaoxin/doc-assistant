@@ -50,7 +50,7 @@ export function createSetActiveGoalTool(
           ...base,
           updatedAt: now,
           lastAccessedAt: now,
-          ...(goal ? { activeGoal: goal } : {}),
+          ...(goal ? { activeGoal: goal } : {}), // 保留:原语义需要排除空字符串
         };
         // 空串表示清除：若 base.activeGoal 存在但新 goal 为空，需要手工剔除
         if (!goal && base.activeGoal !== undefined) {

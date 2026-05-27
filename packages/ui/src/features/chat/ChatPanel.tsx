@@ -17,6 +17,7 @@ import styled from 'styled-components';
 import { message } from 'antd';
 import type { Agent, AgentInvokeContext } from '@doc-assistant/agent';
 import type { ChatMessage } from '@doc-assistant/shared';
+import { compact } from '@doc-assistant/shared';
 import { tokens } from '../../theme/tokens';
 import { GlobalStyle } from '../../theme/GlobalStyle';
 import { CollapsiblePanel } from '../../components/CollapsiblePanel';
@@ -70,6 +71,7 @@ export function buildAgentInvokeContextFragment(
   page: PageSummary | null,
 ): Omit<AgentInvokeContext, 'history' | 'userInput' | 'references'> {
   if (!page) return {};
+  // 保留:以下字段均按 truthy 判断(原语义需要排除空字符串)
   return {
     page: {
       url: page.url,
@@ -379,9 +381,7 @@ export function ChatPanel({
     buildInvokeContext: (_input, _refs) => buildAgentInvokeContextFragment(getPageSummary()),
     buildToolExecCtx: () => buildToolMeta(),
     getCurrentVisitMeta: getCurrentVisitMeta ?? (() => null),
-    ...(persistMessage ? { persistMessage } : {}),
-    ...(initialHistoryForLLM ? { initialHistoryForLLM } : {}),
-    ...(onRoundFinished ? { onRoundFinished } : {}),
+    ...compact({ persistMessage, initialHistoryForLLM, onRoundFinished }),
   });
 
   useSelectionBridge(() => inputActionsRef.current?.insertReference ?? null);

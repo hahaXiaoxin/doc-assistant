@@ -212,6 +212,7 @@ export function MessageList({ messages, streaming }: MessageListProps) {
                 : {})}
             />
           )}
+          {/* 保留:布尔条件包含 */}
           <MessageBubble role={m.role} content={m.content} {...(m.error ? { error: true } : {})} />
         </div>
       ))}
@@ -226,6 +227,7 @@ export function MessageList({ messages, streaming }: MessageListProps) {
                 : {})}
             />
           )}
+          {/* 保留:布尔条件包含 */}
           <MessageBubble
             role="assistant"
             content={streaming.text || (streaming.error ? `⚠ ${streaming.error}` : ' ')}

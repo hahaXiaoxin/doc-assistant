@@ -5,6 +5,136 @@
 
 ---
 
+## [0.6.0-beta.2] · DeepSeek Provider + OpenAICompatible 基类抽离
+
+> 第二家 Provider 接入 + 顺手做最小代价的 OpenAI 兼容基类抽象；从此再接第三家（OpenAI /
+> Moonshot / 自托管）只需"填表"，不必每家重写 250 行。
+>
+> 详细设计见 [`docs/requirements/v0.6.0-beta.2-deepseek-provider.md`](./requirements/v0.6.0-beta.2-deepseek-provider.md)。
+
+### Added
+
+- **DeepSeek Provider**（`packages/provider/src/deepseek/`）：官方端点 `https://api.deepseek.com`
+  - 当前线上两款模型：`deepseek-v4-flash`（低成本快响应档）与 `deepseek-v4-pro`（主力档），
+    官方规格均为 **1,000,000 tokens 上下文 / 384,000 tokens 单次最大输出**（能力表已声明；
+    运行时默认 `max_tokens` 仍由上层保守决定，不自动撑到此上限）。
+    若上游自发返回 `reasoning_content`，经 `ChatChunk.reasoning-delta` 流出 → UI
+    `ThinkingBlock` 折叠展示（链路保留，未与具体模型名绑定）
+  - **思考模式参数统一为 `thinking: boolean`**：各 Provider 内部翻译为官方 API 要求的
+    形态（Qwen → `extra_body.enable_thinking`；DeepSeek → 请求体顶层 `thinking: { type }`
+    与 `model`/`messages` 同级）。Provider 作为兼容层承担参数翻译，装配层 / UI 只需
+    关心 on/off 布尔语义。DeepSeek 关闭思考需显式透传 `{ type: 'disabled' }`；
+    Qwen 关闭思考则不透传（避免发送没必要的 `enable_thinking: false`）。
+  - 完整 chat / stream / tool call / usage / error 五条路径
+- **OpenAICompatible 基类**（`packages/provider/src/openai-compatible/`）：
+  - `OpenAICompatibleProvider` · chat 流式 + tool call + ChatMessage→OpenAI 协议消息转换
+  - `OpenAICompatibleEmbeddingProvider` · /embeddings 分批 + 维度校验
+  - `listOpenAICompatibleModels` · /models 骨架
+  - `runOpenAIChatStream` · 裸 fetch + SSE 解析(v0.6.0-beta.2 起替代 AI SDK 的 streamText)
+  - `normalizeFinishReason` / `extractUsage` · OpenAI 协议响应字段归一化
+  - 错误归一化工具（`mapHttpErrorToProviderError` 等）
+- **Provider Registry**（`packages/provider/src/registry.ts`）：声明式 `kind → {LLM 工厂 /
+  embedding 能力 / listModels / 默认配置 / 推荐组合}` 映射。新增 OpenAI 兼容 Provider 只需
+  一行登记 + 一个目录。
+- **组合渠道推荐按钮**（`MemoryTab`）：主 Provider 为 DeepSeek（无 embedding）且 embedding
+  仍 `useMain=true` 时，顶部黄色警告 + "一键使用推荐配置（Qwen text-embedding-v3）"按钮。
+- **保存前软校验**（`OptionsForm`）：同上组合下弹 `Modal.confirm`，用户可选"继续保存"
+  或"改成推荐配置"。
+- **DeepSeek 默认配置** `DEFAULT_DEEPSEEK_PROVIDER_CONFIG`（`packages/shared/src/config.ts`）。
+- **`ModelInfo.maxOutputTokens?: number` 可选字段**（`packages/provider/src/interface.ts`）：
+  能力表首次登记"单次最大输出 token 上限"。DeepSeek 两款均填 `384_000`；Qwen 暂不强制
+  回填，字段可选不破坏旧代码。UI 下拉 tooltip（`BasicTab` / `ProviderConfigForm`）
+  检测到该字段后追加 "· max_out ≈ N tokens" 展示。
+- 新增 29 个单测覆盖 DeepSeek（chat / tool call / reasoning-delta / usage / error 路径）
+  与 Provider Registry。
+
+### Changed
+
+- **Qwen Provider 瘦身**：`QwenProvider` / `QwenEmbeddingProvider` / `listQwenModels` 继承
+  或复用 OpenAICompatible 基类；千问特化只保留思考模式的 `extra_body.enable_thinking`
+  翻译（对外入参仍是统一的 `thinking: boolean`）与 `CAPABILITY_TABLE` 分类规则。
+- **UI 改为 Registry 驱动**：`BasicTab` / `ProviderConfigForm` / `MemoryTab` 的 Provider
+  下拉、默认 baseURL、拉模型函数、zod 校验（改用 `z.discriminatedUnion('kind', ...)`）
+  全部读 `PROVIDER_REGISTRY`，不再出现 `kind === 'qwen' ? ...` 硬编码分支。
+- **装配层 Registry 化**：`sidebar/bootstrap.ts` / `offscreen/index.ts` 从 `new QwenProvider(...)`
+  改为 `PROVIDER_REGISTRY[kind].createLLM(...)`；支持 main=DeepSeek / aux=Qwen /
+  embedding=Qwen 等任意跨 Provider 组合。
+- **Offscreen embedding 降级更聪明**：主 Provider 无 embedding 能力且 `embedding.useMain=true`
+  时不再盲目尝试（DeepSeek 下会 404），直接降级到关键词召回，主对话完全正常。
+- **`ProviderKind` 联合扩展**为 `'qwen' | 'deepseek'`（纯加法，老 Qwen 配置原样工作）。
+- **API Key 改为按 Provider 分桶存储（Breaking）**：`STORAGE_KEYS.PROVIDER_CREDENTIALS`
+  为凭证的**唯一真源** `{ qwen: { apiKey, baseURL? }, deepseek: {...} }`。
+  `LLMProviderConfig` / `EmbeddingProviderConfig` 不再持有 `apiKey` / `baseURL`
+  —— 只保留 `{ kind, model, ... }`。装配层/运行时通过 `providerCredentials[kind]`
+  注入凭证。UI 切换 Provider 时自动从桶里带出对应 Key，不再出现"换 Provider 要
+  重填 Key"。main / aux / embedding 三套 Provider 配置共享同一套桶——main=DeepSeek
+  填过 Key 后，aux 切到 DeepSeek 会自动带出。
+- **Breaking · 凭证存储结构不再兼容旧版本**：本轮移除了全部"从旧 `main/aux/embedding.apiKey/baseURL`
+  字段迁移到凭证桶"的回落代码（`migrateProviderCredentials` / `resolveCredentialFor`
+  / bootstrap/offscreen 的 fallback 分支 / UI 里的双写逻辑全部删除）。0.6.0-beta.1
+  及更早版本的用户升级后需要**去 Options 页重新填写一次 API Key**，所有其他
+  配置（模型选择、chat 设置、记忆数据）照常保留。
+- 重构 `@doc-assistant/shared` 内部目录为 `types/ errors/ config/ utils/` 四分区，对外 API 保持不变。
+- **Provider 子类扩展方式从 protected 方法 override 改为 Hook 注册机制**(`HookRegistry`):
+  原 `getRequestBodyExtras` / `patchOutgoingMessage` 两个 protected 钩子方法被删除,
+  子类改为在构造函数里 `this.hooks.register({ kind, name, priority?, fn })` 注册 hook。
+  本期支持 `request:body`(装饰整个请求体)与 `message:outgoing`(装饰单条出站消息)
+  两种 kind,数字越小越先执行,同优先级保持注册顺序;支持优先级排序与流水线串联,
+  便于未来添加新 hook 点(例如 `chunk:incoming`)。对外行为保持不变——
+  DeepSeek 仍发 `thinking: { type }` 顶层 + `reasoning_content` 多轮回传;
+  Qwen 仍仅在 thinking=true 时发 `extra_body.enable_thinking=true`。
+
+### Notes
+
+- **Embedding 下拉直接屏蔽 DeepSeek**（相较 v0.5.1 历史 PRD 口径调整）：官方无 embedding
+  服务，保留选项只会制造支持工单。`ProviderConfigForm` 的 embedding mode 不展示
+  Provider 下拉，kind 固定为 `qwen-embedding`。未来若需暴露"自托管 OpenAI 兼容 embedding"
+  作为独立 kind，单独立项。
+- `ChatChunk.reasoning-delta` 契约**未改**（v0.5.x 已就位），DeepSeek-R1 直接复用现有链路。
+- 本期为 Breaking 版本：凭证存储结构重构，旧版本配置不再兼容，首次升级需重新填写
+  一次 API Key；其它配置照常保留。
+
+### Breaking
+
+- **Chat 链路从 Vercel AI SDK 切到裸 fetch + 自己解析 OpenAI SSE**(`packages/provider/src/openai-compatible/sse-chat.ts`):
+  彻底删除对 `ai` 与 `@ai-sdk/openai` 的依赖。原因——`@ai-sdk/openai` v1.x
+  按 OpenAI 协议白名单序列化请求体,DeepSeek 思考模式所需的顶层 `thinking` 字段被吞,
+  上下行 `reasoning_content` 也不在 v1 解析路径,导致思考开关失效、ThinkingBlock
+  不显示、第 2 轮工具调用因缺 `reasoning_content` 回传被 DeepSeek 400 拒绝。
+  自己写 fetch + SSE 解析后,任何 OpenAI 协议方言字段(thinking / reasoning_content /
+  cache_control / extra_body / ...)都由我们直接控制透传,不再受 AI SDK 白名单限制。
+  对外契约不变:Agent / UI 仍只看 `ChatChunk`,Provider 内部实现切换不感知。
+- **Provider 子类 hook 改名 `getProviderOptions` → `getRequestBodyExtras`**:
+  语义从"AI SDK provider 选项"变成"直接合并入 chat completions 请求体顶层的方言字段"。
+  · DeepSeek → `{ thinking: { type: 'enabled' | 'disabled' } }`(顶层字段)
+  · Qwen     → `{ extra_body: { enable_thinking: true } }`(extra_body 容器)
+- **`read_page_content` 工具返回值移除 `charCount` 字段**：该字段与 `totalChars` 完全重复
+  （两者同时等于正文总字符数），此前仅作为向后兼容保留。本期顺手收掉冗余：
+  `ReadPageContentResult` 不再声明/返回 `charCount`，tool description 与 JSON Schema
+  描述文本同步更新。消费方（若有）统一改用 `totalChars`。提取器内部契约
+  `ExtractedContent.charCount`（`@doc-assistant/shared`）不变，仅工具返回值收窄。
+
+### Fixed
+
+- **DeepSeek 思考模式 `thinking` 字段被 AI SDK 吞** → 实际请求体里现在能看到
+  `thinking: { type: 'enabled' | 'disabled' }`,思考开关真正生效。
+- **DeepSeek `reasoning_content` 下行被 AI SDK 吞** → ThinkingBlock 在思考模式下
+  正常流式显示思考过程。
+- **DeepSeek 第 2 轮工具调用 400** → assistant 消息在多轮请求中正确回传
+  `reasoning_content`(ChatMessage 新增 `reasoning?: string` 字段,agent loop
+  累积上一轮 reasoning-delta,Provider 序列化时透出 `reasoning_content`)。
+- **DeepSeek tool 消息双重 stringify**(原通过 AI SDK CoreMessage 转换会再 stringify
+  一次工具结果,触发 DeepSeek 严格校验失败) → tool 消息 content 直接为字符串,不再
+  嵌套 array。
+
+### Version
+
+- `apps/extension/manifest.json` `version_name`：0.6.0-beta.1 → 0.6.0-beta.2
+- 根 `package.json` + 所有 workspace 子包 + `apps/extension` 的 `version` 统一为 `0.6.0-beta.2`
+
+---
+
+
 ## [v0.5.0] · 统一记忆 · Offscreen Document 架构
 
 > v0.4.0 真机测试暴露架构级问题：sidebar 跑在 content script 里，IndexedDB 按宿主域名

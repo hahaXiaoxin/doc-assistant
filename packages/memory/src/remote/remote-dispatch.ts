@@ -11,6 +11,7 @@
  */
 import {
   MessageType,
+  compact,
   type MemoryRpcMethod,
   type MemoryRpcRequest,
   type MemoryRpcResponse,
@@ -115,7 +116,7 @@ export async function dispatchMemoryRpc(
       ok: false,
       error: {
         message: e.message,
-        ...(e.stack ? { stack: e.stack } : {}),
+        ...compact({ stack: e.stack }),
       },
     };
   }

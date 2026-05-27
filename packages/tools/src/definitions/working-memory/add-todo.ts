@@ -9,6 +9,7 @@
  * 行为：若 WorkingMemory 不存在 → 新建一份再追加。
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
+import { compact } from '@doc-assistant/shared';
 import type { TodoItem, WorkingMemoryRecord } from '@doc-assistant/memory';
 import type { WorkingMemoryToolDeps, WMToolResult } from './deps';
 import { defaultGenId, emptyWorkingMemory, resolveVisitAndMemory } from './deps';
@@ -71,7 +72,7 @@ export function createAddTodoTool(
           priority: args.priority ?? 'normal',
           createdAt: now,
           updatedAt: now,
-          ...(args.notes !== undefined ? { notes: args.notes } : {}),
+          ...compact({ notes: args.notes }),
         };
         const next: WorkingMemoryRecord = {
           ...base,

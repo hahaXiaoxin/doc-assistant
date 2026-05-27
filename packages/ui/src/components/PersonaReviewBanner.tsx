@@ -20,6 +20,7 @@
  */
 import { useEffect, useState } from 'react';
 import styled from 'styled-components';
+import { compact } from '@doc-assistant/shared';
 import { tokens } from '../theme/tokens';
 import { StatusStrip, StatusStripChevron } from './StatusStrip';
 
@@ -217,7 +218,7 @@ export function PersonaReviewBanner({
       accentColor={tokens.color.accentPersona}
       icon={<span>📌</span>}
       label={`${list.length} 条待审核`}
-      {...(metaText !== undefined ? { meta: metaText } : {})}
+      {...compact({ meta: metaText })}
       action={<StatusStripChevron $open={open}>›</StatusStripChevron>}
       expanded={open}
       onToggle={() => setOpen((v) => !v)}

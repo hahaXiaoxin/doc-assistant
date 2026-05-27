@@ -33,6 +33,7 @@ import JSZip from 'jszip';
 import {
   MessageType,
   STORAGE_KEYS,
+  compact,
   createLogger,
   getLogLevel,
   sanitizeExportBundle,
@@ -48,6 +49,8 @@ import {
   type LogRpcEntry,
   type MemorySettings,
   type ProviderConfigOrRef,
+  type ProviderCredentialsMap,
+  type ProviderKind,
   type StorageSchema,
   type TypedStorage,
 } from '@doc-assistant/shared';
@@ -197,7 +200,7 @@ export function DebugTab({ memory, storage }: DebugTabProps) {
   const handleExport = useCallback(async () => {
     setExporting(true);
     try {
-      const [main, aux, embedding, chat, memSettings, memSnapshot, logs] = await Promise.all([
+      const [main, aux, embedding, creds, chat, memSettings, memSnapshot, logs] = await Promise.all([
         storage.get(STORAGE_KEYS.MAIN_PROVIDER_CONFIG) as Promise<LLMProviderConfig | undefined>,
         storage.get(STORAGE_KEYS.AUX_PROVIDER_CONFIG) as Promise<
           ProviderConfigOrRef<LLMProviderConfig> | undefined
@@ -205,28 +208,53 @@ export function DebugTab({ memory, storage }: DebugTabProps) {
         storage.get(STORAGE_KEYS.EMBEDDING_PROVIDER_CONFIG) as Promise<
           ProviderConfigOrRef<EmbeddingProviderConfig> | undefined
         >,
+        storage.get(STORAGE_KEYS.PROVIDER_CREDENTIALS) as Promise<
+          ProviderCredentialsMap | undefined
+        >,
         storage.get(STORAGE_KEYS.CHAT_SETTINGS) as Promise<ChatSettings | undefined>,
         storage.get(STORAGE_KEYS.MEMORY_SETTINGS) as Promise<MemorySettings | undefined>,
         collectMemorySnapshot(memory),
         fetchRecentLogs(5000),
       ]);
 
+      /** 把某 kind 的凭证合并到 LLMProviderConfig 视图（apiKey/baseURL 脱敏由下一步完成） */
+      const mergeLLMCred = (
+        cfg: LLMProviderConfig,
+        credentials: ProviderCredentialsMap | undefined,
+      ): LLMProviderConfig & { apiKey: string; baseURL: string } => {
+        const slot = credentials?.[cfg.kind as ProviderKind];
+        return {
+          ...cfg,
+          apiKey: slot?.apiKey ?? '',
+          baseURL: slot?.baseURL ?? '',
+        };
+      };
+
       const now = Date.now();
       const bundle: ExportableBundle = {
         exportedAt: now,
-        version: '0.6.0-beta.1',
+        version: '0.6.0-beta.2',
       };
       const providers: NonNullable<ExportableBundle['providers']> = {};
-      if (main) providers.main = main;
+      if (main) providers.main = mergeLLMCred(main, creds);
       if (aux) {
         providers.aux =
-          'useMain' in aux && aux.useMain ? { useMain: true } : (aux as LLMProviderConfig);
+          'useMain' in aux && aux.useMain
+            ? { useMain: true }
+            : mergeLLMCred(aux as LLMProviderConfig, creds);
       }
       if (embedding) {
-        providers.embedding =
-          'useMain' in embedding && embedding.useMain
-            ? { useMain: true }
-            : (embedding as EmbeddingProviderConfig);
+        if ('useMain' in embedding && embedding.useMain) {
+          providers.embedding = { useMain: true };
+        } else {
+          // embedding 共享 qwen 桶
+          const slot = creds?.qwen;
+          providers.embedding = {
+            ...(embedding as EmbeddingProviderConfig),
+            apiKey: slot?.apiKey ?? '',
+            baseURL: slot?.baseURL ?? '',
+          };
+        }
       }
       if (providers.main || providers.aux || providers.embedding) {
         bundle.providers = providers;
@@ -239,7 +267,7 @@ export function DebugTab({ memory, storage }: DebugTabProps) {
       // 1. sanitized-config.json:仅 providers + settings(不含 memory/logs)
       const configOnly: ExportableBundle = {
         exportedAt: now,
-        version: '0.6.0-beta.1',
+        version: '0.6.0-beta.2',
       };
       if (bundle.providers) configOnly.providers = bundle.providers;
       if (bundle.chatSettings) configOnly.chatSettings = bundle.chatSettings;
@@ -249,7 +277,7 @@ export function DebugTab({ memory, storage }: DebugTabProps) {
       // 2. memory.json:仅 memory 快照(已脱敏)
       const memoryJson = sanitizeExportJson({
         exportedAt: now,
-        ...(bundle.memory ? { memory: bundle.memory } : {}),
+        ...compact({ memory: bundle.memory }),
       });
 
       // 3. logs.json:最近 5000 条日志(整体再过一次文本兜底)

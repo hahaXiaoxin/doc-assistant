@@ -15,6 +15,7 @@
  *   - 新增可选参数：timeRange / startTs / endTs / domain / articleId
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
+import { compact } from '@doc-assistant/shared';
 
 /** 时间窗口键；与 `packages/agent/src/context/time-query.ts` 保持一致 */
 export type TimeRangeKey =
@@ -137,12 +138,14 @@ export function createRecallMemoryTool(
       try {
         const out = await deps.recallSemantic({
           query,
-          ...(args.timeRange !== undefined ? { timeRange: args.timeRange } : {}),
-          ...(args.startTs !== undefined ? { startTs: args.startTs } : {}),
-          ...(args.endTs !== undefined ? { endTs: args.endTs } : {}),
-          ...(args.domain !== undefined ? { domain: args.domain } : {}),
-          ...(args.articleId !== undefined ? { articleId: args.articleId } : {}),
-          ...(args.limit !== undefined ? { limit: args.limit } : {}),
+          ...compact({
+            timeRange: args.timeRange,
+            startTs: args.startTs,
+            endTs: args.endTs,
+            domain: args.domain,
+            articleId: args.articleId,
+            limit: args.limit,
+          }),
         });
         if (!out.hit) {
           return { ok: true, hit: false, message: '未在历史记忆中找到相关内容' };

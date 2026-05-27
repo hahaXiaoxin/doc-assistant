@@ -85,12 +85,23 @@ describe('/recall 命令', () => {
     expect(ctx.closeMenu).toHaveBeenCalledTimes(1);
   });
 
+  it('rawArgs 为 undefined 时同样走"用法提示"路径', async () => {
+    const triggerRecall = vi.fn();
+    const ctx = makeCtx({ triggerRecall });
+    await recallCommand.execute(ctx, undefined);
+    expect(triggerRecall).not.toHaveBeenCalled();
+    expect(ctx.notify).toHaveBeenCalledWith(expect.stringContaining('用法'));
+    expect(ctx.closeMenu).toHaveBeenCalledTimes(1);
+  });
+
   it('有 args → 调用 triggerRecall 并关闭菜单', async () => {
     const triggerRecall = vi.fn().mockResolvedValue(undefined);
     const ctx = makeCtx({ triggerRecall });
     await recallCommand.execute(ctx, 'agent loop');
     expect(triggerRecall).toHaveBeenCalledWith('agent loop');
     expect(ctx.closeMenu).toHaveBeenCalledTimes(1);
+    // 有 args 路径不应再 notify 用法提示
+    expect(ctx.notify).not.toHaveBeenCalledWith(expect.stringContaining('用法'));
   });
 
   it('triggerRecall 抛错 → notify 失败', async () => {

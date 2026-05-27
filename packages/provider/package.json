@@ -1,6 +1,6 @@
 {
   "name": "@doc-assistant/provider",
-  "version": "0.6.0-beta.1",
+  "version": "0.6.0-beta.2",
   "private": true,
   "description": "Doc Assistant · Provider 层（LLM 协议适配）",
   "type": "module",
@@ -19,8 +19,6 @@
   },
   "dependencies": {
     "@doc-assistant/shared": "workspace:*",
-    "@ai-sdk/openai": "^1.3.23",
-    "ai": "^4.3.16",
     "zod": "^3.23.8"
   },
   "devDependencies": {

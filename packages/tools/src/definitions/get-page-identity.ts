@@ -27,7 +27,7 @@ export const getPageIdentityTool: ToolDefinition<Record<string, never>, object> 
       url: pageCtx.url,
       title: pageCtx.title,
       document: pageCtx.document,
-      ...(pageCtx.selectionText ? { selectionText: pageCtx.selectionText } : {}),
+      ...(pageCtx.selectionText ? { selectionText: pageCtx.selectionText } : {}), // 保留:原语义需要排除空字符串
     });
     return { ok: true, ...identity };
   },

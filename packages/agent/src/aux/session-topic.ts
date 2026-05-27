@@ -25,7 +25,7 @@ import type {
   SessionTopicRecord,
   TopicStage,
 } from '@doc-assistant/memory';
-import { createLogger } from '@doc-assistant/shared';
+import { createLogger, compact } from '@doc-assistant/shared';
 import { collectText } from './collect-text';
 
 const logger = createLogger('agent:aux:session-topic');
@@ -169,17 +169,11 @@ export async function identifySessionTopic(
         ...(existing?.history ?? []),
         { at: now, topic: parsed.currentTopic, triggeredBy: 'auto' as const },
       ].slice(-20), // 最多保留 20 条审计
-      ...(existing?.canonicalUrl !== undefined
-        ? { canonicalUrl: existing.canonicalUrl }
-        : canonicalUrl !== undefined
-          ? { canonicalUrl }
-          : {}),
-      ...(existing?.articleId !== undefined
-        ? { articleId: existing.articleId }
-        : articleId !== undefined
-          ? { articleId }
-          : {}),
-      ...(parsed.stage !== undefined ? { stage: parsed.stage } : {}),
+      ...compact({
+        canonicalUrl: existing?.canonicalUrl ?? canonicalUrl,
+        articleId: existing?.articleId ?? articleId,
+        stage: parsed.stage,
+      }),
     };
     await memory.setSessionTopic(record);
     logger.info('SessionTopic 已更新', {

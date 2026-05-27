@@ -6,12 +6,13 @@
  *
  * 关键设计：
  * - chat(): 返回 AsyncIterable<ChatChunk>，Agent 用 for-await 消费
- * - 所有厂商特有字段（千问的 enable_thinking、reasoning_content 等）都封装在具体实现内部
+ * - 所有厂商特有字段（Qwen 的 enable_thinking、DeepSeek 的 thinking.type、
+ *   reasoning_content 等）都封装在具体实现内部；对外思考模式统一为 `thinking: boolean`
  * - getModelInfo(): 让 Agent 能感知模型能力（是否支持 tool / reasoning / 上下文窗口）
  *
  * 架构红线：
- * - Agent 层严禁 import 'ai' / '@ai-sdk/*'（ESLint 强约束）
- * - 所有 LLM 访问必须通过本接口
+ * - 所有 LLM 访问必须通过本接口；v0.6.0-beta.2 起 chat 实现层用裸 fetch + 自己解析
+ *   OpenAI SSE,不再依赖 Vercel AI SDK
  */
 
 import type {
@@ -26,7 +27,7 @@ export interface ChatParams {
   tools?: ToolDefinition[];
   /** 外部取消 */
   signal?: AbortSignal;
-  /** 临时覆盖默认模型（如针对某个 Agent 单独选择 thinking/非 thinking 模型） */
+  /** 临时覆盖默认模型（如针对某个 Agent 单独选择更合适的模型档位） */
   modelOverride?: string;
   /** 临时覆盖温度等参数 */
   temperature?: number;
@@ -37,6 +38,15 @@ export interface ModelInfo {
   id: string;
   /** 粗略的上下文窗口 token 数（用于上层做截断决策） */
   contextWindow: number;
+  /**
+   * 模型声明的单次请求最大输出 token 数上限（可选）
+   * ---------------------------------------------
+   * 仅作为"能力声明"供上层参考（例如计价估算 / 预算 / 警告），
+   * 不影响运行时默认 `max_tokens`——后者仍由 Provider / Agent 层保守决定，
+   * 不会自动撑到此上限（避免单次请求把配额打爆）。
+   * 未设置时表示未知（不代表 0），上层应当按"不做上限假设"处理。
+   */
+  maxOutputTokens?: number;
   /** 是否支持 reasoning_content */
   supportsReasoning: boolean;
   /** 是否支持 tool calling */

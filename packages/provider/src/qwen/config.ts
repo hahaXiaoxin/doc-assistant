@@ -3,14 +3,15 @@
  * ---------------------------------------------
  * 这里的 schema 与 shared/config.ts 中的 LLMProviderConfig 对齐；本文件只负责 Provider
  * 运行时校验，不负责 UI 表单校验（表单校验在 ui/features/options）。
+ *
+ * 思考模式对外统一为 `thinking: boolean`，默认 `true`；Provider 内部翻译为
+ * `extra_body.enable_thinking`（Qwen 官方形态）。
  */
 import { z } from 'zod';
+import { openAICompatibleBaseConfigSchema } from '../openai-compatible/config';
 
-export const qwenProviderConfigSchema = z.object({
-  apiKey: z.string().trim().min(1),
-  baseURL: z.string().trim().url(),
-  model: z.string().trim().min(1),
-  enableThinking: z.boolean(),
+export const qwenProviderConfigSchema = openAICompatibleBaseConfigSchema.extend({
+  thinking: z.boolean().default(true),
 });
 
 export type QwenProviderConfig = z.infer<typeof qwenProviderConfigSchema>;

@@ -16,7 +16,7 @@ function makeExecCtx(selectionText?: string) {
         url: 'https://example.com/long-article',
         title: 'Long Article',
         document,
-        ...(selectionText ? { selectionText } : {}),
+        ...(selectionText ? { selectionText } : {}), // 保留:测试 helper 与生产代码语义一致(排除空字符串)
       },
     },
   };
@@ -59,7 +59,6 @@ describe('read_page_content · 分页 (v1.1 PR-1)', () => {
     expect(r.totalChars).toBeGreaterThan(r.content.length);
     expect(typeof r.title).toBe('string');
     expect(typeof r.extractor).toBe('string');
-    expect(r.charCount).toBe(r.totalChars);
   });
 
   it('用 nextOffset 续读直到 hasMore=false，拼接回原文', async () => {

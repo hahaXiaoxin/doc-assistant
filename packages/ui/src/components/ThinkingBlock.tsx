@@ -26,6 +26,7 @@ const Wrap = styled.div`
 
 const Header = styled.button`
   all: unset;
+  box-sizing: border-box;
   width: 100%;
   display: flex;
   align-items: center;

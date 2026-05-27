@@ -4,6 +4,7 @@
  * 语义快捷键：等价于 update_todo({id, status:'done'})，但参数更小、LLM 更易触发。
  */
 import type { ToolDefinition } from '@doc-assistant/shared';
+import { compact } from '@doc-assistant/shared';
 import type { TodoItem, WorkingMemoryRecord } from '@doc-assistant/memory';
 import type { WorkingMemoryToolDeps, WMToolResult } from './deps';
 import { resolveVisitAndMemory } from './deps';
@@ -57,7 +58,7 @@ export function createCompleteTodoTool(
           ...before,
           status: 'done',
           updatedAt: now,
-          ...(nextNotes !== undefined ? { notes: nextNotes } : {}),
+          ...compact({ notes: nextNotes }),
         };
         const nextTodos = [...record.todos];
         nextTodos[idx] = updated;

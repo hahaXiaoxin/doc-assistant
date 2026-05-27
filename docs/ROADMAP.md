@@ -19,12 +19,15 @@
 | **v0.3.0** | 移除 v0.1 兼容代码（Breaking Change） | ✅ 已发布 |
 | **v0.4.0** | 可见且可按时间检索的记忆系统（Persona 双主体 / Chronological Index / 记忆浏览器 Tab / 话题漂移关键词触发 / host_permissions 放开） | ✅ 已发布 |
 | **v0.5.0** | 统一记忆 · Offscreen Document 架构（所有域名共用一套 DB，§8 绕路删除，反思 Job 迁到 offscreen） | ✅ 已发布 |
+| **v0.6.0-beta.2** | DeepSeek Provider 接入 + OpenAI 兼容基类轻量抽离 + Provider Registry（见 §6） | ✅ 已发布 |
 | **v0.6（Phase2-b）** | 域名级 DSL 自学习文章提取器（见 §1） | 规划中[^manifest-0.6-beta]（待确认） |
 | **v0.7（Phase3-a）** | OCR 策略 · 截图工具（见 §3） | 规划中 |
 | **v0.8（Phase3-b）** | CheckerAgent · 实时提醒（见 §4；框架承接 [`backlog.md#B-002`](./backlog.md#b-002--自定义智能体领域专家)） | 规划中 |
 | **v0.9（Phase4）** | 云端同步（选配，E2EE）（见 §5） | 规划中 |
 
 [^manifest-0.6-beta]: 2026-05-06 归档登记矛盾：`apps/extension/manifest.json` 当前版本号为 `0.6.0-beta.1`，ROADMAP 显示 v0.6 仍在规划中、最近已发版是 v0.5.0；两处不一致，**需核实是发版抢号还是文档未同步** —— 留待 developer / 维护者确认。本次归档**不擅自改 manifest，也不擅自宣告 v0.6 发版**，只是登记矛盾。
+
+> 已索引到:[`docs/bugs/007.manifest-version-out-of-sync.md`](bugs/007.manifest-version-out-of-sync.md) <!-- 由 ideas/bugs 双向链接维护 -->
 
 ---
 
@@ -280,6 +283,8 @@
     2. 配合 `/forget` 命令（未排期那一条）做可视化删除
     3. 用户信任的基础：能看到 AI 记了什么、能改/能删
 
+> 已索引到:[`docs/ideas/016.recall-trigger-upgrade.md`](ideas/016.recall-trigger-upgrade.md) <!-- 由 ideas/bugs 双向链接维护 -->
+
 #### UI / 可观测性
 - [ ] UI 层 tool-call 可观测性：assistant 消息加"已调用 N 个工具"徽章，点击展开参数/结果（源于 TROUBLESHOOTING §10 启示）
 - [ ] RecallResultCard 独立样式（目前复用 `appendAssistantNote` 以 assistant 消息形式展示）
@@ -297,6 +302,10 @@
     - 反思 Job 也会调 aux / embedding，记得打"reflection"来源标签便于追溯哪类调用最耗
     - 数据只在本地 IDB，不上传；清理策略：保留 90 天，每次启动时清理过期
     - 千问 usage 字段在 AI SDK stream 的 `finish` part 里，`normalizer.ts` 已归一化为 `ChatChunk.usage`，可直接消费
+
+> 已索引到:
+> - ideas: [`docs/ideas/014.token-usage-dashboard.md`](ideas/014.token-usage-dashboard.md)、[`docs/ideas/017.tool-call-observability.md`](ideas/017.tool-call-observability.md)
+> <!-- 由 ideas/bugs 双向链接维护 -->
 
 #### 代码清理
 - [x] **移除 v0.1 向后兼容代码**（已于 [v0.3.0](./CHANGELOG.md#v030--移除-v01-兼容--breaking-change) 完成）
@@ -365,6 +374,8 @@
   - ❌ 不做多 profile 切换 UI(数据结构预留，实现延后)
   - ❌ 不把 prompt 全文搬进 config(仅外置可调片段)
   - ❌ 不做配置热更新(bootstrap-time 加载)
+
+> 已索引到:[`docs/ideas/015.agent-runtime-config.md`](ideas/015.agent-runtime-config.md) <!-- 由 ideas/bugs 双向链接维护 -->
 
 ### 架构红线（ESLint 强约束）
 
@@ -472,6 +483,8 @@ type Selector = string;
 - ❌ 不得给 DSL 提供网络访问工具
 - ❌ 不得绕过白名单
 
+> 已索引到:[`docs/ideas/011.domain-dsl-extractor.md`](ideas/011.domain-dsl-extractor.md) <!-- 由 ideas/bugs 双向链接维护 -->
+
 ---
 
 ## §3 · Phase 3-a：OCR 与多模态
@@ -498,6 +511,8 @@ type Selector = string;
 
 - 识别前**显式告知用户**；配置页开关
 - 禁止自动识别验证码 / 身份证等隐私敏感内容（URL 黑名单）
+
+> 已索引到:[`docs/ideas/012.ocr-multimodal.md`](ideas/012.ocr-multimodal.md) <!-- 由 ideas/bugs 双向链接维护 -->
 
 ---
 
@@ -551,6 +566,8 @@ type Selector = string;
 - ❌ 不得内置默认云端地址
 - ❌ 同步协议中 apiKey 字段必须为空
 
+> 已索引到:[`docs/ideas/013.cloud-sync.md`](ideas/013.cloud-sync.md) <!-- 由 ideas/bugs 双向链接维护 -->
+
 ---
 
 ## §6 · 本期（v0.2）明确延后的能力清单
@@ -568,13 +585,17 @@ v0.2 范围聚焦"记忆层 + Agent Loop 兜底"，以下项目**明确延后到
 - [ ] **Provider baseURL 自定义时的 `host_permissions` 动态申请**（v0.1.1 §4 遗留）
 - [ ] **SPA 场景页面摘要过期**的主动刷新策略
 - [ ] **流式响应中 tool 执行的可视化状态**（长 tool 执行时的"思考中/调用中"指示）
-- [ ] **Provider 层抽象**以支持 OpenAI / Anthropic / Ollama 等（目前仅 Qwen）
+- [ ] **Provider 层抽象**以支持 OpenAI / Anthropic / Ollama 等（轻量基类 `OpenAICompatibleProvider` 已随 v0.6.0-beta.2 抽离并承载了 Qwen + DeepSeek 两家实现；OpenAI / Moonshot / Anthropic / Ollama 仍延后）
 - [ ] **WorkingMemory 归档到 Episodic**的具体内容格式（v0.2.1 填充时完善）
 - [ ] **域名级 DSL 自学习提取器**（§1）
 - [ ] **OCR / 多模态识图**（§3）
 - [ ] **CheckerAgent / 实时提醒**（§4）
 - [ ] **云端同步**（§5）
 - [x] **`chrome.alarms` reflection-scan 的真正执行器**（v0.2.1 实装 → v0.5.0 迁移到 offscreen）✅ 已于 v0.5.0 完成
+
+> 已索引到:
+> - bugs: [`docs/bugs/005.spa-page-summary-stale.md`](bugs/005.spa-page-summary-stale.md)、[`docs/bugs/006.host-permissions-dynamic-request.md`](bugs/006.host-permissions-dynamic-request.md)
+> <!-- 由 ideas/bugs 双向链接维护 -->
 
 ---
 

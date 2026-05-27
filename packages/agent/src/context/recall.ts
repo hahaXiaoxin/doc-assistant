@@ -29,7 +29,7 @@
 import type { LLMProvider } from '@doc-assistant/provider';
 import type { MemoryRecord, MemoryStore } from '@doc-assistant/memory';
 import type { ChatMessage } from '@doc-assistant/shared';
-import { createLogger } from '@doc-assistant/shared';
+import { createLogger, compact } from '@doc-assistant/shared';
 import { callAuxIntent } from '../aux/intent';
 import { buildRecentHistoryHint, detectRecallTrigger } from './recall-triggers';
 import { resolveTimeRange, type TimeRangeKey } from './time-query';
@@ -133,11 +133,14 @@ export async function recallMemory(
     keywordHit = 1;
     // 2) 精判（仅 auto 模式且有 aux）
     if (deps.aux) {
-      const intent = await callAuxIntent(deps.aux, {
-        userMessage: trimmed,
-        ...(history ? { recentHistoryHint: buildRecentHistoryHint(history) } : {}),
-        ...(signal ? { signal } : {}),
-      });
+      const intent = await callAuxIntent(
+        deps.aux,
+        compact({
+          userMessage: trimmed,
+          recentHistoryHint: history ? buildRecentHistoryHint(history) : undefined,
+          signal,
+        }),
+      );
       if (intent.intent === 'no') {
         logger.info('recall miss', {
           stage: 'intent_no',
@@ -161,11 +164,14 @@ export async function recallMemory(
   let resolvedWindow: { startTs: number; endTs: number } | null = null;
   if (timeRange) {
     try {
-      resolvedWindow = resolveTimeRange(timeRange, {
-        ...(startTs !== undefined ? { startTs } : {}),
-        ...(endTs !== undefined ? { endTs } : {}),
-        ...(getNow ? { now: getNow() } : {}),
-      });
+      resolvedWindow = resolveTimeRange(
+        timeRange,
+        compact({
+          startTs,
+          endTs,
+          now: getNow ? getNow() : undefined,
+        }),
+      );
     } catch (err) {
       logger.warn('resolveTimeRange 失败', (err as Error).message);
       return {
@@ -183,11 +189,13 @@ export async function recallMemory(
       semantic: trimmed,
       types: ['visit_summary'],
       limit,
-      ...(resolvedWindow
-        ? { timeRange: [resolvedWindow.startTs, resolvedWindow.endTs] }
-        : {}),
-      ...(domain !== undefined ? { domain } : {}),
-      ...(articleId !== undefined ? { articleId } : {}),
+      ...compact({
+        timeRange: resolvedWindow
+          ? ([resolvedWindow.startTs, resolvedWindow.endTs] as [number, number])
+          : undefined,
+        domain,
+        articleId,
+      }),
     });
   } catch (err) {
     logger.warn('memory.recall 失败', (err as Error).message);
