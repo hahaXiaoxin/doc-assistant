@@ -61,6 +61,8 @@
 | ideas-016 | 召回粗判 RECALL_PATTERNS 升级 | proposed | P2 | [016.recall-trigger-upgrade.md](./016.recall-trigger-upgrade.md) |
 | ideas-017 | UI 层 tool-call 可观测性 | proposed | P2 | [017.tool-call-observability.md](./017.tool-call-observability.md) |
 | ideas-018 | Prompt Caching 策略 · 重排上下文以最大化前缀命中 | proposed | P1 | [018.prompt-caching-strategy.md](./018.prompt-caching-strategy.md) |
+| ideas-019 | 按模型能力动态设置上下文上限 | proposed | P1 | [019.dynamic-context-window.md](./019.dynamic-context-window.md) |
+| ideas-019 | 按模型能力动态设置上下文上限 | proposed | P1 | [019.dynamic-context-window.md](./019.dynamic-context-window.md) |
 
 ---
 
